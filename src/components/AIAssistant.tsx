@@ -17,15 +17,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
+import { streamChatMessage } from "@/services/aiChat";
 
 type Msg = { role: "user" | "assistant"; content: string };
-
-const NEW_SUPABASE_URL = "https://dfvyuqxyjlkoovxmtikq.supabase.co";
-const OLD_SUPABASE_URL = "https://zsamypacycdvrhegcqvk.supabase.co";
-const envUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const SUPABASE_BASE_URL =
-  !envUrl || envUrl === OLD_SUPABASE_URL ? NEW_SUPABASE_URL : envUrl;
-const CHAT_URL = `${SUPABASE_BASE_URL}/functions/v1/ai-chat`;
 
 const PROXY_CAPABILITIES = [
   { icon: Brain, label: "Concierge", desc: "Personalized suggestions" },
@@ -299,106 +293,41 @@ export default function AIAssistant() {
       let assistantSoFar = "";
 
       try {
-        // ── Use the authenticated user's JWT, not the anon key ──────────
-        // With the anon key the edge-function's createClient cannot call
-        // getUser() successfully, so personalization context was always empty.
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        const authToken =
-          session?.access_token ??
-          import.meta.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY ??
-          import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
-          "sb_publishable_Y3N5QRELKbHRYqWNZbx3EA_MVvHDzwF";
-
-        const resp = await fetch(CHAT_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authToken}`,
-          },
-          body: JSON.stringify({
-            messages: allMessages.map((m) => ({
-              role: m.role,
-              content: m.content,
-            })),
-          }),
+        await streamChatMessage(allMessages, (chunk: string) => {
+          assistantSoFar += chunk;
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (
+              last?.role === "assistant" &&
+              prev.length > allMessages.length
+            ) {
+              return prev.map((m, i) =>
+                i === prev.length - 1 ? { ...m, content: assistantSoFar } : m,
+              );
+            }
+            return [
+              ...prev.slice(0, allMessages.length),
+              { role: "assistant", content: assistantSoFar },
+            ];
+          });
         });
 
-        if (resp.status === 429) {
+        handleAction(assistantSoFar);
+      } catch (e: any) {
+        const msg: string = e?.message ?? "";
+        if (msg === "RATE_LIMIT") {
           toast({
             title: "Rate limited",
             description: "Too many requests. Please wait a moment.",
             variant: "destructive",
           });
-          throw new Error("Rate limited");
-        }
-        if (resp.status === 402) {
+        } else if (msg === "INVALID_API_KEY") {
           toast({
-            title: "Credits exhausted",
-            description: "Please add funds to continue using AI.",
+            title: "API key error",
+            description: "Gemini API key is invalid or expired.",
             variant: "destructive",
           });
-          throw new Error("Credits exhausted");
         }
-        if (!resp.ok || !resp.body)
-          throw new Error("Failed to connect to assistant");
-
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let textBuffer = "";
-
-        let streamDone = false;
-        while (!streamDone) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          textBuffer += decoder.decode(value, { stream: true });
-
-          let newlineIndex: number;
-          while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
-            let line = textBuffer.slice(0, newlineIndex);
-            textBuffer = textBuffer.slice(newlineIndex + 1);
-            if (line.endsWith("\r")) line = line.slice(0, -1);
-            if (line.startsWith(":") || line.trim() === "") continue;
-            if (!line.startsWith("data: ")) continue;
-            const jsonStr = line.slice(6).trim();
-            if (jsonStr === "[DONE]") {
-              streamDone = true;
-              break;
-            }
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const chunk = parsed.choices?.[0]?.delta?.content;
-              if (chunk) {
-                assistantSoFar += chunk;
-                setMessages((prev) => {
-                  const last = prev[prev.length - 1];
-                  if (
-                    last?.role === "assistant" &&
-                    prev.length > allMessages.length
-                  ) {
-                    return prev.map((m, i) =>
-                      i === prev.length - 1
-                        ? { ...m, content: assistantSoFar }
-                        : m,
-                    );
-                  }
-                  return [
-                    ...prev.slice(0, allMessages.length),
-                    { role: "assistant", content: assistantSoFar },
-                  ];
-                });
-              }
-            } catch {
-              // Malformed JSON fragment – put the line back and retry
-              textBuffer = line + "\n" + textBuffer;
-              break;
-            }
-          }
-        }
-
-        handleAction(assistantSoFar);
-      } catch (e: any) {
         if (!assistantSoFar) {
           setMessages((prev) => [
             ...prev,

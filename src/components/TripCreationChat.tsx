@@ -18,6 +18,7 @@ import {
   Zap,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { extractIntent } from "@/services/aiPlanner";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -279,13 +280,9 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
 
         setAiLoading(true);
         try {
-          const res = await supabase.functions.invoke("ai-planner", {
-            body: {
-              action: "extract-intent",
-              transcript: `Best time to visit ${dest} ${country}, typical budget per day`,
-            },
-          });
-          const suggestion = res.data;
+          const suggestion = (await extractIntent({
+            transcript: `Best time to visit ${dest} ${country}, typical budget per day`,
+          })) as any;
           const budgetHint = suggestion?.budget_range?.max
             ? `Average daily budget: ~${getCurrencySymbol(country)}${Math.round(suggestion.budget_range.max / (suggestion.duration_days || 5)).toLocaleString()}`
             : "";

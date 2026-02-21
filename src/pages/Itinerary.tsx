@@ -1,13 +1,35 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
-  ChevronLeft, ChevronRight, MapPin, Clock, Utensils, Camera, ShoppingBag, Bus,
-  MessageSquare, Edit, Loader2, Brain, AlertTriangle, Send, RefreshCw, Zap, Map as MapIcon,
-  Download
+  ChevronLeft,
+  ChevronRight,
+  MapPin,
+  Clock,
+  Utensils,
+  Camera,
+  ShoppingBag,
+  Bus,
+  MessageSquare,
+  Edit,
+  Loader2,
+  Brain,
+  AlertTriangle,
+  Send,
+  RefreshCw,
+  Zap,
+  Map as MapIcon,
+  Download,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
-import { useTrip, useTrips, useItineraries, useActivities } from "@/hooks/useTrips";
+import {
+  useTrip,
+  useTrips,
+  useItineraries,
+  useActivities,
+} from "@/hooks/useTrips";
 import { supabase } from "@/integrations/supabase/client";
+import { planItinerary } from "@/services/aiPlanner";
+import { nominatimSearch } from "@/services/nominatim";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useQueryClient } from "@tanstack/react-query";
@@ -57,22 +79,34 @@ export default function Itinerary() {
   const [sendingMsg, setSendingMsg] = useState(false);
   const [replanning, setReplanning] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const [destCoords, setDestCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [destCoords, setDestCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
   const [destMapMode, setDestMapMode] = useState<"2d" | "3d">("2d");
   const [showDestMap, setShowDestMap] = useState(true);
 
   // Geocode trip destination for map
   useEffect(() => {
-    if (!trip?.destination) { setDestCoords(null); return; }
+    if (!trip?.destination) {
+      setDestCoords(null);
+      return;
+    }
     const geocode = async () => {
       try {
-        const res = await supabase.functions.invoke("nominatim", {
-          body: { action: "search", query: `${trip.destination} ${trip.country || ""}`.trim(), limit: 1 },
-        });
-        if (res.data && res.data.length > 0) {
-          setDestCoords({ lat: parseFloat(res.data[0].lat), lng: parseFloat(res.data[0].lon) });
+        const results = await nominatimSearch(
+          `${trip.destination} ${trip.country || ""}`.trim(),
+          1,
+        );
+        if (results && results.length > 0) {
+          setDestCoords({
+            lat: parseFloat(results[0].lat),
+            lng: parseFloat(results[0].lon),
+          });
         }
-      } catch { /* silently fail */ }
+      } catch {
+        /* silently fail */
+      }
     };
     geocode();
   }, [trip?.destination, trip?.country]);
@@ -93,12 +127,21 @@ export default function Itinerary() {
     // Realtime subscription
     const channel = supabase
       .channel(`trip-chat-${tripId}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `trip_id=eq.${tripId}` },
-        (payload) => setMessages((prev) => [...prev, payload.new])
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `trip_id=eq.${tripId}`,
+        },
+        (payload) => setMessages((prev) => [...prev, payload.new]),
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [tripId, showChat]);
 
   useEffect(() => {
@@ -110,21 +153,23 @@ export default function Itinerary() {
     if (!trip || !user) return;
     setGenerating(true);
     try {
-      const days = Math.max(1, Math.ceil((new Date(trip.end_date).getTime() - new Date(trip.start_date).getTime()) / 86400000));
+      const days = Math.max(
+        1,
+        Math.ceil(
+          (new Date(trip.end_date).getTime() -
+            new Date(trip.start_date).getTime()) /
+            86400000,
+        ),
+      );
 
-      const res = await supabase.functions.invoke("ai-planner", {
-        body: {
-          action: "plan-itinerary",
-          destination: trip.destination,
-          days,
-          travelers: 2,
-          budget: Number(trip.budget_total) || 30000,
-          interests: ["culture", "food", "sightseeing"],
-          tripType: "leisure",
-        },
-      });
-      if (res.error) throw new Error(res.error.message);
-      const plan = res.data;
+      const plan = (await planItinerary({
+        destination: trip.destination,
+        days,
+        travelers: 2,
+        budget: Number(trip.budget_total) || 30000,
+        interests: ["culture", "food", "sightseeing"],
+        tripType: "leisure",
+      })) as any;
 
       // Create itinerary record
       let itineraryId = activeItinerary?.id;
@@ -139,7 +184,10 @@ export default function Itinerary() {
       }
 
       // Delete old activities if re-generating
-      await supabase.from("activities").delete().eq("itinerary_id", itineraryId);
+      await supabase
+        .from("activities")
+        .delete()
+        .eq("itinerary_id", itineraryId);
 
       // Insert new activities
       const activitiesToInsert = (plan.activities || []).map((a: any) => ({
@@ -160,22 +208,36 @@ export default function Itinerary() {
       }));
 
       if (activitiesToInsert.length > 0) {
-        const { error: actErr } = await supabase.from("activities").insert(activitiesToInsert);
+        const { error: actErr } = await supabase
+          .from("activities")
+          .insert(activitiesToInsert);
         if (actErr) throw actErr;
       }
 
       // Update itinerary with cost breakdown and regret score
-      await supabase.from("itineraries").update({
-        cost_breakdown: { total: plan.total_cost },
-        regret_score: 0.15,
-      }).eq("id", itineraryId);
+      await supabase
+        .from("itineraries")
+        .update({
+          cost_breakdown: { total: plan.total_cost },
+          regret_score: 0.15,
+        })
+        .eq("id", itineraryId);
 
       queryClient.invalidateQueries({ queryKey: ["itineraries", tripId] });
       queryClient.invalidateQueries({ queryKey: ["activities"] });
 
-      toast({ title: "Itinerary generated! ✨", description: plan.explanation || `${activitiesToInsert.length} activities planned.` });
+      toast({
+        title: "Itinerary generated! ✨",
+        description:
+          plan.explanation ||
+          `${activitiesToInsert.length} activities planned.`,
+      });
     } catch (error: any) {
-      toast({ title: "Generation failed", description: error.message, variant: "destructive" });
+      toast({
+        title: "Generation failed",
+        description: error.message,
+        variant: "destructive",
+      });
     } finally {
       setGenerating(false);
     }
@@ -195,7 +257,11 @@ export default function Itinerary() {
       if (error) throw error;
       setChatInput("");
     } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
     } finally {
       setSendingMsg(false);
     }
@@ -220,26 +286,34 @@ export default function Itinerary() {
       // Mark disruption as resolved
       toast({
         title: "Replanned! 🔄",
-        description: "Itinerary updated due to weather disruption. Outdoor activities adjusted.",
+        description:
+          "Itinerary updated due to weather disruption. Outdoor activities adjusted.",
       });
     } catch (error: any) {
-      toast({ title: "Replan failed", description: error.message, variant: "destructive" });
+      toast({
+        title: "Replan failed",
+        description: error.message,
+        variant: "destructive",
+      });
     } finally {
       setReplanning(false);
     }
   };
 
   // Group activities by day
-  const activityDays = activities.reduce((acc, activity) => {
-    const day = new Date(activity.start_time).toLocaleDateString("en-IN", {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-    });
-    if (!acc[day]) acc[day] = [];
-    acc[day].push(activity);
-    return acc;
-  }, {} as Record<string, typeof activities>);
+  const activityDays = activities.reduce(
+    (acc, activity) => {
+      const day = new Date(activity.start_time).toLocaleDateString("en-IN", {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+      });
+      if (!acc[day]) acc[day] = [];
+      acc[day].push(activity);
+      return acc;
+    },
+    {} as Record<string, typeof activities>,
+  );
 
   const days = Object.keys(activityDays);
   const [selectedDay, setSelectedDay] = useState(0);
@@ -267,8 +341,12 @@ export default function Itinerary() {
                 >
                   <MapPin className="w-5 h-5 text-primary shrink-0" />
                   <div>
-                    <p className="text-sm font-semibold text-card-foreground">{t.name}</p>
-                    <p className="text-xs text-muted-foreground">{t.destination}</p>
+                    <p className="text-sm font-semibold text-card-foreground">
+                      {t.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t.destination}
+                    </p>
                   </div>
                 </button>
               ))}
@@ -287,18 +365,23 @@ export default function Itinerary() {
     );
   }
 
-  const currentDayActivities = days.length > 0 ? activityDays[days[selectedDay]] || [] : [];
+  const currentDayActivities =
+    days.length > 0 ? activityDays[days[selectedDay]] || [] : [];
 
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Main content */}
-      <div className={`flex-1 p-6 overflow-y-auto ${showChat ? "max-w-[calc(100%-360px)]" : ""}`}>
+      <div
+        className={`flex-1 p-6 overflow-y-auto ${showChat ? "max-w-[calc(100%-360px)]" : ""}`}
+      >
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-foreground">{trip.name}</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              {trip.destination} · Budget: {formatCurrency(Number(trip.budget_total), trip.country)} · {trip.status}
+              {trip.destination} · Budget:{" "}
+              {formatCurrency(Number(trip.budget_total), trip.country)} ·{" "}
+              {trip.status}
             </p>
           </div>
           <div className="flex gap-2">
@@ -307,24 +390,39 @@ export default function Itinerary() {
                 // Download itinerary as text file
                 const lines: string[] = [];
                 lines.push(`${trip.name}`);
-                lines.push(`${trip.destination}${trip.country ? `, ${trip.country}` : ""}`);
-                lines.push(`Budget: ${formatCurrency(Number(trip.budget_total), trip.country)}`);
-                lines.push(`${new Date(trip.start_date).toLocaleDateString()} — ${new Date(trip.end_date).toLocaleDateString()}`);
+                lines.push(
+                  `${trip.destination}${trip.country ? `, ${trip.country}` : ""}`,
+                );
+                lines.push(
+                  `Budget: ${formatCurrency(Number(trip.budget_total), trip.country)}`,
+                );
+                lines.push(
+                  `${new Date(trip.start_date).toLocaleDateString()} — ${new Date(trip.end_date).toLocaleDateString()}`,
+                );
                 lines.push("");
                 Object.entries(activityDays).forEach(([day, acts]) => {
                   lines.push(`--- ${day} ---`);
-                  (acts as any[]).forEach(a => {
-                    const time = new Date(a.start_time).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-                    lines.push(`  ${time} | ${a.name}${a.location_name ? ` @ ${a.location_name}` : ""}${a.cost ? ` | ${formatCurrency(Number(a.cost), trip.country)}` : ""}`);
+                  (acts as any[]).forEach((a) => {
+                    const time = new Date(a.start_time).toLocaleTimeString(
+                      "en-IN",
+                      { hour: "2-digit", minute: "2-digit" },
+                    );
+                    lines.push(
+                      `  ${time} | ${a.name}${a.location_name ? ` @ ${a.location_name}` : ""}${a.cost ? ` | ${formatCurrency(Number(a.cost), trip.country)}` : ""}`,
+                    );
                     if (a.notes) lines.push(`         💡 ${a.notes}`);
                   });
                   lines.push("");
                 });
-                const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+                const blob = new Blob([lines.join("\n")], {
+                  type: "text/plain",
+                });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
-                a.href = url; a.download = `${trip.name.replace(/\s+/g, "_")}_itinerary.txt`;
-                a.click(); URL.revokeObjectURL(url);
+                a.href = url;
+                a.download = `${trip.name.replace(/\s+/g, "_")}_itinerary.txt`;
+                a.click();
+                URL.revokeObjectURL(url);
                 toast({ title: "Itinerary downloaded! 📥" });
               }}
               disabled={activities.length === 0}
@@ -336,7 +434,9 @@ export default function Itinerary() {
             <button
               onClick={() => setShowChat(!showChat)}
               className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors shadow-card flex items-center gap-2 ${
-                showChat ? "bg-primary text-primary-foreground" : "bg-card border border-border text-muted-foreground hover:bg-secondary"
+                showChat
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-card border border-border text-muted-foreground hover:bg-secondary"
               }`}
             >
               <MessageSquare className="w-4 h-4" />
@@ -347,7 +447,11 @@ export default function Itinerary() {
               disabled={replanning || !activeItinerary}
               className="px-4 py-2 rounded-xl bg-card border border-border text-sm font-medium text-muted-foreground hover:bg-secondary transition-colors shadow-card flex items-center gap-2 disabled:opacity-50"
             >
-              {replanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
+              {replanning ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <AlertTriangle className="w-4 h-4" />
+              )}
               Replan
             </button>
             <button
@@ -355,7 +459,11 @@ export default function Itinerary() {
               disabled={generating}
               className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity shadow-card flex items-center gap-2 disabled:opacity-50"
             >
-              {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
+              {generating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Brain className="w-4 h-4" />
+              )}
               {activities.length > 0 ? "Regenerate" : "Generate AI Plan"}
             </button>
           </div>
@@ -366,7 +474,9 @@ export default function Itinerary() {
           <div className="grid grid-cols-4 gap-4">
             <div className="text-center">
               <p className="text-xs text-muted-foreground">Destination</p>
-              <p className="text-sm font-bold text-card-foreground">{trip.destination}</p>
+              <p className="text-sm font-bold text-card-foreground">
+                {trip.destination}
+              </p>
             </div>
             <div className="text-center">
               <p className="text-xs text-muted-foreground">Budget</p>
@@ -377,13 +487,19 @@ export default function Itinerary() {
             <div className="text-center">
               <p className="text-xs text-muted-foreground">Start</p>
               <p className="text-sm font-bold text-card-foreground">
-                {new Date(trip.start_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                {new Date(trip.start_date).toLocaleDateString("en-IN", {
+                  day: "numeric",
+                  month: "short",
+                })}
               </p>
             </div>
             <div className="text-center">
               <p className="text-xs text-muted-foreground">End</p>
               <p className="text-sm font-bold text-card-foreground">
-                {new Date(trip.end_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                {new Date(trip.end_date).toLocaleDateString("en-IN", {
+                  day: "numeric",
+                  month: "short",
+                })}
               </p>
             </div>
           </div>
@@ -391,13 +507,26 @@ export default function Itinerary() {
             <div className="mt-4 pt-4 border-t border-border flex items-center justify-center gap-4">
               <div className="flex items-center gap-2">
                 <Zap className="w-4 h-4 text-primary" />
-                <span className="text-xs text-muted-foreground">Regret Score:</span>
-                <span className="text-sm font-bold text-primary">{activeItinerary.regret_score.toFixed(2)}</span>
+                <span className="text-xs text-muted-foreground">
+                  Regret Score:
+                </span>
+                <span className="text-sm font-bold text-primary">
+                  {activeItinerary.regret_score.toFixed(2)}
+                </span>
               </div>
               {activeItinerary.cost_breakdown && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Est. Cost:</span>
-                  <span className="text-sm font-bold text-success">{formatCurrency(Number((activeItinerary.cost_breakdown as any)?.total || 0), trip.country)}</span>
+                  <span className="text-xs text-muted-foreground">
+                    Est. Cost:
+                  </span>
+                  <span className="text-sm font-bold text-success">
+                    {formatCurrency(
+                      Number(
+                        (activeItinerary.cost_breakdown as any)?.total || 0,
+                      ),
+                      trip.country,
+                    )}
+                  </span>
                 </div>
               )}
             </div>
@@ -410,22 +539,32 @@ export default function Itinerary() {
             <div className="flex items-center justify-between px-5 py-3 border-b border-border">
               <div className="flex items-center gap-2">
                 <MapIcon className="w-4 h-4 text-primary" />
-                <span className="text-sm font-semibold text-card-foreground">{trip.destination} Map</span>
+                <span className="text-sm font-semibold text-card-foreground">
+                  {trip.destination} Map
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex bg-secondary rounded-lg border border-border overflow-hidden">
                   <button
                     onClick={() => setDestMapMode("2d")}
                     className={`px-3 py-1 text-xs font-semibold transition-colors ${
-                      destMapMode === "2d" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                      destMapMode === "2d"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground"
                     }`}
-                  >2D</button>
+                  >
+                    2D
+                  </button>
                   <button
                     onClick={() => setDestMapMode("3d")}
                     className={`px-3 py-1 text-xs font-semibold transition-colors ${
-                      destMapMode === "3d" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                      destMapMode === "3d"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground"
                     }`}
-                  >3D</button>
+                  >
+                    3D
+                  </button>
                 </div>
                 <button
                   onClick={() => setShowDestMap(!showDestMap)}
@@ -438,9 +577,21 @@ export default function Itinerary() {
             {showDestMap && (
               <div className="h-[300px]">
                 {destMapMode === "2d" ? (
-                  <WorldMap lat={destCoords.lat} lng={destCoords.lng} name={trip.destination} zoom={10} className="w-full h-full" />
+                  <WorldMap
+                    lat={destCoords.lat}
+                    lng={destCoords.lng}
+                    name={trip.destination}
+                    zoom={10}
+                    className="w-full h-full"
+                  />
                 ) : (
-                  <Map3D lat={destCoords.lat} lng={destCoords.lng} name={trip.destination} zoom={10} className="w-full h-full" />
+                  <Map3D
+                    lat={destCoords.lat}
+                    lng={destCoords.lng}
+                    name={trip.destination}
+                    zoom={10}
+                    className="w-full h-full"
+                  />
                 )}
               </div>
             )}
@@ -451,11 +602,20 @@ export default function Itinerary() {
         <RegretPlanner
           tripId={tripId!}
           destination={trip.destination}
-          days={Math.max(1, Math.ceil((new Date(trip.end_date).getTime() - new Date(trip.start_date).getTime()) / 86400000))}
+          days={Math.max(
+            1,
+            Math.ceil(
+              (new Date(trip.end_date).getTime() -
+                new Date(trip.start_date).getTime()) /
+                86400000,
+            ),
+          )}
           budget={Number(trip.budget_total) || 30000}
           activeItineraryId={activeItinerary?.id}
           onPlanApplied={() => {
-            queryClient.invalidateQueries({ queryKey: ["itineraries", tripId] });
+            queryClient.invalidateQueries({
+              queryKey: ["itineraries", tripId],
+            });
             queryClient.invalidateQueries({ queryKey: ["activities"] });
           }}
         />
@@ -465,7 +625,9 @@ export default function Itinerary() {
           tripId={tripId!}
           activeItineraryId={activeItinerary?.id}
           onReplanApplied={() => {
-            queryClient.invalidateQueries({ queryKey: ["itineraries", tripId] });
+            queryClient.invalidateQueries({
+              queryKey: ["itineraries", tripId],
+            });
             queryClient.invalidateQueries({ queryKey: ["activities"] });
           }}
         />
@@ -482,16 +644,23 @@ export default function Itinerary() {
         {activities.length === 0 ? (
           <div className="bg-card rounded-2xl p-8 text-center shadow-card">
             <Brain className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-            <h3 className="font-semibold text-card-foreground">No activities yet</h3>
+            <h3 className="font-semibold text-card-foreground">
+              No activities yet
+            </h3>
             <p className="text-sm text-muted-foreground mt-1 mb-4">
-              Use the counterfactual planner above or click below to generate a quick AI plan.
+              Use the counterfactual planner above or click below to generate a
+              quick AI plan.
             </p>
             <button
               onClick={handleGenerateItinerary}
               disabled={generating}
               className="px-6 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-2"
             >
-              {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
+              {generating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Brain className="w-4 h-4" />
+              )}
               {generating ? "Generating..." : "Quick Generate"}
             </button>
           </div>
@@ -521,7 +690,9 @@ export default function Itinerary() {
                 ))}
               </div>
               <button
-                onClick={() => setSelectedDay((d) => Math.min(days.length - 1, d + 1))}
+                onClick={() =>
+                  setSelectedDay((d) => Math.min(days.length - 1, d + 1))
+                }
                 className="p-2 rounded-xl bg-card border border-border hover:bg-secondary transition-colors"
               >
                 <ChevronRight className="w-4 h-4 text-muted-foreground" />
@@ -531,10 +702,18 @@ export default function Itinerary() {
             {/* Timeline */}
             <div className="space-y-1">
               {currentDayActivities.map((activity, i) => (
-                <div key={activity.id} className="flex gap-4 animate-fade-in" style={{ animationDelay: `${i * 0.05}s` }}>
+                <div
+                  key={activity.id}
+                  className="flex gap-4 animate-fade-in"
+                  style={{ animationDelay: `${i * 0.05}s` }}
+                >
                   <div className="flex flex-col items-center">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${typeColors[activity.category || "other"] || "bg-secondary text-muted-foreground"}`}>
-                      {typeIcons[activity.category || "other"] || <MapPin className="w-4 h-4" />}
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center ${typeColors[activity.category || "other"] || "bg-secondary text-muted-foreground"}`}
+                    >
+                      {typeIcons[activity.category || "other"] || (
+                        <MapPin className="w-4 h-4" />
+                      )}
                     </div>
                     {i < currentDayActivities.length - 1 && (
                       <div className="w-px flex-1 bg-border my-1" />
@@ -544,14 +723,21 @@ export default function Itinerary() {
                     <div className="bg-card rounded-2xl p-4 shadow-card hover:shadow-elevated transition-shadow group cursor-pointer">
                       <div className="flex items-center justify-between">
                         <div>
-                          <h3 className="font-semibold text-card-foreground text-sm">{activity.name}</h3>
+                          <h3 className="font-semibold text-card-foreground text-sm">
+                            {activity.name}
+                          </h3>
                           {activity.description && (
-                            <p className="text-xs text-muted-foreground mt-1">{activity.description}</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {activity.description}
+                            </p>
                           )}
                           <div className="flex items-center gap-3 mt-1.5">
                             <span className="flex items-center gap-1 text-xs text-muted-foreground">
                               <Clock className="w-3 h-3" />
-                              {new Date(activity.start_time).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                              {new Date(activity.start_time).toLocaleTimeString(
+                                "en-IN",
+                                { hour: "2-digit", minute: "2-digit" },
+                              )}
                             </span>
                             {activity.location_name && (
                               <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -559,13 +745,19 @@ export default function Itinerary() {
                                 {activity.location_name}
                               </span>
                             )}
-                            {activity.cost != null && Number(activity.cost) > 0 && (
-                              <span className="text-xs text-muted-foreground">
-                                {formatCurrency(Number(activity.cost), trip.country)}
-                              </span>
-                            )}
+                            {activity.cost != null &&
+                              Number(activity.cost) > 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  {formatCurrency(
+                                    Number(activity.cost),
+                                    trip.country,
+                                  )}
+                                </span>
+                              )}
                             {activity.review_score && (
-                              <span className="text-xs text-warning font-semibold">★ {activity.review_score}</span>
+                              <span className="text-xs text-warning font-semibold">
+                                ★ {activity.review_score}
+                              </span>
                             )}
                           </div>
                         </div>
@@ -592,25 +784,34 @@ export default function Itinerary() {
               <MessageSquare className="w-4 h-4 text-primary" />
               Trip Chat
             </h3>
-            <p className="text-xs text-muted-foreground mt-1">Real-time group collaboration</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Real-time group collaboration
+            </p>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {messages.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-8">No messages yet. Start the conversation!</p>
+              <p className="text-xs text-muted-foreground text-center py-8">
+                No messages yet. Start the conversation!
+              </p>
             ) : (
               messages.map((msg) => (
                 <div
                   key={msg.id}
                   className={`flex ${msg.sender_id === user?.id ? "justify-end" : "justify-start"}`}
                 >
-                  <div className={`max-w-[80%] px-3 py-2 rounded-xl text-sm ${
-                    msg.sender_id === user?.id
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-secondary text-secondary-foreground"
-                  }`}>
+                  <div
+                    className={`max-w-[80%] px-3 py-2 rounded-xl text-sm ${
+                      msg.sender_id === user?.id
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-secondary text-secondary-foreground"
+                    }`}
+                  >
                     {msg.content}
                     <p className="text-[10px] opacity-60 mt-1">
-                      {new Date(msg.created_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                      {new Date(msg.created_at).toLocaleTimeString("en-IN", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
                     </p>
                   </div>
                 </div>

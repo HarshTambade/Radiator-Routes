@@ -1,7 +1,16 @@
-import { Star, Bookmark, Search, MapPin, Loader2, ChevronRight, X, IndianRupee } from "lucide-react";
+import {
+  Star,
+  Bookmark,
+  Search,
+  MapPin,
+  Loader2,
+  ChevronRight,
+  X,
+  IndianRupee,
+} from "lucide-react";
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { planItinerary } from "@/services/aiPlanner";
 import AddToTripButton from "@/components/AddToTripButton";
 
 import destinationAgra from "@/assets/destination-agra.jpg";
@@ -11,7 +20,14 @@ import travelSummit from "@/assets/travel-summit.jpg";
 import travelKayak from "@/assets/travel-kayak.jpg";
 import travelBeach from "@/assets/travel-beach.jpg";
 
-const guideImages = [destinationAgra, destinationGoa, destinationKerala, travelSummit, travelKayak, travelBeach];
+const guideImages = [
+  destinationAgra,
+  destinationGoa,
+  destinationKerala,
+  travelSummit,
+  travelKayak,
+  travelBeach,
+];
 
 export default function Guide() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -27,21 +43,16 @@ export default function Guide() {
     setSearched(true);
 
     try {
-      const res = await supabase.functions.invoke("ai-planner", {
-        body: {
-          action: "plan-itinerary",
-          destination: searchQuery,
-          days: 3,
-          travelers: 2,
-          budget: 30000,
-          interests: ["culture", "food", "sightseeing"],
-          tripType: "leisure",
-        },
-      });
+      const res = (await planItinerary({
+        destination: searchQuery,
+        days: 3,
+        travelers: 2,
+        budget: 30000,
+        interests: ["culture", "food", "sightseeing"],
+        tripType: "leisure",
+      })) as any;
 
-      if (res.error) throw new Error(res.error.message);
-
-      const activities = res.data?.activities || [];
+      const activities = res?.activities || [];
       const guideCards = activities.slice(0, 6).map((a: any, i: number) => ({
         id: i,
         title: a.name,
@@ -59,7 +70,11 @@ export default function Guide() {
 
       setGuides(guideCards);
     } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -69,7 +84,9 @@ export default function Guide() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">AI Travel Guide</h1>
+          <h1 className="text-2xl font-bold text-foreground">
+            AI Travel Guide
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Get AI-curated travel recommendations for any destination
           </p>
@@ -94,38 +111,77 @@ export default function Guide() {
           disabled={loading}
           className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50"
         >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Generate Guide"}
+          {loading ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            "Generate Guide"
+          )}
         </button>
       </div>
 
       {/* Detail Modal */}
       {selectedGuide && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6" onClick={() => setSelectedGuide(null)}>
-          <div className="bg-card rounded-2xl max-w-lg w-full overflow-hidden shadow-elevated animate-fade-in" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6"
+          onClick={() => setSelectedGuide(null)}
+        >
+          <div
+            className="bg-card rounded-2xl max-w-lg w-full overflow-hidden shadow-elevated animate-fade-in"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="relative h-48">
-              <img src={selectedGuide.image} alt={selectedGuide.title} className="w-full h-full object-cover" />
-              <button onClick={() => setSelectedGuide(null)} className="absolute top-3 right-3 w-8 h-8 rounded-full bg-card/80 backdrop-blur-sm flex items-center justify-center">
+              <img
+                src={selectedGuide.image}
+                alt={selectedGuide.title}
+                className="w-full h-full object-cover"
+              />
+              <button
+                onClick={() => setSelectedGuide(null)}
+                className="absolute top-3 right-3 w-8 h-8 rounded-full bg-card/80 backdrop-blur-sm flex items-center justify-center"
+              >
                 <X className="w-4 h-4 text-foreground" />
               </button>
             </div>
             <div className="p-5 space-y-3">
-              <h2 className="text-lg font-bold text-card-foreground">{selectedGuide.title}</h2>
+              <h2 className="text-lg font-bold text-card-foreground">
+                {selectedGuide.title}
+              </h2>
               <div className="flex items-center gap-3">
-                <span className="flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="w-3 h-3" />{selectedGuide.location}</span>
-                <span className="flex items-center gap-1 text-xs text-warning font-semibold"><Star className="w-3 h-3 fill-warning" />{selectedGuide.rating}</span>
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <MapPin className="w-3 h-3" />
+                  {selectedGuide.location}
+                </span>
+                <span className="flex items-center gap-1 text-xs text-warning font-semibold">
+                  <Star className="w-3 h-3 fill-warning" />
+                  {selectedGuide.rating}
+                </span>
                 {selectedGuide.cost > 0 && (
-                  <span className="flex items-center gap-0.5 text-xs font-semibold text-card-foreground"><IndianRupee className="w-3 h-3" />{Number(selectedGuide.cost).toLocaleString("en-IN")}</span>
+                  <span className="flex items-center gap-0.5 text-xs font-semibold text-card-foreground">
+                    <IndianRupee className="w-3 h-3" />
+                    {Number(selectedGuide.cost).toLocaleString("en-IN")}
+                  </span>
                 )}
               </div>
-              <span className="inline-block px-3 py-1 rounded-full bg-secondary text-xs font-medium text-secondary-foreground capitalize">{selectedGuide.category || "general"}</span>
-              {selectedGuide.description && <p className="text-sm text-muted-foreground">{selectedGuide.description}</p>}
+              <span className="inline-block px-3 py-1 rounded-full bg-secondary text-xs font-medium text-secondary-foreground capitalize">
+                {selectedGuide.category || "general"}
+              </span>
+              {selectedGuide.description && (
+                <p className="text-sm text-muted-foreground">
+                  {selectedGuide.description}
+                </p>
+              )}
               {selectedGuide.notes && (
                 <div className="bg-secondary/50 rounded-xl p-3">
-                  <p className="text-xs text-muted-foreground">💡 {selectedGuide.notes}</p>
+                  <p className="text-xs text-muted-foreground">
+                    💡 {selectedGuide.notes}
+                  </p>
                 </div>
               )}
               {selectedGuide.estimated_steps && (
-                <p className="text-xs text-muted-foreground">🚶 Estimated steps: {selectedGuide.estimated_steps.toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">
+                  🚶 Estimated steps:{" "}
+                  {selectedGuide.estimated_steps.toLocaleString()}
+                </p>
               )}
             </div>
           </div>
@@ -135,19 +191,29 @@ export default function Guide() {
       {!searched ? (
         <div className="text-center py-20">
           <Bookmark className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-          <h3 className="font-semibold text-foreground text-lg">Search for AI travel guides</h3>
-          <p className="text-sm text-muted-foreground mt-1">Our AI will create personalized travel recommendations</p>
+          <h3 className="font-semibold text-foreground text-lg">
+            Search for AI travel guides
+          </h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Our AI will create personalized travel recommendations
+          </p>
         </div>
       ) : loading ? (
         <div className="flex flex-col items-center justify-center py-20 gap-3">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
-          <p className="text-sm text-muted-foreground">AI is generating your travel guide...</p>
+          <p className="text-sm text-muted-foreground">
+            AI is generating your travel guide...
+          </p>
         </div>
       ) : guides.length === 0 ? (
         <div className="text-center py-20">
           <MapPin className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-          <h3 className="font-semibold text-foreground">No recommendations found</h3>
-          <p className="text-sm text-muted-foreground mt-1">Try a different destination</p>
+          <h3 className="font-semibold text-foreground">
+            No recommendations found
+          </h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Try a different destination
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -167,19 +233,27 @@ export default function Guide() {
               <div className="p-4">
                 <div className="flex items-start justify-between mb-2">
                   <div>
-                    <h3 className="font-semibold text-card-foreground">{guide.title}</h3>
+                    <h3 className="font-semibold text-card-foreground">
+                      {guide.title}
+                    </h3>
                     <div className="flex items-center gap-1 mt-1">
                       <MapPin className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground">{guide.location}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {guide.location}
+                      </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
                     <Star className="w-3 h-3 text-warning fill-warning" />
-                    <span className="text-xs font-semibold">{guide.rating}</span>
+                    <span className="text-xs font-semibold">
+                      {guide.rating}
+                    </span>
                   </div>
                 </div>
                 {guide.description && (
-                  <p className="text-sm text-muted-foreground mb-3 line-clamp-2">{guide.description}</p>
+                  <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
+                    {guide.description}
+                  </p>
                 )}
                 <div className="flex items-center justify-between">
                   <span className="px-3 py-1 rounded-full bg-secondary text-xs font-medium text-secondary-foreground capitalize">
@@ -187,7 +261,9 @@ export default function Guide() {
                   </span>
                   <div className="flex items-center gap-2">
                     {guide.cost > 0 && (
-                      <span className="text-sm font-semibold text-card-foreground">₹{Number(guide.cost).toLocaleString("en-IN")}</span>
+                      <span className="text-sm font-semibold text-card-foreground">
+                        ₹{Number(guide.cost).toLocaleString("en-IN")}
+                      </span>
                     )}
                     <AddToTripButton
                       activity={{

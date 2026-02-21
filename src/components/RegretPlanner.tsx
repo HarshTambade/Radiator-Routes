@@ -1,12 +1,26 @@
 import { useState } from "react";
 import {
-  Brain, Loader2, TrendingDown, Scale, Sparkles, AlertTriangle,
-  Battery, Wallet, Star, Check, ChevronDown, ChevronUp, MapPin, Clock, IndianRupee
+  Brain,
+  Loader2,
+  TrendingDown,
+  Scale,
+  Sparkles,
+  AlertTriangle,
+  Battery,
+  Wallet,
+  Star,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  MapPin,
+  Clock,
+  IndianRupee,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useQueryClient } from "@tanstack/react-query";
+import { regretCounterfactual } from "@/services/aiPlanner";
 
 type Activity = {
   name: string;
@@ -43,15 +57,30 @@ type RegretData = {
   comparison_note: string;
 };
 
-const VARIANT_CONFIG: Record<string, { icon: typeof TrendingDown; color: string; bg: string }> = {
+const VARIANT_CONFIG: Record<
+  string,
+  { icon: typeof TrendingDown; color: string; bg: string }
+> = {
   budget: { icon: TrendingDown, color: "text-success", bg: "bg-success/10" },
   balanced: { icon: Scale, color: "text-primary", bg: "bg-primary/10" },
   experience: { icon: Sparkles, color: "text-warning", bg: "bg-warning/10" },
 };
 
-function RiskMeter({ value, label, icon: Icon, color }: { value: number; label: string; icon: typeof Battery; color: string }) {
-  const getLevel = (v: number) => v < 35 ? "Low" : v < 65 ? "Moderate" : "High";
-  const getBarColor = (v: number) => v < 35 ? "bg-success" : v < 65 ? "bg-warning" : "bg-destructive";
+function RiskMeter({
+  value,
+  label,
+  icon: Icon,
+  color,
+}: {
+  value: number;
+  label: string;
+  icon: typeof Battery;
+  color: string;
+}) {
+  const getLevel = (v: number) =>
+    v < 35 ? "Low" : v < 65 ? "Moderate" : "High";
+  const getBarColor = (v: number) =>
+    v < 35 ? "bg-success" : v < 65 ? "bg-warning" : "bg-destructive";
 
   return (
     <div className="space-y-1.5">
@@ -60,7 +89,9 @@ function RiskMeter({ value, label, icon: Icon, color }: { value: number; label: 
           <Icon className={`w-3 h-3 ${color}`} />
           {label}
         </span>
-        <span className="text-xs font-semibold text-card-foreground">{getLevel(value)}</span>
+        <span className="text-xs font-semibold text-card-foreground">
+          {getLevel(value)}
+        </span>
       </div>
       <div className="h-2 rounded-full bg-secondary overflow-hidden">
         <div
@@ -68,7 +99,9 @@ function RiskMeter({ value, label, icon: Icon, color }: { value: number; label: 
           style={{ width: `${value}%` }}
         />
       </div>
-      <p className="text-[10px] text-muted-foreground text-right">{value}/100</p>
+      <p className="text-[10px] text-muted-foreground text-right">
+        {value}/100
+      </p>
     </div>
   );
 }
@@ -82,7 +115,14 @@ interface RegretPlannerProps {
   onPlanApplied: () => void;
 }
 
-export default function RegretPlanner({ tripId, destination, days, budget, activeItineraryId, onPlanApplied }: RegretPlannerProps) {
+export default function RegretPlanner({
+  tripId,
+  destination,
+  days,
+  budget,
+  activeItineraryId,
+  onPlanApplied,
+}: RegretPlannerProps) {
   const [data, setData] = useState<RegretData | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedVariant, setSelectedVariant] = useState<string>("balanced");
@@ -96,24 +136,26 @@ export default function RegretPlanner({ tripId, destination, days, budget, activ
     setLoading(true);
     setData(null);
     try {
-      const res = await supabase.functions.invoke("ai-planner", {
-        body: {
-          action: "regret-counterfactual",
-          destination,
-          days,
-          travelers: 2,
-          budget,
-          interests: ["culture", "food", "sightseeing"],
-          tripType: "leisure",
-        },
+      const res = (await regretCounterfactual({
+        destination,
+        days,
+        travelers: 2,
+        budget,
+        interests: ["culture", "food", "sightseeing"],
+        tripType: "leisure",
+      })) as any;
+      setData(res);
+      setSelectedVariant(res.recommendation || "balanced");
+      toast({
+        title: "Plans generated! 🧠",
+        description: "3 counterfactual alternatives ready for comparison.",
       });
-      if (res.error) throw new Error(res.error.message);
-      if (res.data?.error) throw new Error(res.data.error);
-      setData(res.data);
-      setSelectedVariant(res.data.recommendation || "balanced");
-      toast({ title: "Plans generated! 🧠", description: "3 counterfactual alternatives ready for comparison." });
     } catch (error: any) {
-      toast({ title: "Generation failed", description: error.message, variant: "destructive" });
+      toast({
+        title: "Generation failed",
+        description: error.message,
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -127,7 +169,12 @@ export default function RegretPlanner({ tripId, destination, days, budget, activ
       if (!itineraryId) {
         const { data: newIt, error: itErr } = await supabase
           .from("itineraries")
-          .insert({ trip_id: tripId, created_by: user.id, version: 1, variant_id: plan.variant })
+          .insert({
+            trip_id: tripId,
+            created_by: user.id,
+            version: 1,
+            variant_id: plan.variant,
+          })
           .select()
           .single();
         if (itErr) throw itErr;
@@ -135,7 +182,10 @@ export default function RegretPlanner({ tripId, destination, days, budget, activ
       }
 
       // Clear old activities
-      await supabase.from("activities").delete().eq("itinerary_id", itineraryId);
+      await supabase
+        .from("activities")
+        .delete()
+        .eq("itinerary_id", itineraryId);
 
       // Insert plan activities
       const activitiesToInsert = plan.activities.map((a) => ({
@@ -154,23 +204,35 @@ export default function RegretPlanner({ tripId, destination, days, budget, activ
       }));
 
       if (activitiesToInsert.length > 0) {
-        const { error: actErr } = await supabase.from("activities").insert(activitiesToInsert);
+        const { error: actErr } = await supabase
+          .from("activities")
+          .insert(activitiesToInsert);
         if (actErr) throw actErr;
       }
 
       // Update itinerary metadata
-      await supabase.from("itineraries").update({
-        cost_breakdown: { total: plan.total_cost, variant: plan.variant },
-        regret_score: plan.regret_score,
-        variant_id: plan.variant,
-      }).eq("id", itineraryId);
+      await supabase
+        .from("itineraries")
+        .update({
+          cost_breakdown: { total: plan.total_cost, variant: plan.variant },
+          regret_score: plan.regret_score,
+          variant_id: plan.variant,
+        })
+        .eq("id", itineraryId);
 
       queryClient.invalidateQueries({ queryKey: ["itineraries", tripId] });
       queryClient.invalidateQueries({ queryKey: ["activities"] });
-      toast({ title: `${plan.label} plan applied! ✅`, description: `${activitiesToInsert.length} activities saved.` });
+      toast({
+        title: `${plan.label} plan applied! ✅`,
+        description: `${activitiesToInsert.length} activities saved.`,
+      });
       onPlanApplied();
     } catch (error: any) {
-      toast({ title: "Failed to apply plan", description: error.message, variant: "destructive" });
+      toast({
+        title: "Failed to apply plan",
+        description: error.message,
+        variant: "destructive",
+      });
     } finally {
       setApplying(false);
     }
@@ -223,7 +285,9 @@ export default function RegretPlanner({ tripId, destination, days, budget, activ
               <Brain className="w-4 h-4 text-primary" />
               Regret-Aware Counterfactual Plans
             </h3>
-            <p className="text-xs text-muted-foreground mt-0.5">{data.comparison_note}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {data.comparison_note}
+            </p>
           </div>
           <button
             onClick={generatePlans}
@@ -237,7 +301,8 @@ export default function RegretPlanner({ tripId, destination, days, budget, activ
         {/* Plan Selector Tabs */}
         <div className="grid grid-cols-3 gap-2">
           {data.plans.map((plan) => {
-            const config = VARIANT_CONFIG[plan.variant] || VARIANT_CONFIG.balanced;
+            const config =
+              VARIANT_CONFIG[plan.variant] || VARIANT_CONFIG.balanced;
             const Icon = config.icon;
             const isSelected = selectedVariant === plan.variant;
             const isRecommended = data.recommendation === plan.variant;
@@ -258,10 +323,14 @@ export default function RegretPlanner({ tripId, destination, days, budget, activ
                   </span>
                 )}
                 <Icon className={`w-5 h-5 mb-1 ${config.color}`} />
-                <p className={`text-sm font-semibold ${isSelected ? "text-primary" : "text-card-foreground"}`}>
+                <p
+                  className={`text-sm font-semibold ${isSelected ? "text-primary" : "text-card-foreground"}`}
+                >
                   {plan.label}
                 </p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">{plan.tagline}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {plan.tagline}
+                </p>
                 <p className={`text-lg font-bold mt-1 ${config.color}`}>
                   ₹{plan.total_cost.toLocaleString("en-IN")}
                 </p>
@@ -276,11 +345,28 @@ export default function RegretPlanner({ tripId, destination, days, budget, activ
         <div className="bg-card rounded-2xl p-5 shadow-card space-y-4 animate-fade-in">
           {/* Risk Metrics */}
           <div>
-            <h4 className="text-sm font-semibold text-card-foreground mb-3">Risk Analysis</h4>
+            <h4 className="text-sm font-semibold text-card-foreground mb-3">
+              Risk Analysis
+            </h4>
             <div className="grid grid-cols-1 gap-3">
-              <RiskMeter value={selectedPlan.fatigue_level} label="Fatigue Level" icon={Battery} color="text-warning" />
-              <RiskMeter value={selectedPlan.budget_overrun_risk} label="Budget Overrun Risk" icon={Wallet} color="text-destructive" />
-              <RiskMeter value={selectedPlan.experience_quality} label="Experience Quality" icon={Star} color="text-success" />
+              <RiskMeter
+                value={selectedPlan.fatigue_level}
+                label="Fatigue Level"
+                icon={Battery}
+                color="text-warning"
+              />
+              <RiskMeter
+                value={selectedPlan.budget_overrun_risk}
+                label="Budget Overrun Risk"
+                icon={Wallet}
+                color="text-destructive"
+              />
+              <RiskMeter
+                value={selectedPlan.experience_quality}
+                label="Experience Quality"
+                icon={Star}
+                color="text-success"
+              />
             </div>
           </div>
 
@@ -295,8 +381,8 @@ export default function RegretPlanner({ tripId, destination, days, budget, activ
                 {selectedPlan.regret_score < 0.3
                   ? "Low regret — you'll likely be happy with this choice"
                   : selectedPlan.regret_score < 0.6
-                  ? "Moderate regret — some trade-offs to consider"
-                  : "High regret risk — significant compromises in this plan"}
+                    ? "Moderate regret — some trade-offs to consider"
+                    : "High regret risk — significant compromises in this plan"}
               </p>
             </div>
           </div>
@@ -306,7 +392,10 @@ export default function RegretPlanner({ tripId, destination, days, budget, activ
             <div className="space-y-1.5">
               <p className="text-xs font-semibold text-success">Pros</p>
               {selectedPlan.pros?.map((pro, i) => (
-                <p key={i} className="text-xs text-muted-foreground flex items-start gap-1">
+                <p
+                  key={i}
+                  className="text-xs text-muted-foreground flex items-start gap-1"
+                >
                   <Check className="w-3 h-3 text-success shrink-0 mt-0.5" />
                   {pro}
                 </p>
@@ -315,7 +404,10 @@ export default function RegretPlanner({ tripId, destination, days, budget, activ
             <div className="space-y-1.5">
               <p className="text-xs font-semibold text-destructive">Cons</p>
               {selectedPlan.cons?.map((con, i) => (
-                <p key={i} className="text-xs text-muted-foreground flex items-start gap-1">
+                <p
+                  key={i}
+                  className="text-xs text-muted-foreground flex items-start gap-1"
+                >
                   <AlertTriangle className="w-3 h-3 text-destructive shrink-0 mt-0.5" />
                   {con}
                 </p>
@@ -324,42 +416,65 @@ export default function RegretPlanner({ tripId, destination, days, budget, activ
           </div>
 
           {/* Daily Summary */}
-          {selectedPlan.daily_summary && selectedPlan.daily_summary.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-card-foreground mb-2">Daily Overview</p>
-              <div className="space-y-1">
-                {selectedPlan.daily_summary.map((summary, i) => (
-                  <p key={i} className="text-xs text-muted-foreground bg-secondary/50 px-3 py-1.5 rounded-lg">
-                    {summary}
-                  </p>
-                ))}
+          {selectedPlan.daily_summary &&
+            selectedPlan.daily_summary.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-card-foreground mb-2">
+                  Daily Overview
+                </p>
+                <div className="space-y-1">
+                  {selectedPlan.daily_summary.map((summary, i) => (
+                    <p
+                      key={i}
+                      className="text-xs text-muted-foreground bg-secondary/50 px-3 py-1.5 rounded-lg"
+                    >
+                      {summary}
+                    </p>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Activities Preview */}
           <div>
             <button
-              onClick={() => setExpandedPlan(expandedPlan === selectedVariant ? null : selectedVariant)}
+              onClick={() =>
+                setExpandedPlan(
+                  expandedPlan === selectedVariant ? null : selectedVariant,
+                )
+              }
               className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
             >
-              {expandedPlan === selectedVariant ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-              {expandedPlan === selectedVariant ? "Hide" : "Show"} {selectedPlan.activities?.length || 0} Activities
+              {expandedPlan === selectedVariant ? (
+                <ChevronUp className="w-3 h-3" />
+              ) : (
+                <ChevronDown className="w-3 h-3" />
+              )}
+              {expandedPlan === selectedVariant ? "Hide" : "Show"}{" "}
+              {selectedPlan.activities?.length || 0} Activities
             </button>
 
             {expandedPlan === selectedVariant && (
               <div className="mt-3 space-y-2 max-h-60 overflow-y-auto">
                 {selectedPlan.activities?.map((a, i) => (
-                  <div key={i} className="flex items-start gap-2 p-2 rounded-lg bg-secondary/30 text-xs">
+                  <div
+                    key={i}
+                    className="flex items-start gap-2 p-2 rounded-lg bg-secondary/30 text-xs"
+                  >
                     <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
                       <MapPin className="w-3 h-3 text-primary" />
                     </div>
                     <div className="min-w-0">
-                      <p className="font-semibold text-card-foreground truncate">{a.name}</p>
+                      <p className="font-semibold text-card-foreground truncate">
+                        {a.name}
+                      </p>
                       <div className="flex items-center gap-2 text-muted-foreground mt-0.5">
                         <span className="flex items-center gap-0.5">
                           <Clock className="w-2.5 h-2.5" />
-                          {new Date(a.start_time).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                          {new Date(a.start_time).toLocaleTimeString("en-IN", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
                         </span>
                         {a.cost > 0 && (
                           <span className="flex items-center gap-0.5">
@@ -367,7 +482,11 @@ export default function RegretPlanner({ tripId, destination, days, budget, activ
                             {a.cost.toLocaleString("en-IN")}
                           </span>
                         )}
-                        {a.review_score && <span className="text-warning">★ {a.review_score}</span>}
+                        {a.review_score && (
+                          <span className="text-warning">
+                            ★ {a.review_score}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
