@@ -423,10 +423,13 @@ export default function Friends() {
     tripId: string,
     userId: string,
   ) => {
+    // Map UI action to DB-allowed status values:
+    // DB CHECK constraint allows: 'pending' | 'approved' | 'rejected'
+    const dbStatus = action === "accepted" ? "approved" : "rejected";
     try {
       const { error } = await supabase
         .from("trip_join_requests")
-        .update({ status: action, resolved_at: new Date().toISOString() })
+        .update({ status: dbStatus, resolved_at: new Date().toISOString() })
         .eq("id", requestId);
       if (error) throw error;
       if (action === "accepted") {

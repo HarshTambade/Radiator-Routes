@@ -28,6 +28,9 @@ import {
   Car,
   Route,
   Shield,
+  Star,
+  Home,
+  Music,
   X,
 } from "lucide-react";
 import jsPDF from "jspdf";
@@ -72,6 +75,10 @@ const typeIcons: Record<string, React.ReactNode> = {
   attraction: <Camera className="w-4 h-4" />,
   transport: <Bus className="w-4 h-4" />,
   shopping: <ShoppingBag className="w-4 h-4" />,
+  accommodation: <Home className="w-4 h-4" />,
+  activity: <Zap className="w-4 h-4" />,
+  entertainment: <Music className="w-4 h-4" />,
+  other: <MapPin className="w-4 h-4" />,
 };
 
 const typeColors: Record<string, string> = {
@@ -79,7 +86,14 @@ const typeColors: Record<string, string> = {
   attraction: "bg-accent/10 text-accent",
   transport: "bg-success/10 text-success",
   shopping: "bg-primary/10 text-primary",
+  accommodation: "bg-blue-500/10 text-blue-500",
+  activity: "bg-purple-500/10 text-purple-500",
+  entertainment: "bg-pink-500/10 text-pink-500",
+  other: "bg-muted text-muted-foreground",
 };
+
+const DEFAULT_ICON = <MapPin className="w-4 h-4" />;
+const DEFAULT_COLOR = "bg-muted text-muted-foreground";
 
 export default function Itinerary() {
   const { tripId } = useParams();
@@ -1390,11 +1404,9 @@ export default function Itinerary() {
                 >
                   <div className="flex flex-col items-center">
                     <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center ${typeColors[activity.category || "other"] || "bg-secondary text-muted-foreground"}`}
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center ${typeColors[activity.category || "other"] ?? DEFAULT_COLOR}`}
                     >
-                      {typeIcons[activity.category || "other"] || (
-                        <MapPin className="w-4 h-4" />
-                      )}
+                      {typeIcons[activity.category || "other"] ?? DEFAULT_ICON}
                     </div>
                     {i < currentDayActivities.length - 1 && (
                       <div className="w-px flex-1 bg-border my-1" />
