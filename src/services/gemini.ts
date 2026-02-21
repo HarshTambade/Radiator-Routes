@@ -3,8 +3,8 @@
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string;
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
-// Use gemini-2.0-flash for speed and cost efficiency
-const GEMINI_MODEL = "gemini-2.0-flash";
+// Use gemini-2.5-flash for best performance
+const GEMINI_MODEL = "gemini-2.5-flash-preview-05-20";
 
 // ── Core Gemini caller ───────────────────────────────────────────────────────
 
@@ -196,8 +196,7 @@ export async function streamGemini(
 
       try {
         const parsed = JSON.parse(jsonStr) as GeminiResponse;
-        const chunk =
-          parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        const chunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
         if (chunk) {
           fullText += chunk;
           onChunk(chunk);
@@ -266,8 +265,7 @@ export function handleGeminiError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   if (msg === "RATE_LIMIT")
     return "AI rate limit exceeded. Please wait a moment and try again.";
-  if (msg === "INVALID_API_KEY")
-    return "Gemini API key is invalid or expired.";
+  if (msg === "INVALID_API_KEY") return "Gemini API key is invalid or expired.";
   if (msg.startsWith("GEMINI_ERROR_"))
     return "Gemini service is temporarily unavailable. Please try again.";
   return msg;

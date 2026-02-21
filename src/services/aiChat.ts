@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string;
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = "gemini-2.5-flash-preview-05-20";
 
 const BASE_SYSTEM_PROMPT = `You are Jinny, a Personal AI Travel Proxy Agent for Radiator Routes. You act as the traveler's intelligent travel representative — negotiating, planning, optimizing, and protecting their interests.
 
@@ -244,8 +244,7 @@ export async function streamChatMessage(
 
       try {
         const parsed = JSON.parse(jsonStr);
-        const chunk =
-          parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        const chunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
         if (chunk) {
           fullText += chunk;
           onChunk(chunk);
@@ -264,8 +263,7 @@ export async function streamChatMessage(
       if (jsonStr && jsonStr !== "[DONE]") {
         try {
           const parsed = JSON.parse(jsonStr);
-          const chunk =
-            parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+          const chunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
           if (chunk) {
             fullText += chunk;
             onChunk(chunk);
