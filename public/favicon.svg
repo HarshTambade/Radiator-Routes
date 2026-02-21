@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f0481a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#c42d08;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="shine" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.22" />
+      <stop offset="100%" style="stop-color:#ffffff;stop-opacity:0" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#00000033" />
+    </filter>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect width="64" height="64" rx="15" ry="15" fill="url(#bg)" filter="url(#shadow)" />
+
+  <!-- Shine overlay (top half gloss) -->
+  <rect x="0" y="0" width="64" height="30" rx="15" ry="15" fill="url(#shine)" />
+
+  <!-- ── Road / horizon line ── -->
+  <path
+    d="M8 50 Q20 38 32 40 Q44 42 56 50"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="2.6"
+    stroke-linecap="round"
+    opacity="0.85"
+  />
+
+  <!-- Road center dashes -->
+  <line x1="24" y1="42.5" x2="27" y2="41.5" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round" opacity="0.6" />
+  <line x1="30.5" y1="40.8" x2="33.5" y2="40.4" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round" opacity="0.6" />
+  <line x1="37" y1="40.8" x2="40" y2="41.5" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round" opacity="0.6" />
+
+  <!-- ── Map Pin ── -->
+  <!-- Pin outer circle -->
+  <circle cx="32" cy="21" r="8.5" fill="none" stroke="#ffffff" stroke-width="2.8" />
+  <!-- Pin inner dot -->
+  <circle cx="32" cy="21" r="3" fill="#ffffff" />
+  <!-- Pin tail -->
+  <path
+    d="M28.5 27.5 Q32 34 32 36 Q32 34 35.5 27.5"
+    fill="#ffffff"
+    opacity="0.9"
+  />
+
+  <!-- ── "RR" monogram (subtle, small, bottom-right) ── -->
+  <text
+    x="49"
+    y="60"
+    font-family="'Helvetica Neue', Arial, sans-serif"
+    font-size="7"
+    font-weight="800"
+    fill="#ffffff"
+    opacity="0.55"
+    text-anchor="middle"
+    letter-spacing="0"
+  >RR</text>
+</svg>

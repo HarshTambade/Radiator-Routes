@@ -1,1 +1,13 @@
-<svg xmlns='http://www.w3.org/2000/svg' width='384' height='384' viewBox='0 0 384 384'><rect width='384' height='384' rx='77' fill='#e8390e'/><text x='50%' y='55%' dominant-baseline='middle' text-anchor='middle' font-family='Arial,sans-serif' font-weight='bold' font-size='146' fill='white'>RR</text></svg>
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 384 384' width='384' height='384'>
+  <defs>
+    <linearGradient id='bg384' x1='0%' y1='0%' x2='100%' y2='100%'>
+      <stop offset='0%' style='stop-color:#e8390e'/>
+      <stop offset='100%' style='stop-color:#c42d08'/>
+    </linearGradient>
+  </defs>
+  <rect width='384' height='384' rx='84' ry='84' fill='url(#bg384)'/>
+  <circle cx='192' cy='131' r='42' fill='none' stroke='#fff' stroke-width='17'/>
+  <circle cx='192' cy='131' r='17' fill='#fff'/>
+  <line x1='192' y1='173' x2='192' y2='223' stroke='#fff' stroke-width='17' stroke-linecap='round'/>
+  <path d='M84 288 Q144 223 192 230 Q240 238 300 288' fill='none' stroke='#fff' stroke-width='17' stroke-linecap='round' opacity='0.9'/>
+</svg>

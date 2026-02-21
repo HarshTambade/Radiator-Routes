@@ -1,1 +1,13 @@
-<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' viewBox='0 0 128 128'><rect width='128' height='128' rx='26' fill='#e8390e'/><text x='50%' y='55%' dominant-baseline='middle' text-anchor='middle' font-family='Arial,sans-serif' font-weight='bold' font-size='49' fill='white'>RR</text></svg>
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128' width='128' height='128'>
+  <defs>
+    <linearGradient id='bg128' x1='0%' y1='0%' x2='100%' y2='100%'>
+      <stop offset='0%' style='stop-color:#e8390e'/>
+      <stop offset='100%' style='stop-color:#c42d08'/>
+    </linearGradient>
+  </defs>
+  <rect width='128' height='128' rx='28' ry='28' fill='url(#bg128)'/>
+  <circle cx='64' cy='44' r='14' fill='none' stroke='#fff' stroke-width='6'/>
+  <circle cx='64' cy='44' r='6' fill='#fff'/>
+  <line x1='64' y1='58' x2='64' y2='74' stroke='#fff' stroke-width='6' stroke-linecap='round'/>
+  <path d='M28 96 Q48 74 64 77 Q80 79 100 96' fill='none' stroke='#fff' stroke-width='6' stroke-linecap='round' opacity='0.9'/>
+</svg>
