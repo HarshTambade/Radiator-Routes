@@ -27,6 +27,7 @@ import {
   Thermometer,
   Car,
   Route,
+  Shield,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -56,6 +57,12 @@ import CollaborativePlanner from "@/components/CollaborativePlanner";
 import TripMoneyExpenses from "@/components/TripMoneyExpenses";
 import WorldMap from "@/components/WorldMap";
 import Map3D from "@/components/Map3D";
+import SafetyWarnings from "@/components/SafetyWarnings";
+import ItineraryReasoningPanel, {
+  type ItineraryReasoning,
+} from "@/components/ItineraryReasoning";
+import SOSPanel from "@/components/SOSPanel";
+import UPIPayment from "@/components/UPIPayment";
 
 const typeIcons: Record<string, React.ReactNode> = {
   food: <Utensils className="w-4 h-4" />,
@@ -127,6 +134,12 @@ export default function Itinerary() {
   const [chatInput, setChatInput] = useState("");
   const [sendingMsg, setSendingMsg] = useState(false);
   const [replanning, setReplanning] = useState(false);
+  const [itineraryReasoning, setItineraryReasoning] =
+    useState<ItineraryReasoning | null>(null);
+  const [itineraryExplanation, setItineraryExplanation] = useState<string>("");
+  const [itineraryTotalCost, setItineraryTotalCost] = useState<number | null>(
+    null,
+  );
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [destCoords, setDestCoords] = useState<{
     lat: number;
@@ -366,11 +379,22 @@ export default function Itinerary() {
       const plan = (await planItinerary({
         destination: trip.destination,
         days,
-        travelers: 2,
+        travelers: Number((trip as any).travelers) || 2,
         budget: Number(trip.budget_total) || 30000,
         interests: ["culture", "food", "sightseeing"],
-        tripType: "leisure",
+        tripType: (trip as any).trip_type || "leisure",
       })) as any;
+
+      // Store reasoning from AI response
+      if (plan.reasoning) {
+        setItineraryReasoning(plan.reasoning as ItineraryReasoning);
+      }
+      if (plan.explanation) {
+        setItineraryExplanation(plan.explanation);
+      }
+      if (plan.total_cost) {
+        setItineraryTotalCost(Number(plan.total_cost));
+      }
 
       // Create itinerary record
       let itineraryId = activeItinerary?.id;
@@ -430,6 +454,7 @@ export default function Itinerary() {
       toast({
         title: "Itinerary generated! ✨",
         description:
+          plan.reasoning?.selection_summary ||
           plan.explanation ||
           `${activitiesToInsert.length} activities planned.`,
       });
@@ -1197,6 +1222,22 @@ export default function Itinerary() {
         )}
 
         {/* Regret-Aware Counterfactual Planner */}
+        {/* Safety Warnings */}
+        {trip?.destination && (
+          <SafetyWarnings destination={trip.destination} autoFetch={false} />
+        )}
+
+        {/* AI Itinerary Reasoning */}
+        {itineraryReasoning && (
+          <ItineraryReasoningPanel
+            reasoning={itineraryReasoning}
+            totalCost={itineraryTotalCost ?? undefined}
+            budget={Number(trip.budget_total) || undefined}
+            destination={trip.destination}
+            explanation={itineraryExplanation}
+          />
+        )}
+
         <RegretPlanner
           tripId={tripId!}
           destination={trip.destination}
@@ -1251,6 +1292,12 @@ export default function Itinerary() {
           }
           memberNames={tripMembers.length > 0 ? tripMembers : undefined}
         />
+
+        {/* UPI P2P Payment */}
+        <UPIPayment />
+
+        {/* SOS & Emergency */}
+        <SOSPanel />
 
         {activities.length === 0 ? (
           <div className="bg-card rounded-2xl p-8 text-center shadow-card">

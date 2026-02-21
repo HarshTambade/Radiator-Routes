@@ -95,8 +95,9 @@ export async function planItinerary(params: {
     "Always respond with a single valid JSON object. " +
     "No markdown, no code fences, no explanation — pure JSON only.";
 
+  const perPersonBudget = Math.round(budget / travelers);
   const userPrompt = `Plan a ${days}-day trip to ${destination} for ${travelers} person(s).
-Budget: ₹${budget} total. Trip type: ${tripType}. Interests: ${interests.join(", ")}.
+Budget: ₹${budget} total (₹${perPersonBudget} per person). Trip type: ${tripType}. Interests: ${interests.join(", ")}.
 Start date: ${startDate}.${memoryContext}
 
 Return a JSON object with this exact shape:
@@ -119,14 +120,44 @@ Return a JSON object with this exact shape:
     }
   ],
   "total_cost": number,
-  "explanation": string
+  "explanation": string,
+  "reasoning": {
+    "plan_title": string,
+    "selection_summary": string,
+    "why_these_activities": string,
+    "budget_strategy": string,
+    "cost_highlights": [string],
+    "best_value_picks": [string],
+    "time_optimization": string,
+    "traveler_fit": string,
+    "local_tips": [string],
+    "potential_savings": [string],
+    "selection_criteria": [
+      {
+        "criterion": string,
+        "reason": string,
+        "icon": string
+      }
+    ]
+  }
 }
 
 Rules:
 - Aim for ${Math.min(days * 4, 20)} activities spread across ${days} days
 - Use real lat/lng for ${destination}
 - All costs in INR, total_cost <= ₹${budget}
-- start_time and end_time must use +05:30 timezone offset`;
+- start_time and end_time must use +05:30 timezone offset
+- reasoning.plan_title: short catchy title for this itinerary (e.g. "Budget Explorer", "Premium Experience")
+- reasoning.selection_summary: 2-3 sentence executive summary of WHY this plan was chosen
+- reasoning.why_these_activities: explain the specific logic for activity selection (high ratings, free entry, proximity, etc.)
+- reasoning.budget_strategy: explain how budget was allocated (accommodation vs food vs attractions ratio)
+- reasoning.cost_highlights: 3-4 bullet strings about where money is saved or spent well
+- reasoning.best_value_picks: 2-3 activity names that offer the best value for money
+- reasoning.time_optimization: how activities are sequenced to minimize travel time
+- reasoning.traveler_fit: how this plan matches the trip type and interests provided
+- reasoning.local_tips: 3-5 insider money-saving or experience-enhancing tips
+- reasoning.potential_savings: 2-3 suggestions for further cost reduction
+- reasoning.selection_criteria: array of 4-6 criteria objects explaining plan decisions`;
 
   try {
     const raw = await callGemini(systemPrompt, userPrompt, 0.7, 8192, true);
