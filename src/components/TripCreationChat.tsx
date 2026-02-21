@@ -1,5 +1,22 @@
-import { useState, useRef, useEffect } from "react";
-import { Loader2, Send, Mic, MicOff, Plane, Train, Bus, Ship, MapPin, Calendar, Wallet, Users, CheckCircle2, Utensils, Heart, Zap } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import {
+  Loader2,
+  Send,
+  Mic,
+  MicOff,
+  Plane,
+  Train,
+  Bus,
+  Ship,
+  MapPin,
+  Calendar,
+  Wallet,
+  Users,
+  CheckCircle2,
+  Utensils,
+  Heart,
+  Zap,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -8,7 +25,17 @@ import { useNavigate } from "react-router-dom";
 import { getCurrencySymbol } from "@/lib/currency";
 import ReactMarkdown from "react-markdown";
 
-type Step = "destination" | "dates" | "budget" | "travelers" | "transport" | "food" | "accommodation" | "pace" | "interests" | "confirm";
+type Step =
+  | "destination"
+  | "dates"
+  | "budget"
+  | "travelers"
+  | "transport"
+  | "food"
+  | "accommodation"
+  | "pace"
+  | "interests"
+  | "confirm";
 type Msg = { role: "bot" | "user"; content: string; options?: Option[] };
 type Option = { label: string; value: string; icon?: any };
 
@@ -95,23 +122,58 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
   const isListeningRef = useRef(false);
+  // Ref so the recognition onend closure always calls the latest handleInput
+  // instead of a stale version captured at the time startVoice() was invoked.
+  const handleInputRef = useRef<(text: string) => void>(() => {});
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
 
   const [tripData, setTripData] = useState({
-    destination: "", country: "", start_date: "", end_date: "",
-    budget: "", travelers: "1", transport: "", name: "",
-    food_preference: "", accommodation: "", pace: "", interests: [] as string[],
+    destination: "",
+    country: "",
+    start_date: "",
+    end_date: "",
+    budget: "",
+    travelers: "1",
+    transport: "",
+    name: "",
+    food_preference: "",
+    accommodation: "",
+    pace: "",
+    interests: [] as string[],
   });
 
   const [aiLoading, setAiLoading] = useState(false);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   }, [messages]);
 
+  // ── Cleanup voice recognition on unmount ──────────────────────────────
   useEffect(() => {
-    const typeLabel = tripType === "solo" ? "solo" : tripType === "group" ? "group" : "random traveler";
-    addBotMessage(`Hey! Let's plan your **${typeLabel} trip** step by step! 🗺️\n\n**Where do you want to go?** Tell me the city and country.`, []);
+    return () => {
+      isListeningRef.current = false;
+      try {
+        recognitionRef.current?.stop();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const typeLabel =
+      tripType === "solo"
+        ? "solo"
+        : tripType === "group"
+          ? "group"
+          : "random traveler";
+    addBotMessage(
+      `Hey! Let's plan your **${typeLabel} trip** step by step! 🗺️\n\n**Where do you want to go?** Tell me the city and country.`,
+      [],
+    );
   }, []); // eslint-disable-line
 
   const addBotMessage = (content: string, options?: Option[]) => {
@@ -129,12 +191,19 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
     processStep(text.trim());
   };
 
+  // Keep the ref pointing to the latest handleInput so the voice recognition
+  // onend closure (created once at startVoice time) always dispatches to the
+  // version that has the current step/tripData in scope.
+  useEffect(() => {
+    handleInputRef.current = handleInput;
+  });
+
   const handleOptionClick = (option: Option) => {
     if (step === "interests") {
       // Multi-select for interests
-      setSelectedInterests(prev => {
+      setSelectedInterests((prev) => {
         const updated = prev.includes(option.value)
-          ? prev.filter(v => v !== option.value)
+          ? prev.filter((v) => v !== option.value)
           : [...prev, option.value];
         return updated;
       });
@@ -149,36 +218,53 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
       addBotMessage("Please select at least one interest!");
       return;
     }
-    const labels = selectedInterests.map(v => INTEREST_OPTIONS.find(o => o.value === v)?.label || v).join(", ");
+    const labels = selectedInterests
+      .map((v) => INTEREST_OPTIONS.find((o) => o.value === v)?.label || v)
+      .join(", ");
     addUserMessage(labels);
-    setTripData(prev => ({ ...prev, interests: selectedInterests }));
-    
+    setTripData((prev) => ({ ...prev, interests: selectedInterests }));
+
     // Build summary
     const days = daysBetween(tripData.start_date, tripData.end_date);
     const symbol = getCurrencySymbol(tripData.country);
-    const startF = parseLocalDate(tripData.start_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const endF = parseLocalDate(tripData.end_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-    const transportLabel = TRANSPORT_OPTIONS.find(t => t.value === tripData.transport)?.label || tripData.transport;
-    const foodLabel = FOOD_OPTIONS.find(f => f.value === tripData.food_preference)?.label || tripData.food_preference;
-    const accomLabel = ACCOMMODATION_OPTIONS.find(a => a.value === tripData.accommodation)?.label || tripData.accommodation;
-    const paceLabel = PACE_OPTIONS.find(p => p.value === tripData.pace)?.label || tripData.pace;
+    const startF = parseLocalDate(tripData.start_date).toLocaleDateString(
+      "en-US",
+      { month: "short", day: "numeric" },
+    );
+    const endF = parseLocalDate(tripData.end_date).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    const transportLabel =
+      TRANSPORT_OPTIONS.find((t) => t.value === tripData.transport)?.label ||
+      tripData.transport;
+    const foodLabel =
+      FOOD_OPTIONS.find((f) => f.value === tripData.food_preference)?.label ||
+      tripData.food_preference;
+    const accomLabel =
+      ACCOMMODATION_OPTIONS.find((a) => a.value === tripData.accommodation)
+        ?.label || tripData.accommodation;
+    const paceLabel =
+      PACE_OPTIONS.find((p) => p.value === tripData.pace)?.label ||
+      tripData.pace;
 
     addBotMessage(
       `Here's your trip summary:\n\n` +
-      `📍 **${tripData.destination}${tripData.country ? `, ${tripData.country}` : ""}**\n` +
-      `📅 **${startF} → ${endF}** (${days} days)\n` +
-      `💰 **${symbol}${Number(tripData.budget).toLocaleString()}** budget\n` +
-      `👥 **${tripData.travelers} traveler${Number(tripData.travelers) > 1 ? "s" : ""}**\n` +
-      `🚀 **${transportLabel}**\n` +
-      `🍽️ **${foodLabel}**\n` +
-      `🏨 **${accomLabel}**\n` +
-      `⚡ **${paceLabel}** pace\n` +
-      `🎯 **${labels}**\n\n` +
-      `Ready to create this trip?`,
+        `📍 **${tripData.destination}${tripData.country ? `, ${tripData.country}` : ""}**\n` +
+        `📅 **${startF} → ${endF}** (${days} days)\n` +
+        `💰 **${symbol}${Number(tripData.budget).toLocaleString()}** budget\n` +
+        `👥 **${tripData.travelers} traveler${Number(tripData.travelers) > 1 ? "s" : ""}**\n` +
+        `🚀 **${transportLabel}**\n` +
+        `🍽️ **${foodLabel}**\n` +
+        `🏨 **${accomLabel}**\n` +
+        `⚡ **${paceLabel}** pace\n` +
+        `🎯 **${labels}**\n\n` +
+        `Ready to create this trip?`,
       [
         { label: "✅ Create Trip", value: "confirm" },
         { label: "❌ Cancel", value: "cancel" },
-      ]
+      ],
     );
     setStep("confirm");
   };
@@ -186,53 +272,99 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
   const processStep = async (value: string) => {
     switch (step) {
       case "destination": {
-        const parts = value.split(",").map(s => s.trim());
+        const parts = value.split(",").map((s) => s.trim());
         const dest = parts[0] || value;
         const country = parts[1] || "";
-        setTripData(prev => ({ ...prev, destination: dest, country }));
+        setTripData((prev) => ({ ...prev, destination: dest, country }));
 
         setAiLoading(true);
         try {
           const res = await supabase.functions.invoke("ai-planner", {
-            body: { action: "extract-intent", transcript: `Best time to visit ${dest} ${country}, typical budget per day` },
+            body: {
+              action: "extract-intent",
+              transcript: `Best time to visit ${dest} ${country}, typical budget per day`,
+            },
           });
           const suggestion = res.data;
           const budgetHint = suggestion?.budget_range?.max
             ? `Average daily budget: ~${getCurrencySymbol(country)}${Math.round(suggestion.budget_range.max / (suggestion.duration_days || 5)).toLocaleString()}`
             : "";
-          addBotMessage(`Great choice! **${dest}${country ? `, ${country}` : ""}** 🎉\n\n${budgetHint ? `💡 ${budgetHint}\n\n` : ""}**When do you want to travel?** Enter dates (e.g., "2025-03-15 to 2025-03-20") or say "5 days from March 15".`);
+          addBotMessage(
+            `Great choice! **${dest}${country ? `, ${country}` : ""}** 🎉\n\n${budgetHint ? `💡 ${budgetHint}\n\n` : ""}**When do you want to travel?** Enter dates (e.g., "2025-03-15 to 2025-03-20") or say "5 days from March 15".`,
+          );
         } catch {
-          addBotMessage(`**${dest}${country ? `, ${country}` : ""}** sounds amazing! 🎉\n\n**When do you want to travel?** Enter dates like "2025-03-15 to 2025-03-20".`);
-        } finally { setAiLoading(false); }
+          addBotMessage(
+            `**${dest}${country ? `, ${country}` : ""}** sounds amazing! 🎉\n\n**When do you want to travel?** Enter dates like "2025-03-15 to 2025-03-20".`,
+          );
+        } finally {
+          setAiLoading(false);
+        }
         setStep("dates");
         break;
       }
 
       case "dates": {
-        let startDate = "", endDate = "";
-        const rangeMatch = value.match(/(\d{4}-\d{2}-\d{2})\s*(?:to|[-–])\s*(\d{4}-\d{2}-\d{2})/);
-        if (rangeMatch) { startDate = rangeMatch[1]; endDate = rangeMatch[2]; }
-        else {
+        let startDate = "",
+          endDate = "";
+        const rangeMatch = value.match(
+          /(\d{4}-\d{2}-\d{2})\s*(?:to|[-–])\s*(\d{4}-\d{2}-\d{2})/,
+        );
+        if (rangeMatch) {
+          startDate = rangeMatch[1];
+          endDate = rangeMatch[2];
+        } else {
           const daysMatch = value.match(/(\d+)\s*days?/i);
           const fromMatch = value.match(/from\s*(\d{4}-\d{2}-\d{2})/i);
           if (daysMatch) {
             const numDays = parseInt(daysMatch[1]);
             const start = fromMatch ? parseLocalDate(fromMatch[1]) : new Date();
-            if (start < new Date()) { const t = new Date(); t.setDate(t.getDate() + 1); startDate = formatLocalDate(t); }
-            else startDate = formatLocalDate(start);
-            const end = parseLocalDate(startDate); end.setDate(end.getDate() + numDays); endDate = formatLocalDate(end);
+            if (start < new Date()) {
+              const t = new Date();
+              t.setDate(t.getDate() + 1);
+              startDate = formatLocalDate(t);
+            } else startDate = formatLocalDate(start);
+            const end = parseLocalDate(startDate);
+            end.setDate(end.getDate() + numDays);
+            endDate = formatLocalDate(end);
           } else {
             const singleDate = value.match(/(\d{4}-\d{2}-\d{2})/);
-            if (singleDate) { startDate = singleDate[1]; const end = parseLocalDate(startDate); end.setDate(end.getDate() + 3); endDate = formatLocalDate(end); }
+            if (singleDate) {
+              startDate = singleDate[1];
+              const end = parseLocalDate(startDate);
+              end.setDate(end.getDate() + 3);
+              endDate = formatLocalDate(end);
+            }
           }
         }
-        if (!startDate || !endDate) { addBotMessage("I couldn't parse those dates. Try: `2025-03-15 to 2025-03-20` or `5 days from 2025-03-15`"); return; }
+        if (!startDate || !endDate) {
+          addBotMessage(
+            "I couldn't parse those dates. Try: `2025-03-15 to 2025-03-20` or `5 days from 2025-03-15`",
+          );
+          return;
+        }
         const days = daysBetween(startDate, endDate);
-        if (days <= 0) { addBotMessage("End date must be after start date. Please try again."); return; }
-        setTripData(prev => ({ ...prev, start_date: startDate, end_date: endDate }));
-        const startF = parseLocalDate(startDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-        const endF = parseLocalDate(endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-        addBotMessage(`📅 **${startF} → ${endF}** (${days} day${days > 1 ? "s" : ""})\n\n**What's your total budget?** Enter an amount (e.g., "50000" or "2000 USD").`);
+        if (days <= 0) {
+          addBotMessage("End date must be after start date. Please try again.");
+          return;
+        }
+        setTripData((prev) => ({
+          ...prev,
+          start_date: startDate,
+          end_date: endDate,
+        }));
+        const startF = parseLocalDate(startDate).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        });
+        const endF = parseLocalDate(endDate).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        });
+        addBotMessage(
+          `📅 **${startF} → ${endF}** (${days} day${days > 1 ? "s" : ""})\n\n**What's your total budget?** Enter an amount (e.g., "50000" or "2000 USD").`,
+        );
         setStep("budget");
         break;
       }
@@ -240,52 +372,80 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
       case "budget": {
         const numMatch = value.match(/[\d,]+/);
         const budget = numMatch ? numMatch[0].replace(/,/g, "") : "0";
-        setTripData(prev => ({ ...prev, budget }));
+        setTripData((prev) => ({ ...prev, budget }));
         const symbol = getCurrencySymbol(tripData.country);
         const days = daysBetween(tripData.start_date, tripData.end_date);
         const perDay = Math.round(Number(budget) / days);
-        addBotMessage(`💰 Budget: **${symbol}${Number(budget).toLocaleString()}** (${symbol}${perDay.toLocaleString()}/day)\n\n**How many travelers?**`, TRIP_TYPE_OPTIONS);
+        addBotMessage(
+          `💰 Budget: **${symbol}${Number(budget).toLocaleString()}** (${symbol}${perDay.toLocaleString()}/day)\n\n**How many travelers?**`,
+          TRIP_TYPE_OPTIONS,
+        );
         setStep("travelers");
         break;
       }
 
       case "travelers": {
         const tMatch = value.match(/\d+/);
-        const travelers = tMatch ? tMatch[0] : value === "solo" ? "1" : value === "couple" ? "2" : "1";
-        setTripData(prev => ({ ...prev, travelers }));
-        addBotMessage(`👥 **${travelers} traveler${Number(travelers) > 1 ? "s" : ""}**\n\n**How do you want to get there?**`, TRANSPORT_OPTIONS);
+        const travelers = tMatch
+          ? tMatch[0]
+          : value === "solo"
+            ? "1"
+            : value === "couple"
+              ? "2"
+              : "1";
+        setTripData((prev) => ({ ...prev, travelers }));
+        addBotMessage(
+          `👥 **${travelers} traveler${Number(travelers) > 1 ? "s" : ""}**\n\n**How do you want to get there?**`,
+          TRANSPORT_OPTIONS,
+        );
         setStep("transport");
         break;
       }
 
       case "transport": {
-        setTripData(prev => ({ ...prev, transport: value }));
-        const label = TRANSPORT_OPTIONS.find(t => t.value === value)?.label || value;
-        addBotMessage(`🚀 **${label}**\n\n**What are your food preferences?**`, FOOD_OPTIONS);
+        setTripData((prev) => ({ ...prev, transport: value }));
+        const label =
+          TRANSPORT_OPTIONS.find((t) => t.value === value)?.label || value;
+        addBotMessage(
+          `🚀 **${label}**\n\n**What are your food preferences?**`,
+          FOOD_OPTIONS,
+        );
         setStep("food");
         break;
       }
 
       case "food": {
-        setTripData(prev => ({ ...prev, food_preference: value }));
-        const label = FOOD_OPTIONS.find(f => f.value === value)?.label || value;
-        addBotMessage(`🍽️ **${label}**\n\n**What type of accommodation do you prefer?**`, ACCOMMODATION_OPTIONS);
+        setTripData((prev) => ({ ...prev, food_preference: value }));
+        const label =
+          FOOD_OPTIONS.find((f) => f.value === value)?.label || value;
+        addBotMessage(
+          `🍽️ **${label}**\n\n**What type of accommodation do you prefer?**`,
+          ACCOMMODATION_OPTIONS,
+        );
         setStep("accommodation");
         break;
       }
 
       case "accommodation": {
-        setTripData(prev => ({ ...prev, accommodation: value }));
-        const label = ACCOMMODATION_OPTIONS.find(a => a.value === value)?.label || value;
-        addBotMessage(`🏨 **${label}**\n\n**What's your travel pace?**`, PACE_OPTIONS);
+        setTripData((prev) => ({ ...prev, accommodation: value }));
+        const label =
+          ACCOMMODATION_OPTIONS.find((a) => a.value === value)?.label || value;
+        addBotMessage(
+          `🏨 **${label}**\n\n**What's your travel pace?**`,
+          PACE_OPTIONS,
+        );
         setStep("pace");
         break;
       }
 
       case "pace": {
-        setTripData(prev => ({ ...prev, pace: value }));
-        const label = PACE_OPTIONS.find(p => p.value === value)?.label || value;
-        addBotMessage(`⚡ **${label}** pace\n\n**What interests you most?** Select all that apply, then press **Done**.`, INTEREST_OPTIONS);
+        setTripData((prev) => ({ ...prev, pace: value }));
+        const label =
+          PACE_OPTIONS.find((p) => p.value === value)?.label || value;
+        addBotMessage(
+          `⚡ **${label}** pace\n\n**What interests you most?** Select all that apply, then press **Done**.`,
+          INTEREST_OPTIONS,
+        );
         setStep("interests");
         break;
       }
@@ -296,7 +456,14 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
       }
 
       case "confirm": {
-        if (value === "cancel" || value.toLowerCase().includes("cancel") || value.toLowerCase().includes("no")) { onClose(); return; }
+        if (
+          value === "cancel" ||
+          value.toLowerCase().includes("cancel") ||
+          value.toLowerCase().includes("no")
+        ) {
+          onClose();
+          return;
+        }
         setCreating(true);
         try {
           const name = `${tripType === "solo" ? "Solo" : tripType === "group" ? "Group" : "Random"} trip to ${tripData.destination}`;
@@ -312,52 +479,195 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
           if (error) throw error;
 
           // Update profile preferences
-          await supabase.from("profiles").update({
-            preferences: {
-              food_preference: tripData.food_preference,
-              accommodation: tripData.accommodation,
-              pace: tripData.pace,
-              interests: tripData.interests,
-            }
-          }).eq("id", user!.id);
+          await supabase
+            .from("profiles")
+            .update({
+              preferences: {
+                food_preference: tripData.food_preference,
+                accommodation: tripData.accommodation,
+                pace: tripData.pace,
+                interests: tripData.interests,
+              },
+            })
+            .eq("id", user!.id);
 
-          addBotMessage("🎉 **Trip created successfully!** Redirecting to your itinerary...");
+          addBotMessage(
+            "🎉 **Trip created successfully!** Redirecting to your itinerary...",
+          );
           queryClient.invalidateQueries({ queryKey: ["trips"] });
-          toast({ title: "Trip created!", description: `${tripData.destination} trip is ready.` });
+          toast({
+            title: "Trip created!",
+            description: `${tripData.destination} trip is ready.`,
+          });
 
-          const { data: newTrips } = await supabase.from("trips").select("id").eq("organizer_id", user!.id).order("created_at", { ascending: false }).limit(1);
-          setTimeout(() => { if (newTrips?.[0]) navigate(`/itinerary/${newTrips[0].id}`); onClose(); }, 1500);
+          const { data: newTrips } = await supabase
+            .from("trips")
+            .select("id")
+            .eq("organizer_id", user!.id)
+            .order("created_at", { ascending: false })
+            .limit(1);
+          setTimeout(() => {
+            if (newTrips?.[0]) navigate(`/itinerary/${newTrips[0].id}`);
+            onClose();
+          }, 1500);
         } catch (error: any) {
           addBotMessage(`❌ Error: ${error.message}. Please try again.`);
-          toast({ title: "Error", description: error.message, variant: "destructive" });
-        } finally { setCreating(false); }
+          toast({
+            title: "Error",
+            description: error.message,
+            variant: "destructive",
+          });
+        } finally {
+          setCreating(false);
+        }
         break;
       }
     }
   };
 
-  // Voice input
+  // ── Voice input ──────────────────────────────────────────────────────────
   const startVoice = () => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { toast({ title: "Not supported", variant: "destructive" }); return; }
-    if (isListeningRef.current) { isListeningRef.current = false; recognitionRef.current?.stop(); setIsListening(false); return; }
-    const rec = new SR(); rec.continuous = true; rec.interimResults = true; rec.lang = "en-US";
-    recognitionRef.current = rec; isListeningRef.current = true;
+    const SR =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+
+    if (!SR) {
+      toast({
+        title: "Voice not supported",
+        description: "Speech recognition isn't available in this browser.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Toggle off if already listening
+    if (isListeningRef.current) {
+      isListeningRef.current = false;
+      try {
+        recognitionRef.current?.stop();
+      } catch {
+        /* ignore */
+      }
+      setIsListening(false);
+      return;
+    }
+
+    const rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = "en-US";
+
+    recognitionRef.current = rec;
+    isListeningRef.current = true;
+
+    // Accumulates confirmed (final) words across multiple result events
     let finalT = "";
-    rec.onstart = () => setIsListening(true);
-    rec.onend = () => { if (isListeningRef.current) { try { rec.start(); } catch {} } else { setIsListening(false); if (finalT.trim()) { handleInput(finalT.trim()); finalT = ""; } } };
-    rec.onerror = (e: any) => { if (e.error === "not-allowed") { isListeningRef.current = false; setIsListening(false); } };
-    rec.onresult = (event: any) => { finalT = ""; let interim = ""; for (let i = 0; i < event.results.length; i++) { if (event.results[i].isFinal) finalT += event.results[i][0].transcript + " "; else interim += event.results[i][0].transcript; } setInput(interim || finalT.trim()); };
-    rec.start();
+
+    rec.onstart = () => {
+      setIsListening(true);
+      setInput("");
+      finalT = "";
+    };
+
+    rec.onend = () => {
+      if (isListeningRef.current) {
+        // Still listening – restart to keep recording
+        try {
+          rec.start();
+        } catch {
+          /* ignore */
+        }
+      } else {
+        setIsListening(false);
+        const text = finalT.trim();
+        if (text) {
+          finalT = "";
+          // Use the ref so we always call the latest handleInput,
+          // not a stale version captured when startVoice() was first called.
+          handleInputRef.current(text);
+        }
+        setInput("");
+      }
+    };
+
+    rec.onerror = (e: any) => {
+      const { error } = e;
+
+      if (error === "not-allowed" || error === "service-not-allowed") {
+        isListeningRef.current = false;
+        setIsListening(false);
+        toast({
+          title: "Mic blocked",
+          description:
+            "Please allow microphone access in your browser settings.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (error === "aborted") {
+        // We stopped recognition ourselves – onend will handle state cleanup.
+        return;
+      }
+
+      // no-speech, network, audio-capture → onend will auto-restart
+    };
+
+    rec.onresult = (event: any) => {
+      // Only process NEW results (from resultIndex onward) to avoid
+      // double-counting segments finalized in previous events.
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          finalT += event.results[i][0].transcript;
+        }
+      }
+
+      // Collect all current interim (in-progress) words for live preview
+      let interim = "";
+      for (let i = 0; i < event.results.length; i++) {
+        if (!event.results[i].isFinal) {
+          interim += event.results[i][0].transcript;
+        }
+      }
+
+      // Show confirmed text + in-flight text as a live preview
+      setInput(finalT + interim);
+    };
+
+    try {
+      rec.start();
+    } catch (err) {
+      console.error("Recognition start failed:", err);
+      isListeningRef.current = false;
+      setIsListening(false);
+    }
   };
 
   const stepIcons: Record<Step, any> = {
-    destination: MapPin, dates: Calendar, budget: Wallet, travelers: Users,
-    transport: Plane, food: Utensils, accommodation: Heart, pace: Zap,
-    interests: CheckCircle2, confirm: CheckCircle2,
+    destination: MapPin,
+    dates: Calendar,
+    budget: Wallet,
+    travelers: Users,
+    transport: Plane,
+    food: Utensils,
+    accommodation: Heart,
+    pace: Zap,
+    interests: CheckCircle2,
+    confirm: CheckCircle2,
   };
 
-  const steps: Step[] = ["destination", "dates", "budget", "travelers", "transport", "food", "accommodation", "pace", "interests", "confirm"];
+  const steps: Step[] = [
+    "destination",
+    "dates",
+    "budget",
+    "travelers",
+    "transport",
+    "food",
+    "accommodation",
+    "pace",
+    "interests",
+    "confirm",
+  ];
   const currentIdx = steps.indexOf(step);
 
   return (
@@ -365,21 +675,34 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
       {/* Progress bar */}
       <div className="px-5 pt-4 pb-2">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="font-semibold text-card-foreground text-sm">Plan Your Trip</h3>
-          <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
+          <h3 className="font-semibold text-card-foreground text-sm">
+            Plan Your Trip
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Cancel
+          </button>
         </div>
         <div className="flex items-center gap-0.5">
           {steps.map((s, i) => {
             const Icon = stepIcons[s];
             return (
               <div key={s} className="flex items-center gap-0.5 flex-1">
-                <div className={`w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
-                  i <= currentIdx ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-                }`}>
+                <div
+                  className={`w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
+                    i <= currentIdx
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
                   <Icon className="w-2.5 h-2.5" />
                 </div>
                 {i < steps.length - 1 && (
-                  <div className={`flex-1 h-0.5 rounded transition-colors ${i < currentIdx ? "bg-primary" : "bg-muted"}`} />
+                  <div
+                    className={`flex-1 h-0.5 rounded transition-colors ${i < currentIdx ? "bg-primary" : "bg-muted"}`}
+                  />
                 )}
               </div>
             );
@@ -388,53 +711,70 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
       </div>
 
       {/* Chat messages */}
-      <div ref={scrollRef} className="h-[320px] overflow-y-auto px-4 py-3 space-y-3">
+      <div
+        ref={scrollRef}
+        className="h-[320px] overflow-y-auto px-4 py-3 space-y-3"
+      >
         {messages.map((m, i) => (
           <div key={i}>
-            <div className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${
-                m.role === "user" ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-secondary text-secondary-foreground rounded-bl-sm"
-              }`}>
+            <div
+              className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
+            >
+              <div
+                className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${
+                  m.role === "user"
+                    ? "bg-primary text-primary-foreground rounded-br-sm"
+                    : "bg-secondary text-secondary-foreground rounded-bl-sm"
+                }`}
+              >
                 {m.role === "bot" ? (
                   <div className="prose prose-sm max-w-none [&_p]:m-0 [&_ul]:my-1 [&_li]:my-0 text-secondary-foreground">
                     <ReactMarkdown>{m.content}</ReactMarkdown>
                   </div>
-                ) : m.content}
+                ) : (
+                  m.content
+                )}
               </div>
             </div>
             {/* Options */}
-            {m.role === "bot" && m.options && m.options.length > 0 && i === messages.length - 1 && (
-              <div className="flex flex-wrap gap-2 mt-2 ml-1">
-                {m.options.map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => handleOptionClick(opt)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
-                      step === "interests" && selectedInterests.includes(opt.value)
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-primary/10 text-primary border-primary/20 hover:bg-primary/20"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-                {step === "interests" && (
-                  <button
-                    onClick={confirmInterests}
-                    className="px-4 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold"
-                  >
-                    Done ✓
-                  </button>
-                )}
-              </div>
-            )}
+            {m.role === "bot" &&
+              m.options &&
+              m.options.length > 0 &&
+              i === messages.length - 1 && (
+                <div className="flex flex-wrap gap-2 mt-2 ml-1">
+                  {m.options.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => handleOptionClick(opt)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                        step === "interests" &&
+                        selectedInterests.includes(opt.value)
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-primary/10 text-primary border-primary/20 hover:bg-primary/20"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                  {step === "interests" && (
+                    <button
+                      onClick={confirmInterests}
+                      className="px-4 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold"
+                    >
+                      Done ✓
+                    </button>
+                  )}
+                </div>
+              )}
           </div>
         ))}
         {(aiLoading || creating) && (
           <div className="flex justify-start">
             <div className="bg-secondary px-3 py-2 rounded-xl rounded-bl-sm flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-              <span className="text-[11px] text-muted-foreground">{creating ? "Creating trip..." : "Getting suggestions..."}</span>
+              <span className="text-[11px] text-muted-foreground">
+                {creating ? "Creating trip..." : "Getting suggestions..."}
+              </span>
             </div>
           </div>
         )}
@@ -443,17 +783,33 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
       {/* Input */}
       <div className="p-3 border-t border-border">
         <div className="flex items-center gap-2">
-          <button onClick={startVoice} className={`p-2 rounded-lg transition-colors ${isListening ? "bg-destructive text-destructive-foreground animate-pulse" : "hover:bg-secondary text-muted-foreground"}`}>
-            {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+          <button
+            onClick={startVoice}
+            className={`p-2 rounded-lg transition-colors ${isListening ? "bg-destructive text-destructive-foreground animate-pulse" : "hover:bg-secondary text-muted-foreground"}`}
+          >
+            {isListening ? (
+              <MicOff className="w-4 h-4" />
+            ) : (
+              <Mic className="w-4 h-4" />
+            )}
           </button>
           <input
-            type="text" value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleInput(input)}
-            placeholder={step === "interests" ? "Or type your interests..." : "Type your answer..."}
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleInput(input)}
+            placeholder={
+              step === "interests"
+                ? "Or type your interests..."
+                : "Type your answer..."
+            }
             className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
-          <button onClick={() => handleInput(input)} disabled={!input.trim()} className="p-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
+          <button
+            onClick={() => handleInput(input)}
+            disabled={!input.trim()}
+            className="p-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+          >
             <Send className="w-4 h-4" />
           </button>
         </div>
