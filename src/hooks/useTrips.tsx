@@ -2,6 +2,19 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
 
+// Shared query options for offline persistence
+// staleTime: data stays "fresh" for 10 min → no re-fetch on tab focus
+// gcTime:    cache is kept for 24 h → survives page refresh in memory
+const OFFLINE_QUERY_OPTIONS = {
+  staleTime: 1000 * 60 * 10, // 10 minutes
+  gcTime: 1000 * 60 * 60 * 24, // 24 hours
+  retry: (failureCount: number, error: unknown) => {
+    // Don't retry when offline — just use stale cache
+    if (!navigator.onLine) return false;
+    return failureCount < 2;
+  },
+} as const;
+
 export function useTrips() {
   const { user } = useAuth();
 
@@ -16,6 +29,7 @@ export function useTrips() {
       return data;
     },
     enabled: !!user,
+    ...OFFLINE_QUERY_OPTIONS,
   });
 }
 
@@ -60,6 +74,7 @@ export function useTrip(tripId: string | undefined) {
       return data;
     },
     enabled: !!tripId,
+    ...OFFLINE_QUERY_OPTIONS,
   });
 }
 
@@ -76,6 +91,7 @@ export function useItineraries(tripId: string | undefined) {
       return data;
     },
     enabled: !!tripId,
+    ...OFFLINE_QUERY_OPTIONS,
   });
 }
 
@@ -92,5 +108,6 @@ export function useActivities(itineraryId: string | undefined) {
       return data;
     },
     enabled: !!itineraryId,
+    ...OFFLINE_QUERY_OPTIONS,
   });
 }

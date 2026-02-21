@@ -64,6 +64,8 @@ import ItineraryReasoningPanel, {
 } from "@/components/ItineraryReasoning";
 import SOSPanel from "@/components/SOSPanel";
 import UPIPayment from "@/components/UPIPayment";
+import OfflineSaveButton from "@/components/OfflineSaveButton";
+import { useOnlineStatus } from "@/hooks/useOfflineTrip";
 
 const typeIcons: Record<string, React.ReactNode> = {
   food: <Utensils className="w-4 h-4" />,
@@ -90,6 +92,7 @@ export default function Itinerary() {
   const { data: activities = [] } = useActivities(activeItinerary?.id);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const isOnline = useOnlineStatus();
 
   // Fetch trip members for expense splitting
   const { data: tripMembers = [] } = useQuery({
@@ -636,9 +639,24 @@ export default function Itinerary() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4 md:mb-6">
           <div className="min-w-0">
-            <h1 className="text-xl md:text-2xl font-bold text-foreground truncate">
-              {trip.name}
-            </h1>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl md:text-2xl font-bold text-foreground truncate">
+                {trip.name}
+              </h1>
+              {/* Online / Offline indicator */}
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${
+                  isOnline
+                    ? "bg-success/10 text-success border-success/20"
+                    : "bg-warning/10 text-warning border-warning/20"
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-success" : "bg-warning"}`}
+                />
+                {isOnline ? "Online" : "Offline"}
+              </span>
+            </div>
             <p className="text-sm text-muted-foreground mt-1">
               {trip.destination} · Budget:{" "}
               {formatCurrency(Number(trip.budget_total), trip.country)} ·{" "}
@@ -646,6 +664,8 @@ export default function Itinerary() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
+            {/* Save Offline button */}
+            <OfflineSaveButton trip={trip as Record<string, unknown>} />
             <button
               onClick={() => {
                 // Download itinerary as text file

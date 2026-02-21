@@ -146,6 +146,73 @@ export default defineConfig(({ mode }) => ({
               expiration: { maxEntries: 30, maxAgeSeconds: 60 * 15 },
             },
           },
+          // ── OpenStreetMap tiles — CacheFirst (30 days) ──────────────────
+          {
+            urlPattern: /^https:\/\/[abc]\.tile\.openstreetmap\.org\/.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "osm-tiles-offline",
+              expiration: {
+                maxEntries: 2000,
+                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+              },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          // ── Supabase REST API — NetworkFirst with 24h offline fallback ──
+          {
+            urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/.*/i,
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "supabase-rest-cache",
+              expiration: {
+                maxEntries: 200,
+                maxAgeSeconds: 60 * 60 * 24, // 24 hours
+              },
+              networkTimeoutSeconds: 8,
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          // ── Nominatim geocoding — StaleWhileRevalidate (7 days) ─────────
+          {
+            urlPattern: /^https:\/\/nominatim\.openstreetmap\.org\/.*/i,
+            handler: "StaleWhileRevalidate",
+            options: {
+              cacheName: "nominatim-cache",
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 60 * 60 * 24 * 7, // 7 days
+              },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          // ── OpenTripMap — StaleWhileRevalidate (24h) ─────────────────────
+          {
+            urlPattern: /^https:\/\/api\.opentripmap\.com\/.*/i,
+            handler: "StaleWhileRevalidate",
+            options: {
+              cacheName: "opentripmap-cache",
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 60 * 60 * 24,
+              },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          // ── Open-Meteo weather — NetworkFirst (15 min) ────────────────────
+          {
+            urlPattern: /^https:\/\/api\.open-meteo\.com\/.*/i,
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "weather-cache",
+              expiration: {
+                maxEntries: 50,
+                maxAgeSeconds: 60 * 15,
+              },
+              networkTimeoutSeconds: 6,
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
         ],
         navigateFallback: "index.html",
         navigateFallbackDenylist: [/^\/api\//],

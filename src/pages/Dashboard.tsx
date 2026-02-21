@@ -10,17 +10,20 @@ import {
   User,
   Globe,
   Trash2,
+  WifiOff,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
 import { useAuth } from "@/hooks/useAuth";
 import { useTrips } from "@/hooks/useTrips";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import TravelMemory from "@/components/TravelMemory";
 import TripCreationChat from "@/components/TripCreationChat";
+import { useOnlineStatus } from "@/hooks/useOfflineTrip";
+import { getAllOfflineTrips } from "@/services/offlineTrip";
 
 import destinationAgra from "@/assets/destination-agra.jpg";
 import destinationGoa from "@/assets/destination-goa.jpg";
@@ -79,6 +82,15 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
   const [showNewTrip, setShowNewTrip] = useState(false);
   const [selectedTripType, setSelectedTripType] = useState("solo");
+  const isOnline = useOnlineStatus();
+  const [offlineTripIds, setOfflineTripIds] = useState<Set<string>>(new Set());
+
+  // Load offline-saved trip IDs on mount
+  useEffect(() => {
+    getAllOfflineTrips().then((data) => {
+      setOfflineTripIds(new Set(data.map((d) => d.tripId)));
+    });
+  }, []);
 
   const userName =
     user?.user_metadata?.name || user?.email?.split("@")[0] || "Traveler";
@@ -136,11 +148,22 @@ export default function Dashboard() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl lg:text-2xl font-bold text-foreground">
-              Good Morning, {userName} 👋
-            </h1>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl lg:text-2xl font-bold text-foreground">
+                Good Morning, {userName} 👋
+              </h1>
+              {/* Global online/offline indicator */}
+              {!isOnline && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-warning/10 text-warning border border-warning/20">
+                  <WifiOff className="w-3 h-3" />
+                  Offline Mode
+                </span>
+              )}
+            </div>
             <p className="text-muted-foreground text-sm mt-0.5">
-              Plan your itinerary with us
+              {isOnline
+                ? "Plan your itinerary with us"
+                : "Viewing cached data — some features unavailable offline"}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -270,7 +293,7 @@ export default function Dashboard() {
                           {daysLeft > 0 ? `${daysLeft} days left` : "Started"}
                         </span>
                       </div>
-                      <div className="absolute top-3 left-3 flex gap-1.5">
+                      <div className="absolute top-3 left-3 flex gap-1.5 flex-wrap">
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-semibold text-primary-foreground ${
                             trip.status === "planning"
@@ -287,6 +310,13 @@ export default function Dashboard() {
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-card/80 text-card-foreground backdrop-blur-sm">
                           {duration} day{duration > 1 ? "s" : ""}
                         </span>
+                        {/* Offline saved badge */}
+                        {offlineTripIds.has(trip.id) && (
+                          <span className="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-success/80 text-white backdrop-blur-sm">
+                            <WifiOff className="w-2.5 h-2.5" />
+                            Offline
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="p-4">
