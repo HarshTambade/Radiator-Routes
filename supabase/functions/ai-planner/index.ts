@@ -1,146 +1,441 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
+// ─── CORS ────────────────────────────────────────────────────────────────────
+
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const AI_GATEWAY_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
+// ─── HuggingFace config ───────────────────────────────────────────────────────
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
+const HF_API_URL = "https://router.huggingface.co/v1/chat/completions";
+const HF_MODEL = "mistralai/Mistral-7B-Instruct-v0.3";
+
+// Maximum tokens — kept deliberately small so free-tier HF doesn't reject/timeout
+const MAX_TOKENS_PLAN = 2048;
+const MAX_TOKENS_REGRET = 3000;
+const MAX_TOKENS_INTENT = 512;
+
+// Supabase Edge Functions have a 60-second wall-clock limit.
+// We give HF 45 seconds so we still have time to respond.
+const HF_TIMEOUT_MS = 45_000;
+
+// ─── Response helpers ─────────────────────────────────────────────────────────
+
+function jsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function errorResponse(message: string, status = 500): Response {
+  return jsonResponse({ error: message }, status);
+}
+
+// ─── HuggingFace caller ───────────────────────────────────────────────────────
+
+async function callHF(
+  apiKey: string,
+  systemPrompt: string,
+  userPrompt: string,
+  temperature = 0.7,
+  maxTokens = MAX_TOKENS_PLAN,
+): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HF_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(HF_API_URL, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: HF_MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature,
+        max_tokens: maxTokens,
+        stream: false,
+      }),
+    });
+  } catch (err) {
+    if ((err as Error).name === "AbortError") {
+      throw new Error("TIMEOUT");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    console.error(`HF error ${res.status}:`, body);
+    if (res.status === 429) throw new Error("RATE_LIMIT");
+    if (res.status === 402) throw new Error("QUOTA_EXCEEDED");
+    if (res.status === 401) throw new Error("INVALID_API_KEY");
+    throw new Error(`HF_ERROR_${res.status}`);
+  }
+
+  const data = await res.json();
+  const content: string = data?.choices?.[0]?.message?.content ?? "";
+  return content;
+}
+
+// ─── JSON extraction — multiple strategies ────────────────────────────────────
+
+function extractJSON(raw: string): unknown {
+  if (!raw || raw.trim() === "") {
+    throw new Error("Empty response from AI");
+  }
+
+  // Strategy 1 — try the whole string first (model returned pure JSON)
+  try {
+    return JSON.parse(raw.trim());
+  } catch {
+    /* continue */
+  }
+
+  // Strategy 2 — strip markdown code fences  ```json ... ```
+  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenceMatch) {
+    try {
+      return JSON.parse(fenceMatch[1].trim());
+    } catch {
+      /* continue */
+    }
+  }
+
+  // Strategy 3 — find the outermost { ... } block
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    try {
+      return JSON.parse(raw.slice(start, end + 1));
+    } catch {
+      /* continue */
+    }
+  }
+
+  // Strategy 4 — find the outermost [ ... ] block (array response)
+  const aStart = raw.indexOf("[");
+  const aEnd = raw.lastIndexOf("]");
+  if (aStart !== -1 && aEnd !== -1 && aEnd > aStart) {
+    try {
+      return JSON.parse(raw.slice(aStart, aEnd + 1));
+    } catch {
+      /* continue */
+    }
+  }
+
+  console.error("Could not extract JSON from AI response:", raw.slice(0, 500));
+  throw new Error("AI returned unreadable content. Please try again.");
+}
+
+// ─── HF error → HTTP response ─────────────────────────────────────────────────
+
+function handleHFError(err: unknown): Response {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg === "RATE_LIMIT")
+    return errorResponse(
+      "AI rate limit hit — please wait a moment and try again.",
+      429,
+    );
+  if (msg === "QUOTA_EXCEEDED")
+    return errorResponse("HuggingFace quota exceeded. Check your plan.", 402);
+  if (msg === "INVALID_API_KEY")
+    return errorResponse("HuggingFace API key is invalid or expired.", 401);
+  if (msg === "TIMEOUT")
+    return errorResponse(
+      "AI took too long to respond (>45 s). Try again or use a shorter trip.",
+      504,
+    );
+  return errorResponse(msg, 500);
+}
+
+// ─── Traveler memory loader ───────────────────────────────────────────────────
+
+async function loadMemoryContext(authHeader: string | null): Promise<string> {
+  if (!authHeader) return "";
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY");
+  if (!supabaseUrl || !supabaseKey) return "";
+
+  try {
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return "";
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("preferences, travel_personality, travel_history")
+      .eq("id", user.id)
+      .single();
+
+    if (!profile) return "";
+
+    const prefs = (profile.preferences as Record<string, unknown>) ?? {};
+    const personality =
+      (profile.travel_personality as Record<string, unknown>) ?? {};
+    const history = (profile.travel_history as unknown[]) ?? [];
+
+    if (!Object.keys(prefs).length && !Object.keys(personality).length)
+      return "";
+
+    let ctx = "\n\n## TRAVELER MEMORY (personalise the plan based on this):\n";
+
+    const p = personality as Record<string, string>;
+    if (p.type)
+      ctx += `- Personality: ${p.type}${p.description ? ` (${p.description})` : ""}\n`;
+
+    const pref = prefs as Record<string, unknown>;
+    if (pref.preferred_pace)
+      ctx += `- Preferred pace: ${pref.preferred_pace}\n`;
+    if (
+      Array.isArray(pref.favorite_categories) &&
+      pref.favorite_categories.length
+    )
+      ctx += `- Favourite activities: ${(pref.favorite_categories as string[]).join(", ")}\n`;
+    if (
+      Array.isArray(pref.cuisine_preferences) &&
+      pref.cuisine_preferences.length
+    )
+      ctx += `- Cuisine preferences: ${(pref.cuisine_preferences as string[]).join(", ")}\n`;
+    if (pref.accommodation_style)
+      ctx += `- Accommodation: ${pref.accommodation_style}\n`;
+    if (pref.transport_preference)
+      ctx += `- Transport: ${pref.transport_preference}\n`;
+    if (pref.avg_daily_budget)
+      ctx += `- Avg daily budget: ₹${pref.avg_daily_budget}\n`;
+
+    const destinations = history
+      .map((h) =>
+        typeof h === "object" && h !== null
+          ? (h as Record<string, string>).destination
+          : String(h),
+      )
+      .filter(Boolean)
+      .join(", ");
+    if (destinations) ctx += `- Past destinations: ${destinations}\n`;
+
+    ctx +=
+      "\nIMPORTANT: Tailor activities, restaurants, pace, and budget allocation to the traveler's profile above.\n";
+    return ctx;
+  } catch (e) {
+    console.error("Memory load error (non-fatal):", e);
+    return "";
+  }
+}
+
+// ─── Today's date in IST ──────────────────────────────────────────────────────
+
+function todayIST(): string {
+  return new Date(Date.now() + 5.5 * 60 * 60 * 1000)
+    .toISOString()
+    .split("T")[0];
+}
+
+// ─── Main handler ─────────────────────────────────────────────────────────────
+
+Deno.serve(async (req: Request) => {
+  // CORS preflight
+  if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
+  if (req.method !== "POST") {
+    return errorResponse("Method not allowed", 405);
+  }
+
+  // ── Parse body ──────────────────────────────────────────────────────────────
+  let body: Record<string, unknown>;
   try {
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) throw new Error('LOVABLE_API_KEY is not configured');
+    body = await req.json();
+  } catch {
+    return errorResponse("Invalid JSON body", 400);
+  }
 
-    const { action, ...params } = await req.json();
+  if (!body || typeof body.action !== "string") {
+    return errorResponse(
+      "Request body must include a string 'action' field",
+      400,
+    );
+  }
 
-    // Load user memory if auth header present
-    let memoryContext = '';
-    const authHeader = req.headers.get('Authorization');
-    if (authHeader) {
-      try {
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-        const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-        const supabase = createClient(supabaseUrl, supabaseKey, {
-          global: { headers: { Authorization: authHeader } },
-        });
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data: profile } = await supabase.from('profiles').select('preferences, travel_personality, travel_history').eq('id', user.id).single();
-          if (profile) {
-            const prefs = profile.preferences as Record<string, any> || {};
-            const personality = profile.travel_personality as Record<string, any> || {};
-            const history = profile.travel_history as any[] || [];
-            if (Object.keys(prefs).length > 0 || Object.keys(personality).length > 0) {
-              memoryContext = `\n\n## TRAVELER MEMORY (Use this to personalize the plan):\n`;
-              if (personality.type) memoryContext += `- Personality: ${personality.type} (${personality.description || ''})\n`;
-              if (prefs.preferred_pace) memoryContext += `- Preferred pace: ${prefs.preferred_pace}\n`;
-              if (prefs.favorite_categories?.length) memoryContext += `- Favorite activities: ${prefs.favorite_categories.join(', ')}\n`;
-              if (prefs.cuisine_preferences?.length) memoryContext += `- Cuisine preferences: ${prefs.cuisine_preferences.join(', ')}\n`;
-              if (prefs.accommodation_style) memoryContext += `- Accommodation: ${prefs.accommodation_style}\n`;
-              if (prefs.transport_preference) memoryContext += `- Transport: ${prefs.transport_preference}\n`;
-              if (prefs.time_preference) memoryContext += `- Time preference: ${prefs.time_preference}\n`;
-              if (prefs.avg_daily_budget) memoryContext += `- Avg daily budget: ₹${prefs.avg_daily_budget}\n`;
-              if (history.length > 0) memoryContext += `- Past destinations: ${history.map((h: any) => h.destination || h).join(', ')}\n`;
-              memoryContext += `\nIMPORTANT: Tailor activities, restaurants, pace, and budget allocation based on this traveler's known preferences. Suggest NEW destinations they haven't visited. Match their pace and style.\n`;
-            }
-          }
-        }
-      } catch (e) { console.error('Memory load error:', e); }
-    }
+  const { action, ...params } = body;
 
-    switch (action) {
-      case 'plan-itinerary': {
-        const { destination, days, travelers, budget, interests, tripType } = params;
+  // ── Check API key ───────────────────────────────────────────────────────────
+  const HF_API_KEY = Deno.env.get("HF_API_KEY");
+  if (!HF_API_KEY) {
+    return errorResponse(
+      "HF_API_KEY secret is not configured. Go to Supabase Dashboard → Settings → Edge Functions → Secrets and add it.",
+      500,
+    );
+  }
 
-        const prompt = `You are an expert Indian travel planner. Create a detailed ${days}-day itinerary for ${travelers} travelers going to ${destination}, India.${memoryContext}
+  // ── Load traveler memory (optional) ────────────────────────────────────────
+  const authHeader = req.headers.get("Authorization");
+  const memoryContext = await loadMemoryContext(authHeader);
+
+  // ── Route ───────────────────────────────────────────────────────────────────
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // ACTION: plan-itinerary
+  // ════════════════════════════════════════════════════════════════════════════
+  if (action === "plan-itinerary") {
+    const { destination, days, travelers, budget, interests, tripType } =
+      params as {
+        destination?: string;
+        days?: number;
+        travelers?: number;
+        budget?: number;
+        interests?: string[];
+        tripType?: string;
+      };
+
+    if (!destination) return errorResponse("destination is required", 400);
+    if (!days) return errorResponse("days is required", 400);
+    if (!travelers) return errorResponse("travelers is required", 400);
+    if (!budget) return errorResponse("budget is required", 400);
+
+    const startDate = todayIST();
+
+    const systemPrompt =
+      "You are an expert Indian travel planner. You MUST respond with valid JSON only. " +
+      "No prose, no markdown fences, no explanation — output the JSON object and nothing else.";
+
+    const userPrompt =
+      `Create a ${days}-day travel itinerary for ${travelers} traveller(s) visiting ${destination}, India.` +
+      memoryContext +
+      `
 
 Budget: ₹${budget} INR total
-Trip type: ${tripType || 'leisure'}
-Interests: ${interests?.join(', ') || 'general sightseeing'}
+Trip type: ${tripType ?? "leisure"}
+Interests: ${Array.isArray(interests) && interests.length ? interests.join(", ") : "culture, food, sightseeing"}
+Start date: ${startDate}
 
-Generate a JSON response with the following structure:
+Return EXACTLY this JSON structure (nothing else):
 {
   "activities": [
     {
       "name": "Activity name",
-      "description": "Brief description",
-      "location_name": "Location",
-      "location_lat": 0.0,
-      "location_lng": 0.0,
-      "start_time": "2025-01-01T08:00:00+05:30",
-      "end_time": "2025-01-01T09:30:00+05:30",
-      "category": "food|attraction|transport|shopping|accommodation|other",
+      "description": "1–2 sentence description",
+      "location_name": "Specific place name, City",
+      "location_lat": 12.9716,
+      "location_lng": 77.5946,
+      "start_time": "${startDate}T09:00:00+05:30",
+      "end_time": "${startDate}T11:00:00+05:30",
+      "category": "food",
       "cost": 500,
-      "estimated_steps": 2000,
-      "review_score": 4.5,
+      "estimated_steps": 3000,
+      "review_score": 4.3,
       "priority": 0.8,
-      "notes": "Helpful tip"
+      "notes": "Practical tip for the traveller"
     }
   ],
   "total_cost": 15000,
-  "explanation": "Why this itinerary was chosen"
+  "explanation": "Why this itinerary suits the traveller"
 }
 
-All costs must be in INR (₹). Include realistic Indian destinations, restaurants, and activities. Make activities varied across the day with proper time gaps.`;
+Rules:
+- category must be one of: food, attraction, transport, shopping, accommodation, other
+- All costs in INR (₹)
+- Spread activities across all ${days} days (aim for 3–5 per day)
+- Use realistic Indian lat/lng coordinates for ${destination}
+- Use ISO 8601 timestamps with +05:30 offset
+- Keep total_cost within ₹${budget}`;
 
-        const response = await fetch(AI_GATEWAY_URL, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'google/gemini-3-flash-preview',
-            messages: [
-              { role: 'system', content: 'You are an expert travel planner specializing in Indian destinations. Always respond with valid JSON only.' },
-              { role: 'user', content: prompt },
-            ],
-            temperature: 0.7,
-          }),
-        });
-
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(`AI Gateway error [${response.status}]: ${JSON.stringify(data)}`);
-        }
-
-        const content = data.choices?.[0]?.message?.content || '';
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { error: 'Failed to parse response' };
-
-        return new Response(JSON.stringify(parsed), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+    try {
+      const raw = await callHF(
+        HF_API_KEY,
+        systemPrompt,
+        userPrompt,
+        0.7,
+        MAX_TOKENS_PLAN,
+      );
+      const parsed = extractJSON(raw);
+      return jsonResponse(parsed);
+    } catch (err) {
+      // If the AI itself errored, propagate
+      const msg = err instanceof Error ? err.message : String(err);
+      if (
+        ["RATE_LIMIT", "QUOTA_EXCEEDED", "INVALID_API_KEY", "TIMEOUT"].includes(
+          msg,
+        )
+      ) {
+        return handleHFError(err);
       }
+      // JSON parse / empty response — return a graceful fallback with an error flag
+      console.error("plan-itinerary parse error:", msg);
+      return errorResponse(
+        "The AI returned an unreadable response. Please try again — this usually resolves on retry.",
+        502,
+      );
+    }
+  }
 
-      case 'regret-counterfactual': {
-        const { destination, days, travelers, budget, interests, tripType } = params;
+  // ════════════════════════════════════════════════════════════════════════════
+  // ACTION: regret-counterfactual
+  // ════════════════════════════════════════════════════════════════════════════
+  if (action === "regret-counterfactual") {
+    const { destination, days, travelers, budget, interests, tripType } =
+      params as {
+        destination?: string;
+        days?: number;
+        travelers?: number;
+        budget?: number;
+        interests?: string[];
+        tripType?: string;
+      };
 
-        const prompt = `You are an expert travel planner specializing in regret-aware counterfactual planning. Generate 3 ALTERNATIVE itinerary plans for ${travelers} travelers visiting ${destination} for ${days} days.${memoryContext}
+    if (!destination) return errorResponse("destination is required", 400);
+    if (!days) return errorResponse("days is required", 400);
+    if (!travelers) return errorResponse("travelers is required", 400);
+    if (!budget) return errorResponse("budget is required", 400);
+
+    const startDate = todayIST();
+
+    const systemPrompt =
+      "You are an expert travel planner specialising in regret-aware counterfactual planning. " +
+      "You MUST respond with valid JSON only. No prose, no markdown fences, no explanation — " +
+      "output the JSON object and nothing else.";
+
+    const userPrompt =
+      `Generate exactly 3 alternative itinerary plans for ${travelers} traveller(s) visiting ${destination} for ${days} days.` +
+      memoryContext +
+      `
 
 Budget: ₹${budget} INR total
-Trip type: ${tripType || 'leisure'}
-Interests: ${interests?.join(', ') || 'general sightseeing'}
+Trip type: ${tripType ?? "leisure"}
+Interests: ${Array.isArray(interests) && interests.length ? interests.join(", ") : "culture, food, sightseeing"}
+Start date: ${startDate}
 
-Generate EXACTLY 3 plans with different strategies:
+The 3 plans must be:
+1. variant "budget"     — Minimise cost. Street food, free attractions, budget stays.
+2. variant "balanced"   — Best value. Mix of paid/free, mid-range dining.
+3. variant "experience" — Maximise unique experiences within budget. Premium choices.
 
-1. **Budget Focused** — Minimize cost while still having a good trip. Use budget hotels, street food, free attractions. Stay well under budget.
-2. **Balanced** — Best value for money. Mix of paid and free activities, mid-range dining, popular attractions. Optimal time management.
-3. **Experience Focused** — Maximize unique experiences regardless of cost (but stay within budget). Premium restaurants, exclusive tours, unique local experiences.
+Risk metrics are 0–100:
+- fatigue_level: higher = more exhausting (more activities / walking / early starts)
+- budget_overrun_risk: budget=15, balanced=40, experience=70
+- experience_quality: budget=50, balanced=70, experience=90
 
-For EACH plan, you must calculate these risk metrics (0-100 scale):
-- fatigue_level: Physical exhaustion risk. More activities, walking, early starts = higher fatigue. Budget plans with more walking = moderate. Experience plans with packed schedules = high.
-- budget_overrun_risk: Probability of exceeding budget. Budget plans = low (10-25). Balanced = moderate (30-50). Experience = high (50-80).
-- experience_quality: Overall quality of experiences. Budget = moderate (40-60). Balanced = good (60-75). Experience = excellent (80-95).
-
-Return this exact JSON structure:
+Return EXACTLY this JSON (nothing else):
 {
   "plans": [
     {
@@ -155,116 +450,158 @@ Return this exact JSON structure:
       "activities": [
         {
           "name": "Activity name",
-          "description": "Brief description",
-          "location_name": "Location",
-          "start_time": "2025-01-01T08:00:00+05:30",
-          "end_time": "2025-01-01T09:30:00+05:30",
-          "category": "food|attraction|transport|shopping",
-          "cost": 200,
-          "estimated_steps": 3000,
+          "description": "1–2 sentence description",
+          "location_name": "Place, City",
+          "location_lat": 12.9716,
+          "location_lng": 77.5946,
+          "start_time": "${startDate}T09:00:00+05:30",
+          "end_time": "${startDate}T10:30:00+05:30",
+          "category": "attraction",
+          "cost": 0,
+          "estimated_steps": 4000,
           "review_score": 4.2,
           "priority": 0.7,
-          "notes": "Tip"
+          "notes": "Practical tip"
         }
       ],
-      "daily_summary": ["Day 1: ...", "Day 2: ..."],
-      "pros": ["Cheap", "Authentic"],
-      "cons": ["Fewer premium experiences"]
+      "daily_summary": ["Day 1: Morning temple visit, afternoon market, evening street food"],
+      "pros": ["Very affordable", "Authentic local experience"],
+      "cons": ["Fewer premium experiences", "More walking"]
     },
     {
       "variant": "balanced",
       "label": "Balanced",
-      ...same structure...
+      "tagline": "Best value for money",
+      "total_cost": 20000,
+      "fatigue_level": 45,
+      "budget_overrun_risk": 40,
+      "experience_quality": 70,
+      "regret_score": 0.20,
+      "activities": [],
+      "daily_summary": [],
+      "pros": [],
+      "cons": []
     },
     {
       "variant": "experience",
       "label": "Experience Focused",
-      ...same structure...
+      "tagline": "Premium experiences, lasting memories",
+      "total_cost": 28000,
+      "fatigue_level": 60,
+      "budget_overrun_risk": 70,
+      "experience_quality": 90,
+      "regret_score": 0.10,
+      "activities": [],
+      "daily_summary": [],
+      "pros": [],
+      "cons": []
     }
   ],
   "recommendation": "balanced",
-  "comparison_note": "Brief explanation of trade-offs between the 3 plans"
+  "comparison_note": "Brief explanation of trade-offs"
 }
 
-IMPORTANT:
+Rules:
+- Fill ALL 3 plans with real activities (aim for ${Math.max(2, days) * 3}–${Math.max(2, days) * 4} activities each)
+- category must be one of: food, attraction, transport, shopping, accommodation, other
 - All costs in INR (₹)
-- Activities should have realistic Indian locations with approximate lat/lng
-- Each plan should have ${days * 4}-${days * 6} activities spread across all days
-- The regret_score should be 0.0-1.0 where lower = less regret (budget plans have higher regret on experience, experience plans have higher regret on budget)
-- Make start_time/end_time use the proper date range starting from tomorrow`;
+- Use realistic Indian lat/lng for ${destination}
+- Use ISO 8601 timestamps with +05:30 offset
+- regret_score: 0.0–1.0, lower = less regret`;
 
-        const response = await fetch(AI_GATEWAY_URL, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'google/gemini-3-flash-preview',
-            messages: [
-              { role: 'system', content: 'You are an expert travel planner. Always respond with valid JSON only. No markdown, no explanation, just JSON.' },
-              { role: 'user', content: prompt },
-            ],
-            temperature: 0.8,
-          }),
-        });
-
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(`AI Gateway error [${response.status}]: ${JSON.stringify(data)}`);
-        }
-
-        const content = data.choices?.[0]?.message?.content || '';
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { error: 'Failed to parse response' };
-
-        return new Response(JSON.stringify(parsed), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+    try {
+      const raw = await callHF(
+        HF_API_KEY,
+        systemPrompt,
+        userPrompt,
+        0.7,
+        MAX_TOKENS_REGRET,
+      );
+      const parsed = extractJSON(raw);
+      return jsonResponse(parsed);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (
+        ["RATE_LIMIT", "QUOTA_EXCEEDED", "INVALID_API_KEY", "TIMEOUT"].includes(
+          msg,
+        )
+      ) {
+        return handleHFError(err);
       }
-
-      case 'extract-intent': {
-        const { transcript } = params;
-        
-        const response = await fetch(AI_GATEWAY_URL, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'google/gemini-3-flash-preview',
-            messages: [
-              { role: 'system', content: 'Extract structured travel intent from user input. Respond ONLY with valid JSON.' },
-              { role: 'user', content: `Extract travel intent from: "${transcript}"\n\nReturn JSON: { "destination": string|null, "start_date": string|null, "duration_days": number|null, "travelers_count": number|null, "budget_range": {"min": number, "max": number}|null, "interests": string[], "trip_type": "solo"|"couple"|"friends"|"family"|null, "confidence": 0.0-1.0 }` },
-            ],
-            temperature: 0,
-          }),
-        });
-
-        const data = await response.json();
-        if (!response.ok) throw new Error(`AI error [${response.status}]: ${JSON.stringify(data)}`);
-
-        const content = data.choices?.[0]?.message?.content || '{}';
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
-
-        return new Response(JSON.stringify(parsed), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      default:
-        throw new Error(`Unknown action: ${action}`);
+      console.error("regret-counterfactual parse error:", msg);
+      return errorResponse(
+        "The AI returned an unreadable response. Please try again — this usually resolves on retry.",
+        502,
+      );
     }
-  } catch (error: unknown) {
-    console.error('AI Planner error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
   }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // ACTION: extract-intent
+  // ════════════════════════════════════════════════════════════════════════════
+  if (action === "extract-intent") {
+    const { transcript } = params as { transcript?: string };
+    if (!transcript || transcript.trim() === "") {
+      return errorResponse("transcript is required", 400);
+    }
+
+    const systemPrompt =
+      "You extract structured travel intent from natural-language input. " +
+      "Respond ONLY with valid JSON — no prose, no markdown fences.";
+
+    const userPrompt = `Extract the travel intent from this text: "${transcript.trim()}"
+
+Return EXACTLY this JSON (use null where information is missing):
+{
+  "destination": "City name or null",
+  "start_date": "YYYY-MM-DD or null",
+  "duration_days": 3,
+  "travelers_count": 1,
+  "budget_range": { "min": 10000, "max": 50000 },
+  "interests": ["sightseeing", "food"],
+  "trip_type": "solo",
+  "confidence": 0.85
+}
+
+trip_type must be one of: solo, couple, friends, family, or null.`;
+
+    try {
+      const raw = await callHF(
+        HF_API_KEY,
+        systemPrompt,
+        userPrompt,
+        0.0,
+        MAX_TOKENS_INTENT,
+      );
+      const parsed = extractJSON(raw);
+      return jsonResponse(parsed);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (
+        ["RATE_LIMIT", "QUOTA_EXCEEDED", "INVALID_API_KEY", "TIMEOUT"].includes(
+          msg,
+        )
+      ) {
+        return handleHFError(err);
+      }
+      // For intent extraction a parse error is recoverable — return empty intent
+      console.error("extract-intent parse error:", msg);
+      return jsonResponse({
+        destination: null,
+        start_date: null,
+        duration_days: null,
+        travelers_count: null,
+        budget_range: null,
+        interests: [],
+        trip_type: null,
+        confidence: 0,
+      });
+    }
+  }
+
+  // ── Unknown action ──────────────────────────────────────────────────────────
+  return errorResponse(
+    `Unknown action: "${action}". Supported actions: plan-itinerary, regret-counterfactual, extract-intent`,
+    400,
+  );
 });
