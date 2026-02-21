@@ -13,11 +13,11 @@ import {
   UserCircle,
   AlertTriangle,
   Accessibility,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useTrips } from "@/hooks/useTrips";
-import SOSPanel from "@/components/SOSPanel";
-import AccessibilityPanel from "@/components/AccessibilityPanel";
 
 const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
@@ -32,223 +32,238 @@ const discoverItems = [
   { title: "Profile", url: "/profile", icon: UserCircle },
 ];
 
-export function AppSidebar() {
+interface AppSidebarProps {
+  onSOSOpen?: () => void;
+  onA11yOpen?: () => void;
+  /** When rendered inside mobile drawer, skip the fixed height + collapse toggle */
+  mobileDrawer?: boolean;
+}
+
+export function AppSidebar({
+  onSOSOpen,
+  onA11yOpen,
+  mobileDrawer = false,
+}: AppSidebarProps) {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
-  const [showSOS, setShowSOS] = useState(false);
-  const [showA11y, setShowA11y] = useState(false);
   const { user, signOut } = useAuth();
   const { data: trips = [] } = useTrips();
 
-  const isActive = (url: string) => location.pathname === url;
+  const isActive = (url: string) => {
+    if (url === "/itinerary") return location.pathname.startsWith("/itinerary");
+    return location.pathname === url;
+  };
+
   const userName =
     user?.user_metadata?.name || user?.email?.split("@")[0] || "Traveler";
 
+  const effectiveCollapsed = mobileDrawer ? false : collapsed;
+
   return (
     <aside
-      className={`flex flex-col h-screen bg-card border-r border-border transition-all duration-300 ${
-        collapsed ? "w-[68px]" : "w-[260px]"
-      } shrink-0`}
+      className={`
+        flex flex-col bg-card border-r border-border
+        transition-all duration-300 overflow-hidden
+        ${
+          mobileDrawer
+            ? "w-full min-h-full"
+            : effectiveCollapsed
+              ? "w-[68px] h-screen"
+              : "w-[240px] h-screen"
+        }
+      `}
     >
-      {/* Brand */}
-      <div className="p-4 border-b border-border">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shrink-0">
-            <MapPin className="w-5 h-5 text-primary-foreground" />
-          </div>
-          {!collapsed && (
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-card-foreground truncate">
-                Radiator Routes
-              </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {userName}
-              </p>
+      {/* ── Brand ── */}
+      {!mobileDrawer && (
+        <div className="shrink-0 flex items-center justify-between px-4 py-3.5 border-b border-border">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center shrink-0">
+              <MapPin className="w-4 h-4 text-primary-foreground" />
             </div>
-          )}
+            {!effectiveCollapsed && (
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-card-foreground truncate leading-tight">
+                  Radiator Routes
+                </p>
+                <p className="text-[10px] text-muted-foreground truncate leading-tight">
+                  {userName}
+                </p>
+              </div>
+            )}
+          </div>
+          {/* Collapse toggle */}
+          <button
+            onClick={() => setCollapsed((v) => !v)}
+            className="shrink-0 w-6 h-6 rounded-lg hover:bg-secondary transition-colors flex items-center justify-center"
+            aria-label={
+              effectiveCollapsed ? "Expand sidebar" : "Collapse sidebar"
+            }
+          >
+            {effectiveCollapsed ? (
+              <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+            ) : (
+              <ChevronLeft className="w-3.5 h-3.5 text-muted-foreground" />
+            )}
+          </button>
         </div>
-      </div>
+      )}
 
-      {/* New Trip Button */}
-      <div className="px-3 pt-4">
+      {/* ── New Trip Button ── */}
+      <div className={`shrink-0 px-3 pt-3 ${mobileDrawer ? "pb-1" : ""}`}>
         <Link
           to="/dashboard"
-          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 transition-opacity"
+          className={`flex items-center justify-center gap-2 py-2 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 transition-opacity ${
+            effectiveCollapsed ? "px-0" : "px-3"
+          }`}
         >
-          <Plus className="w-4 h-4" />
-          {!collapsed && <span>New Trip</span>}
+          <Plus className="w-4 h-4 shrink-0" />
+          {!effectiveCollapsed && <span>New Trip</span>}
         </Link>
       </div>
 
-      {/* Trips from DB */}
-      {!collapsed && trips.length > 0 && (
-        <div className="px-3 pt-5">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-2">
-            My Trips
-          </p>
-          <div className="space-y-1 max-h-40 overflow-y-auto">
-            {trips.map((trip) => (
+      {/* ── Scrollable Middle Section ── */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-1 min-h-0">
+        {/* My Trips */}
+        {!effectiveCollapsed && trips.length > 0 && (
+          <div className="px-3 pt-2 pb-1">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1.5">
+              My Trips
+            </p>
+            <div className="space-y-0.5">
+              {trips.slice(0, 5).map((trip) => (
+                <Link
+                  key={trip.id}
+                  to={`/itinerary/${trip.id}`}
+                  className={`flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-secondary/60 transition-colors group ${
+                    location.pathname === `/itinerary/${trip.id}`
+                      ? "bg-secondary"
+                      : ""
+                  }`}
+                >
+                  <span className="text-base leading-none shrink-0">🗺️</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-card-foreground truncate leading-tight">
+                      {trip.destination}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground leading-tight">
+                      ₹{Number(trip.budget_total).toLocaleString("en-IN")}
+                    </p>
+                  </div>
+                </Link>
+              ))}
+              {trips.length > 5 && (
+                <p className="text-[10px] text-muted-foreground px-2 py-1">
+                  +{trips.length - 5} more trips
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* General Nav */}
+        <div className="px-3 pt-1">
+          {!effectiveCollapsed && (
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1.5">
+              General
+            </p>
+          )}
+          <div className="space-y-0.5">
+            {navItems.map((item) => (
               <Link
-                key={trip.id}
-                to={`/itinerary/${trip.id}`}
-                className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-secondary/60 transition-colors group"
+                key={item.title}
+                to={item.url}
+                className={`flex items-center gap-3 px-2.5 py-2 rounded-xl text-sm font-medium transition-colors ${
+                  isActive(item.url)
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-secondary/60 hover:text-card-foreground"
+                } ${effectiveCollapsed ? "justify-center px-0" : ""}`}
+                title={effectiveCollapsed ? item.title : undefined}
               >
-                <span className="text-lg">🇮🇳</span>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-card-foreground truncate">
-                    {trip.destination}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    ₹{Number(trip.budget_total).toLocaleString("en-IN")}
-                  </p>
-                </div>
+                <item.icon className="w-[18px] h-[18px] shrink-0" />
+                {!effectiveCollapsed && (
+                  <span className="flex-1 truncate">{item.title}</span>
+                )}
               </Link>
             ))}
           </div>
         </div>
-      )}
 
-      {/* General Nav */}
-      <div className="px-3 pt-5">
-        {!collapsed && (
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-2">
-            General
-          </p>
-        )}
-        <div className="space-y-1">
-          {navItems.map((item) => (
-            <Link
-              key={item.title}
-              to={item.url}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive(item.url)
-                  ? "bg-secondary text-card-foreground"
-                  : "text-muted-foreground hover:bg-secondary/60 hover:text-card-foreground"
-              }`}
-            >
-              <item.icon className="w-[18px] h-[18px] shrink-0" />
-              {!collapsed && <span className="flex-1">{item.title}</span>}
-            </Link>
-          ))}
+        {/* Discover Nav */}
+        <div className="px-3 pt-2">
+          {!effectiveCollapsed && (
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1.5">
+              Discover
+            </p>
+          )}
+          <div className="space-y-0.5">
+            {discoverItems.map((item) => (
+              <Link
+                key={item.title}
+                to={item.url}
+                className={`flex items-center gap-3 px-2.5 py-2 rounded-xl text-sm font-medium transition-colors ${
+                  isActive(item.url)
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-secondary/60 hover:text-card-foreground"
+                } ${effectiveCollapsed ? "justify-center px-0" : ""}`}
+                title={effectiveCollapsed ? item.title : undefined}
+              >
+                <item.icon className="w-[18px] h-[18px] shrink-0" />
+                {!effectiveCollapsed && (
+                  <span className="flex-1 truncate">{item.title}</span>
+                )}
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Discover Nav */}
-      <div className="px-3 pt-5">
-        {!collapsed && (
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-2">
-            Discover
-          </p>
-        )}
-        <div className="space-y-1">
-          {discoverItems.map((item) => (
-            <Link
-              key={item.title}
-              to={item.url}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive(item.url)
-                  ? "bg-secondary text-card-foreground"
-                  : "text-muted-foreground hover:bg-secondary/60 hover:text-card-foreground"
-              }`}
-            >
-              <item.icon className="w-[18px] h-[18px] shrink-0" />
-              {!collapsed && <span>{item.title}</span>}
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      {/* Spacer + Utility Buttons + Logout */}
-      <div className="mt-auto px-3 pb-4 space-y-1">
-        {/* SOS Button */}
+      {/* ── Bottom Actions (fixed, never overflows) ── */}
+      <div className="shrink-0 px-3 pb-4 pt-2 border-t border-border space-y-0.5">
+        {/* SOS */}
         <button
-          onClick={() => {
-            setShowSOS(true);
-            setShowA11y(false);
-          }}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-500/10 transition-colors w-full"
+          onClick={onSOSOpen}
+          className={`flex items-center gap-3 px-2.5 py-2 rounded-xl text-sm font-medium text-red-600 hover:bg-red-500/10 transition-colors w-full ${
+            effectiveCollapsed ? "justify-center px-0" : ""
+          }`}
           title="SOS & Emergency"
+          aria-label="SOS Emergency"
         >
           <AlertTriangle className="w-[18px] h-[18px] shrink-0" />
-          {!collapsed && <span>SOS &amp; Emergency</span>}
+          {!effectiveCollapsed && (
+            <span className="flex-1 text-left">SOS &amp; Emergency</span>
+          )}
         </button>
 
-        {/* Accessibility Button */}
+        {/* Accessibility */}
         <button
-          onClick={() => {
-            setShowA11y(true);
-            setShowSOS(false);
-          }}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-purple-600 hover:bg-purple-500/10 transition-colors w-full"
+          onClick={onA11yOpen}
+          className={`flex items-center gap-3 px-2.5 py-2 rounded-xl text-sm font-medium text-purple-600 hover:bg-purple-500/10 transition-colors w-full ${
+            effectiveCollapsed ? "justify-center px-0" : ""
+          }`}
           title="Accessibility"
+          aria-label="Accessibility Options"
         >
           <Accessibility className="w-[18px] h-[18px] shrink-0" />
-          {!collapsed && <span>Accessibility</span>}
+          {!effectiveCollapsed && (
+            <span className="flex-1 text-left">Accessibility</span>
+          )}
         </button>
 
         {/* Logout */}
         <button
           onClick={signOut}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-primary hover:bg-primary/10 transition-colors w-full"
+          className={`flex items-center gap-3 px-2.5 py-2 rounded-xl text-sm font-medium text-muted-foreground hover:bg-secondary transition-colors w-full ${
+            effectiveCollapsed ? "justify-center px-0" : ""
+          }`}
+          title="Logout"
+          aria-label="Logout"
         >
-          <LogOut className="w-[18px] h-[18px]" />
-          {!collapsed && <span>Logout</span>}
+          <LogOut className="w-[18px] h-[18px] shrink-0" />
+          {!effectiveCollapsed && (
+            <span className="flex-1 text-left">Logout</span>
+          )}
         </button>
       </div>
-
-      {/* SOS Overlay Panel */}
-      {showSOS && (
-        <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-          onClick={() => setShowSOS(false)}
-        >
-          <div
-            className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between bg-card rounded-t-2xl px-4 py-3 border-b border-border">
-              <span className="text-sm font-bold text-card-foreground flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-red-600" /> SOS &amp;
-                Emergency
-              </span>
-              <button
-                onClick={() => setShowSOS(false)}
-                className="text-muted-foreground hover:text-foreground text-lg font-bold leading-none"
-              >
-                ×
-              </button>
-            </div>
-            <SOSPanel />
-          </div>
-        </div>
-      )}
-
-      {/* Accessibility Overlay Panel */}
-      {showA11y && (
-        <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-          onClick={() => setShowA11y(false)}
-        >
-          <div
-            className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between bg-card rounded-t-2xl px-4 py-3 border-b border-border">
-              <span className="text-sm font-bold text-card-foreground flex items-center gap-2">
-                <Accessibility className="w-4 h-4 text-purple-600" />{" "}
-                Accessibility
-              </span>
-              <button
-                onClick={() => setShowA11y(false)}
-                className="text-muted-foreground hover:text-foreground text-lg font-bold leading-none"
-              >
-                ×
-              </button>
-            </div>
-            <AccessibilityPanel />
-          </div>
-        </div>
-      )}
     </aside>
   );
 }

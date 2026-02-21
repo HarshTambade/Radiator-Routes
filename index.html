@@ -1,30 +1,105 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- TODO: Set the document title to the name of your application -->
-    <title>Radiator Routes</title>
-    <meta name="description" content="Radiator Routes is an AI-powered intelligent travel planning system for group travel optimization. It combines voice-first interaction etc">
-    <meta name="author" content="Lovable" />
+    <head>
+        <meta charset="UTF-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover"
+        />
 
-    <!-- TODO: Update og:title to match your application name -->
-    
-    
-    <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/57e097f4-b926-4340-ae09-639d2bfbcd1e?Expires=1771667669&amp;GoogleAccessId=go-api-on-aws%40gpt-engineer-390607.iam.gserviceaccount.com&amp;Signature=Ws4F8Rw9v2LcAjWL6lah%2FgilTnDecAFTMz6lAlIhFJeliUxXK1bfDHYpWQZ3UO%2FmfP1rmkvuz7kJ%2F1RHkDS6WpmzdknAIu3TyeC1V5UcGUbF5eSFDq8RVMvCCwv7YfM1IXIMzsqNRhFk3K9jrWqCGXwAMrGMvrIBu05%2BQrUuS7z%2FooufWIl3UcONKTf3uMyuTczdVghwlrBhgEktMpyy7PST7yHWphsTiuiLJT1DDxgUZN1O5PjEfQ%2F95Kh4iyKBPRg9HfDxkZiTexMZIwljJWBNVDjzDlZEuLVTZn5sQ8TpAogUSCMShhHwhyx9KOFBIzsxoERNuvEQM4GTBYYuMQ%3D%3D">
+        <!-- Primary Meta -->
+        <title>Radiator Routes</title>
+        <meta
+            name="description"
+            content="AI-powered intelligent travel planning — itineraries, safety alerts, group trips, UPI payments & more."
+        />
+        <meta name="author" content="Radiator Routes" />
+        <meta
+            name="keywords"
+            content="travel planner, AI travel, itinerary, group trip, India travel, safety alerts"
+        />
 
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@Lovable" />
-    <meta name="twitter:image" content="https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/57e097f4-b926-4340-ae09-639d2bfbcd1e?Expires=1771667669&amp;GoogleAccessId=go-api-on-aws%40gpt-engineer-390607.iam.gserviceaccount.com&amp;Signature=Ws4F8Rw9v2LcAjWL6lah%2FgilTnDecAFTMz6lAlIhFJeliUxXK1bfDHYpWQZ3UO%2FmfP1rmkvuz7kJ%2F1RHkDS6WpmzdknAIu3TyeC1V5UcGUbF5eSFDq8RVMvCCwv7YfM1IXIMzsqNRhFk3K9jrWqCGXwAMrGMvrIBu05%2BQrUuS7z%2FooufWIl3UcONKTf3uMyuTczdVghwlrBhgEktMpyy7PST7yHWphsTiuiLJT1DDxgUZN1O5PjEfQ%2F95Kh4iyKBPRg9HfDxkZiTexMZIwljJWBNVDjzDlZEuLVTZn5sQ8TpAogUSCMShhHwhyx9KOFBIzsxoERNuvEQM4GTBYYuMQ%3D%3D">
-    <meta property="og:title" content="Radiator Routes">
-  <meta name="twitter:title" content="Radiator Routes">
-  <meta property="og:description" content="Radiator Routes is an AI-powered intelligent travel planning system for group travel optimization. It combines voice-first interaction etc">
-  <meta name="twitter:description" content="Radiator Routes is an AI-powered intelligent travel planning system for group travel optimization. It combines voice-first interaction etc">
-</head>
+        <!-- Theme -->
+        <meta name="theme-color" content="#e8390e" />
+        <meta name="msapplication-TileColor" content="#e8390e" />
+        <meta name="msapplication-navbutton-color" content="#e8390e" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+        <!-- PWA / Mobile App -->
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content="RadRoutes" />
+        <meta name="application-name" content="Radiator Routes" />
+        <meta name="format-detection" content="telephone=yes" />
+
+        <!-- Icons -->
+        <link
+            rel="icon"
+            type="image/png"
+            sizes="32x32"
+            href="/icons/icon-96x96.png"
+        />
+        <link
+            rel="icon"
+            type="image/png"
+            sizes="16x16"
+            href="/icons/icon-72x72.png"
+        />
+        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+        <link
+            rel="apple-touch-icon"
+            sizes="152x152"
+            href="/icons/icon-152x152.png"
+        />
+        <link
+            rel="apple-touch-icon"
+            sizes="144x144"
+            href="/icons/icon-144x144.png"
+        />
+        <link
+            rel="apple-touch-icon"
+            sizes="128x128"
+            href="/icons/icon-128x128.png"
+        />
+        <link
+            rel="apple-touch-icon"
+            sizes="96x96"
+            href="/icons/icon-96x96.png"
+        />
+        <link
+            rel="apple-touch-icon"
+            sizes="72x72"
+            href="/icons/icon-72x72.png"
+        />
+        <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" />
+
+        <!-- Open Graph -->
+        <meta property="og:type" content="website" />
+        <meta property="og:title" content="Radiator Routes" />
+        <meta
+            property="og:description"
+            content="AI-powered intelligent travel planning — itineraries, safety alerts, group trips & more."
+        />
+        <meta property="og:image" content="/icons/icon-512x512.png" />
+        <meta property="og:url" content="https://radiator-routes.vercel.app" />
+        <meta property="og:site_name" content="Radiator Routes" />
+
+        <!-- Twitter Card -->
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Radiator Routes" />
+        <meta
+            name="twitter:description"
+            content="AI-powered intelligent travel planning — itineraries, safety alerts, group trips & more."
+        />
+        <meta name="twitter:image" content="/icons/icon-512x512.png" />
+
+        <!-- Preconnect for performance -->
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    </head>
+
+    <body>
+        <div id="root"></div>
+        <script type="module" src="/src/main.tsx"></script>
+    </body>
 </html>

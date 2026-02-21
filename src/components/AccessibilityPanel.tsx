@@ -1,162 +1,104 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
-  Eye,
-  EyeOff,
   Mic,
-  MicOff,
   Volume2,
-  VolumeX,
   Camera,
-  X,
-  ChevronDown,
-  ChevronUp,
   Loader2,
-  Accessibility,
   ScanLine,
   MessageSquare,
-  Settings,
   Play,
   Square,
+  Settings2,
+  CheckCircle2,
+  Eye,
+  Sparkles,
+  ChevronRight,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { callGemini } from "@/services/gemini";
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-interface AccessibilitySettings {
-  ttsEnabled: boolean;
+interface A11ySettings {
   ttsRate: number;
   ttsPitch: number;
   ttsVolume: number;
   highContrast: boolean;
   largeText: boolean;
-  voiceCommandsEnabled: boolean;
 }
 
-const DEFAULT_SETTINGS: AccessibilitySettings = {
-  ttsEnabled: true,
+const DEFAULTS: A11ySettings = {
   ttsRate: 0.9,
   ttsPitch: 1.0,
   ttsVolume: 1.0,
   highContrast: false,
   largeText: false,
-  voiceCommandsEnabled: false,
 };
 
-const STORAGE_KEY = "radiator_accessibility_settings";
+const SK = "rr_a11y_settings";
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function loadSettings(): AccessibilitySettings {
+function loadSettings(): A11ySettings {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS;
+    const raw = localStorage.getItem(SK);
+    return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : DEFAULTS;
   } catch {
-    return DEFAULT_SETTINGS;
+    return DEFAULTS;
   }
 }
 
-function saveSettings(s: AccessibilitySettings) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-}
-
-// ── TTS Engine ───────────────────────────────────────────────────────────────
-
-let currentUtterance: SpeechSynthesisUtterance | null = null;
+// ── Global TTS ────────────────────────────────────────────────────────────────
 
 export function speak(
   text: string,
-  settings?: Partial<AccessibilitySettings>,
+  rate = 0.9,
+  pitch = 1.0,
+  volume = 1.0,
   onEnd?: () => void,
 ) {
   if (!("speechSynthesis" in window)) return;
   window.speechSynthesis.cancel();
-
-  const utter = new SpeechSynthesisUtterance(text);
-  utter.rate = settings?.ttsRate ?? 0.9;
-  utter.pitch = settings?.ttsPitch ?? 1.0;
-  utter.volume = settings?.ttsVolume ?? 1.0;
-
-  // Prefer an English voice
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = rate;
+  u.pitch = pitch;
+  u.volume = volume;
   const voices = window.speechSynthesis.getVoices();
-  const preferred = voices.find(
-    (v) => v.lang.startsWith("en") && v.localService,
-  );
-  if (preferred) utter.voice = preferred;
-
-  if (onEnd) utter.onend = onEnd;
-  currentUtterance = utter;
-  window.speechSynthesis.speak(utter);
+  const pref = voices.find((v) => v.lang.startsWith("en") && v.localService);
+  if (pref) u.voice = pref;
+  if (onEnd) u.onend = onEnd;
+  window.speechSynthesis.speak(u);
 }
 
 export function stopSpeaking() {
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 }
 
-// ── Speech Recognition setup ─────────────────────────────────────────────────
+// ── Speech Recognition ────────────────────────────────────────────────────────
 
-type SpeechRecognitionInstance = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((e: SpeechRecognitionEvent) => void) | null;
-  onerror: ((e: Event) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-};
-
-type SpeechRecognitionEvent = {
-  results: SpeechRecognitionResultList;
-  resultIndex: number;
-};
-
-type SpeechRecognitionResultList = {
-  length: number;
-  [index: number]: SpeechRecognitionResult;
-};
-
-type SpeechRecognitionResult = {
-  isFinal: boolean;
-  [index: number]: SpeechRecognitionAlternative;
-};
-
-type SpeechRecognitionAlternative = {
-  transcript: string;
-  confidence: number;
-};
-
-function createRecognition(): SpeechRecognitionInstance | null {
-  const SRConstructor =
+function createRecognition() {
+  const SR =
     (window as any).SpeechRecognition ||
     (window as any).webkitSpeechRecognition;
-  if (!SRConstructor) return null;
-  const rec = new SRConstructor() as SpeechRecognitionInstance;
+  if (!SR) return null;
+  const rec = new SR();
   rec.continuous = false;
   rec.interimResults = false;
   rec.lang = "en-IN";
   return rec;
 }
 
-// ── Object Identification via Camera + AI ────────────────────────────────────
+// ── Vision capture ────────────────────────────────────────────────────────────
 
-async function captureAndIdentify(
-  videoEl: HTMLVideoElement,
-  canvasEl: HTMLCanvasElement,
+async function identifyFromVideo(
+  video: HTMLVideoElement,
+  canvas: HTMLCanvasElement,
 ): Promise<string> {
-  canvasEl.width = videoEl.videoWidth;
-  canvasEl.height = videoEl.videoHeight;
-  const ctx = canvasEl.getContext("2d");
-  if (!ctx) throw new Error("Canvas context unavailable");
-  ctx.drawImage(videoEl, 0, 0);
-  const dataUrl = canvasEl.toDataURL("image/jpeg", 0.7);
-  const base64 = dataUrl.split(",")[1];
-
-  // Use Groq vision (llama-3.2-11b-vision-preview) if available,
-  // else describe the image via a placeholder message for Groq text model.
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas unavailable");
+  ctx.drawImage(video, 0, 0);
+  const base64 = canvas.toDataURL("image/jpeg", 0.7).split(",")[1];
   const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string;
-
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -171,7 +113,7 @@ async function captureAndIdentify(
           content: [
             {
               type: "text",
-              text: "You are an accessibility assistant for visually impaired users. Describe this image in detail, including: what objects are visible, people (if any), text visible, colors, potential hazards or important information the user should know. Be concise but thorough. Speak as if talking directly to a blind person.",
+              text: "You are an accessibility assistant for visually impaired users. Describe this image in clear, simple language: list all objects, people, text, colours, and any hazards visible. Speak directly to a blind person.",
             },
             {
               type: "image_url",
@@ -181,189 +123,160 @@ async function captureAndIdentify(
         },
       ],
       temperature: 0.3,
-      max_tokens: 512,
+      max_tokens: 500,
     }),
   });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Vision API error: ${err}`);
-  }
-
+  if (!res.ok) throw new Error(`Vision API: ${res.status}`);
   const data = await res.json();
   return data.choices?.[0]?.message?.content ?? "Could not identify objects.";
 }
 
-// ── Voice Command Processor ───────────────────────────────────────────────────
+// ── Section wrapper ───────────────────────────────────────────────────────────
 
-const VOICE_COMMANDS: Record<string, () => void> = {};
-
-export function registerVoiceCommand(phrase: string, action: () => void) {
-  VOICE_COMMANDS[phrase.toLowerCase()] = action;
+function Card({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`bg-secondary/40 rounded-2xl border border-border p-4 space-y-3 ${className}`}
+    >
+      {children}
+    </div>
+  );
 }
 
-function matchCommand(transcript: string): boolean {
-  const lower = transcript.toLowerCase().trim();
-  for (const [phrase, action] of Object.entries(VOICE_COMMANDS)) {
-    if (lower.includes(phrase)) {
-      action();
-      return true;
-    }
-  }
-  return false;
+function SectionTitle({
+  icon,
+  label,
+}: {
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 mb-1">
+      <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-600">
+        {icon}
+      </div>
+      <p className="text-xs font-bold text-card-foreground uppercase tracking-wide">
+        {label}
+      </p>
+    </div>
+  );
 }
+
+// ── Tab system ────────────────────────────────────────────────────────────────
+
+const TABS = [
+  { id: "speak", label: "Speak", emoji: "🔊" },
+  { id: "listen", label: "Listen", emoji: "🎙️" },
+  { id: "camera", label: "Camera", emoji: "📷" },
+  { id: "ask", label: "Ask AI", emoji: "🤖" },
+  { id: "settings", label: "Settings", emoji: "⚙️" },
+] as const;
+
+type TabId = (typeof TABS)[number]["id"];
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function AccessibilityPanel() {
   const { toast } = useToast();
-  const [settings, setSettings] = useState<AccessibilitySettings>(loadSettings);
-  const [collapsed, setCollapsed] = useState(true);
-  const [showSettings, setShowSettings] = useState(false);
+  const [settings, setSettings] = useState<A11ySettings>(loadSettings);
+  const [tab, setTab] = useState<TabId>("speak");
+
+  // TTS
+  const [customText, setCustomText] = useState("");
   const [isSpeaking, setIsSpeaking] = useState(false);
+
+  // Voice recognition
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
-  const [voiceResult, setVoiceResult] = useState("");
+  const recRef = useRef<any>(null);
+
+  // Camera / object ID
   const [cameraActive, setCameraActive] = useState(false);
   const [identifying, setIdentifying] = useState(false);
-  const [identifiedText, setIdentifiedText] = useState("");
-  const [customText, setCustomText] = useState("");
-  const [aiChatQuery, setAiChatQuery] = useState("");
-  const [aiChatResponse, setAiChatResponse] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-
+  const [identified, setIdentified] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
 
-  // Persist settings
+  // AI chat
+  const [query, setQuery] = useState("");
+  const [aiReply, setAiReply] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+
+  // Persist settings + apply global classes
   useEffect(() => {
-    saveSettings(settings);
+    localStorage.setItem(SK, JSON.stringify(settings));
+    const root = document.documentElement;
+    root.classList.toggle("high-contrast", settings.highContrast);
+    root.style.fontSize = settings.largeText ? "18px" : "";
   }, [settings]);
 
-  // Apply global accessibility classes
-  useEffect(() => {
-    const root = document.documentElement;
-    if (settings.highContrast) {
-      root.classList.add("high-contrast");
-    } else {
-      root.classList.remove("high-contrast");
-    }
-    if (settings.largeText) {
-      root.style.fontSize = "18px";
-    } else {
-      root.style.fontSize = "";
-    }
-  }, [settings.highContrast, settings.largeText]);
-
-  // Greet on panel open
-  useEffect(() => {
-    if (!collapsed && settings.ttsEnabled) {
-      speak(
-        "Accessibility panel opened. Options available: Text to Speech, Voice Commands, and Object Identification using camera.",
-        settings,
-      );
-    }
-  }, [collapsed]);
-
-  // Cleanup camera on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopCamera();
       stopSpeaking();
-      if (recognitionRef.current) recognitionRef.current.abort();
+      recRef.current?.abort();
     };
   }, []);
 
-  const updateSetting = <K extends keyof AccessibilitySettings>(
-    key: K,
-    value: AccessibilitySettings[K],
-  ) => {
-    setSettings((prev) => ({ ...prev, [key]: value }));
-  };
+  const s = settings;
 
-  // ── TTS ──────────────────────────────────────────────────────────────────
+  // ── TTS ────────────────────────────────────────────────────────────────────
 
   const handleSpeak = (text: string) => {
     if (!text.trim()) return;
     setIsSpeaking(true);
-    speak(text, settings, () => setIsSpeaking(false));
+    speak(text, s.ttsRate, s.ttsPitch, s.ttsVolume, () => setIsSpeaking(false));
   };
 
-  const handleStop = () => {
-    stopSpeaking();
-    setIsSpeaking(false);
-  };
-
-  // ── Voice Commands ────────────────────────────────────────────────────────
+  // ── Voice Recognition ──────────────────────────────────────────────────────
 
   const startListening = useCallback(() => {
     const rec = createRecognition();
     if (!rec) {
       toast({
-        title: "Speech recognition not supported",
-        description: "Please use Chrome or Edge for voice commands.",
+        title: "Not supported",
+        description: "Use Chrome or Edge for voice recognition.",
         variant: "destructive",
       });
       return;
     }
-
-    recognitionRef.current = rec;
-    setIsListening(true);
+    recRef.current = rec;
     setTranscript("");
-    setVoiceResult("");
-
-    rec.onresult = (e: SpeechRecognitionEvent) => {
-      const results = e.results;
-      let finalTranscript = "";
-      for (let i = e.resultIndex; i < results.length; i++) {
-        if (results[i].isFinal) {
-          finalTranscript += results[i][0].transcript;
-        }
+    setIsListening(true);
+    rec.onresult = (e: any) => {
+      let text = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) text += e.results[i][0].transcript;
       }
-      setTranscript(finalTranscript);
-
-      if (finalTranscript) {
-        const matched = matchCommand(finalTranscript);
-        if (matched) {
-          setVoiceResult("Command executed!");
-          if (settings.ttsEnabled) speak("Command executed", settings);
-        } else {
-          setVoiceResult(`Heard: "${finalTranscript}"`);
-          if (settings.ttsEnabled)
-            speak(`I heard: ${finalTranscript}`, settings);
-        }
-      }
+      setTranscript(text);
+      if (text && settings.ttsRate)
+        speak(`I heard: ${text}`, s.ttsRate, s.ttsPitch, s.ttsVolume);
     };
-
-    rec.onerror = () => {
-      setIsListening(false);
-      toast({ title: "Voice recognition error", variant: "destructive" });
-    };
-
-    rec.onend = () => {
-      setIsListening(false);
-    };
-
+    rec.onerror = () => setIsListening(false);
+    rec.onend = () => setIsListening(false);
     rec.start();
-    if (settings.ttsEnabled) speak("Listening. Speak your command.", settings);
-  }, [settings, toast]);
+    speak("Listening, speak your command.", s.ttsRate, s.ttsPitch, s.ttsVolume);
+  }, [s, settings.ttsRate, toast]);
 
-  const stopListening = useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-    }
+  const stopListening = () => {
+    recRef.current?.stop();
     setIsListening(false);
-  }, []);
+  };
 
-  // ── Camera / Object ID ─────────────────────────────────────────────────────
+  // ── Camera ─────────────────────────────────────────────────────────────────
 
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
-        audio: false,
       });
       streamRef.current = stream;
       if (videoRef.current) {
@@ -371,47 +284,38 @@ export default function AccessibilityPanel() {
         await videoRef.current.play();
       }
       setCameraActive(true);
-      if (settings.ttsEnabled)
-        speak(
-          "Camera activated. Press Identify Objects to describe what the camera sees.",
-          settings,
-        );
+      speak(
+        "Camera ready. Press Identify to describe what I see.",
+        s.ttsRate,
+        s.ttsPitch,
+        s.ttsVolume,
+      );
     } catch {
       toast({
-        title: "Camera access denied",
-        description:
-          "Please allow camera permission to use object identification.",
+        title: "Camera denied",
+        description: "Allow camera access to use object identification.",
         variant: "destructive",
       });
     }
   };
 
   const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
     setCameraActive(false);
   };
 
-  const identifyObjects = async () => {
+  const handleIdentify = async () => {
     if (!videoRef.current || !canvasRef.current) return;
     setIdentifying(true);
-    setIdentifiedText("");
-    if (settings.ttsEnabled) speak("Analyzing image, please wait.", settings);
-
+    speak("Analysing image, please wait.", s.ttsRate, s.ttsPitch, s.ttsVolume);
     try {
-      const description = await captureAndIdentify(
-        videoRef.current,
-        canvasRef.current,
-      );
-      setIdentifiedText(description);
-      if (settings.ttsEnabled) speak(description, settings);
+      const desc = await identifyFromVideo(videoRef.current, canvasRef.current);
+      setIdentified(desc);
+      speak(desc, s.ttsRate, s.ttsPitch, s.ttsVolume);
     } catch (err: any) {
-      const msg = "Could not identify objects. " + (err?.message ?? "");
-      setIdentifiedText(msg);
       toast({
-        title: "Object ID failed",
+        title: "Identification failed",
         description: err?.message,
         variant: "destructive",
       });
@@ -420,27 +324,27 @@ export default function AccessibilityPanel() {
     }
   };
 
-  // ── AI Voice Chat ─────────────────────────────────────────────────────────
+  // ── AI Ask ─────────────────────────────────────────────────────────────────
 
-  const askAI = async () => {
-    if (!aiChatQuery.trim()) return;
+  const askAI = async (q: string) => {
+    if (!q.trim()) return;
     setAiLoading(true);
-    setAiChatResponse("");
-    if (settings.ttsEnabled) speak("Let me find that for you.", settings);
+    setAiReply("");
+    speak("Let me find that for you.", s.ttsRate, s.ttsPitch, s.ttsVolume);
     try {
-      const response = await callGemini(
-        "You are a helpful travel assistant for visually impaired users. Answer concisely and clearly. Use simple language. Avoid using markdown formatting.",
-        aiChatQuery,
+      const reply = await callGemini(
+        "You are a helpful travel assistant for visually impaired users. Answer concisely in plain language. No markdown.",
+        q,
         0.7,
         512,
         false,
       );
-      setAiChatResponse(response);
-      if (settings.ttsEnabled) speak(response, settings);
+      setAiReply(reply);
+      speak(reply, s.ttsRate, s.ttsPitch, s.ttsVolume);
     } catch {
-      const errMsg = "Sorry, I could not process your request right now.";
-      setAiChatResponse(errMsg);
-      if (settings.ttsEnabled) speak(errMsg, settings);
+      const fallback = "Sorry, I couldn't process your request.";
+      setAiReply(fallback);
+      speak(fallback, s.ttsRate, s.ttsPitch, s.ttsVolume);
     } finally {
       setAiLoading(false);
     }
@@ -449,46 +353,29 @@ export default function AccessibilityPanel() {
   const askByVoice = () => {
     const rec = createRecognition();
     if (!rec) return;
-
     setIsListening(true);
-    speak("What would you like to know?", settings, () => {
-      rec.onresult = (e: SpeechRecognitionEvent) => {
-        const results = e.results;
-        let finalTranscript = "";
-        for (let i = e.resultIndex; i < results.length; i++) {
-          if (results[i].isFinal) {
-            finalTranscript += results[i][0].transcript;
+    speak(
+      "What would you like to know?",
+      s.ttsRate,
+      s.ttsPitch,
+      s.ttsVolume,
+      () => {
+        rec.onresult = (e: any) => {
+          let text = "";
+          for (let i = e.resultIndex; i < e.results.length; i++) {
+            if (e.results[i].isFinal) text += e.results[i][0].transcript;
           }
-        }
-        if (finalTranscript) {
-          setAiChatQuery(finalTranscript);
-          setIsListening(false);
-          // auto-submit after capture
-          setTimeout(async () => {
-            setAiLoading(true);
-            speak("Let me find that for you.", settings);
-            try {
-              const response = await callGemini(
-                "You are a helpful travel assistant for visually impaired users. Answer concisely and clearly. Use simple language.",
-                finalTranscript,
-                0.7,
-                512,
-                false,
-              );
-              setAiChatResponse(response);
-              speak(response, settings);
-            } catch {
-              speak("Sorry, I could not process your request.", settings);
-            } finally {
-              setAiLoading(false);
-            }
-          }, 300);
-        }
-      };
-      rec.onerror = () => setIsListening(false);
-      rec.onend = () => setIsListening(false);
-      rec.start();
-    });
+          if (text) {
+            setQuery(text);
+            setIsListening(false);
+            askAI(text);
+          }
+        };
+        rec.onerror = () => setIsListening(false);
+        rec.onend = () => setIsListening(false);
+        rec.start();
+      },
+    );
   };
 
   const hasTTS = "speechSynthesis" in window;
@@ -499,109 +386,458 @@ export default function AccessibilityPanel() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="bg-card rounded-2xl shadow-card overflow-hidden">
-      {/* Header */}
-      <div
-        className="flex items-center justify-between px-5 py-4 border-b border-border cursor-pointer"
-        onClick={() => setCollapsed((v) => !v)}
-        role="button"
-        aria-expanded={!collapsed}
-        aria-label="Accessibility Panel"
-      >
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-purple-500/10">
-            <Accessibility className="w-5 h-5 text-purple-600" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-card-foreground text-sm flex items-center gap-2">
-              Accessibility
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-600 font-bold border border-purple-500/20">
-                A11y
-              </span>
-            </h3>
-            <p className="text-[11px] text-muted-foreground">
-              TTS · Voice commands · Object ID
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="bg-card flex flex-col h-full">
+      {/* ── Tab Strip ── */}
+      <div className="flex gap-1 p-3 border-b border-border bg-secondary/30 overflow-x-auto shrink-0">
+        {TABS.map((t) => (
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowSettings((v) => !v);
-            }}
-            className="p-1.5 rounded-lg hover:bg-secondary transition-colors"
-            aria-label="Settings"
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0 ${
+              tab === t.id
+                ? "bg-purple-600 text-white shadow-sm"
+                : "bg-card text-muted-foreground hover:bg-secondary hover:text-card-foreground border border-border"
+            }`}
           >
-            <Settings className="w-3.5 h-3.5 text-muted-foreground" />
+            <span>{t.emoji}</span>
+            {t.label}
           </button>
-          {collapsed ? (
-            <ChevronDown className="w-4 h-4 text-muted-foreground" />
-          ) : (
-            <ChevronUp className="w-4 h-4 text-muted-foreground" />
-          )}
-        </div>
+        ))}
       </div>
 
-      {!collapsed && (
-        <div className="p-4 space-y-4">
-          {/* Settings Panel */}
-          {showSettings && (
-            <div className="p-3 rounded-xl bg-secondary/40 border border-border space-y-3 animate-fade-in">
-              <p className="text-xs font-semibold text-card-foreground flex items-center gap-1.5">
-                <Settings className="w-3.5 h-3.5" /> Voice Settings
+      {/* ── Tab Content ── */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* ── SPEAK TAB ── */}
+        {tab === "speak" && (
+          <div className="space-y-4">
+            {!hasTTS && (
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-xs text-orange-600">
+                ⚠️ Text-to-speech is not supported in this browser.
+              </div>
+            )}
+
+            <Card>
+              <SectionTitle
+                icon={<Volume2 className="w-3.5 h-3.5" />}
+                label="Text to Speech"
+              />
+              <textarea
+                value={customText}
+                onChange={(e) => setCustomText(e.target.value)}
+                placeholder="Type or paste any text here to hear it spoken aloud..."
+                rows={4}
+                className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/30 resize-none placeholder:text-muted-foreground/60"
+                aria-label="Text to speak aloud"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleSpeak(customText)}
+                  disabled={!hasTTS || !customText.trim() || isSpeaking}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 disabled:opacity-40 transition-all active:scale-[0.98]"
+                >
+                  {isSpeaking ? (
+                    <>
+                      <Square className="w-3.5 h-3.5" /> Speaking…
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5" /> Speak Text
+                    </>
+                  )}
+                </button>
+                {isSpeaking && (
+                  <button
+                    onClick={() => {
+                      stopSpeaking();
+                      setIsSpeaking(false);
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-secondary text-sm font-semibold text-muted-foreground hover:bg-secondary/80 transition-colors border border-border"
+                  >
+                    Stop
+                  </button>
+                )}
+              </div>
+            </Card>
+
+            {/* Quick-speak pills */}
+            <Card>
+              <SectionTitle
+                icon={<Sparkles className="w-3.5 h-3.5" />}
+                label="Quick Actions"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  {
+                    label: "🕐 Current Time",
+                    fn: () => {
+                      const t = new Date().toLocaleTimeString("en-IN", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hour12: true,
+                      });
+                      handleSpeak(`The current time is ${t}`);
+                    },
+                  },
+                  {
+                    label: "📅 Today's Date",
+                    fn: () => {
+                      const d = new Date().toLocaleDateString("en-IN", {
+                        weekday: "long",
+                        day: "numeric",
+                        month: "long",
+                        year: "numeric",
+                      });
+                      handleSpeak(`Today is ${d}`);
+                    },
+                  },
+                  {
+                    label: "🆘 Emergency Numbers",
+                    fn: () =>
+                      handleSpeak(
+                        "Emergency numbers in India: Police 100, Ambulance 108, Women Helpline 1091, Fire 101, Disaster 1078, Child Helpline 1098.",
+                      ),
+                  },
+                  {
+                    label: "♿ How to Use",
+                    fn: () =>
+                      handleSpeak(
+                        "This accessibility panel lets you hear text spoken aloud, give voice commands, identify objects using your camera, and ask the AI assistant any question.",
+                      ),
+                  },
+                ].map(({ label, fn }) => (
+                  <button
+                    key={label}
+                    onClick={fn}
+                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-background border border-border text-xs font-medium text-card-foreground hover:bg-purple-500/8 hover:border-purple-500/30 transition-all text-left active:scale-[0.98]"
+                  >
+                    <ChevronRight className="w-3 h-3 text-purple-500 shrink-0" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* ── LISTEN (Voice Commands) TAB ── */}
+        {tab === "listen" && (
+          <div className="space-y-4">
+            {!hasSR ? (
+              <div className="flex items-start gap-2 p-4 rounded-xl bg-orange-500/10 border border-orange-500/20 text-sm text-orange-600">
+                ⚠️ Speech recognition requires Chrome or Edge browser.
+              </div>
+            ) : (
+              <>
+                <Card>
+                  <SectionTitle
+                    icon={<Mic className="w-3.5 h-3.5" />}
+                    label="Voice Recognition"
+                  />
+                  <button
+                    onClick={isListening ? stopListening : startListening}
+                    className={`w-full py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-3 transition-all active:scale-[0.98] ${
+                      isListening
+                        ? "bg-red-500 text-white shadow-lg shadow-red-500/25 scale-[1.01]"
+                        : "bg-purple-600 text-white hover:bg-purple-700 shadow-lg shadow-purple-500/20"
+                    }`}
+                    aria-label={
+                      isListening ? "Stop listening" : "Start listening"
+                    }
+                  >
+                    {isListening ? (
+                      <>
+                        <div className="flex gap-1 items-center h-5">
+                          {[0, 100, 200].map((delay) => (
+                            <span
+                              key={delay}
+                              className="w-1.5 rounded-full bg-white animate-bounce"
+                              style={{
+                                height: delay === 100 ? "20px" : "14px",
+                                animationDelay: `${delay}ms`,
+                              }}
+                            />
+                          ))}
+                        </div>
+                        Listening… tap to stop
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-5 h-5" /> Start Listening
+                      </>
+                    )}
+                  </button>
+
+                  {transcript && (
+                    <div className="p-3 rounded-xl bg-purple-500/8 border border-purple-500/20">
+                      <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide mb-1">
+                        Heard:
+                      </p>
+                      <p className="text-sm text-card-foreground italic">
+                        "{transcript}"
+                      </p>
+                    </div>
+                  )}
+                </Card>
+
+                <Card>
+                  <SectionTitle
+                    icon={<Sparkles className="w-3.5 h-3.5" />}
+                    label="Example Commands"
+                  />
+                  <div className="space-y-1.5">
+                    {[
+                      "Go to dashboard",
+                      "Open itinerary",
+                      "Check safety warnings",
+                      "What time is it",
+                      "Help me navigate",
+                      "Read page content",
+                    ].map((cmd) => (
+                      <div
+                        key={cmd}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-background border border-border"
+                      >
+                        <span className="text-purple-500 font-bold text-xs">
+                          ›
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          "{cmd}"
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── CAMERA TAB ── */}
+        {tab === "camera" && (
+          <div className="space-y-4">
+            <Card>
+              <SectionTitle
+                icon={<ScanLine className="w-3.5 h-3.5" />}
+                label="Object Identification"
+              />
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Point your camera at any object, sign, or scene. AI will
+                describe what it sees — designed for visually impaired
+                travellers.
               </p>
 
-              <div className="grid grid-cols-2 gap-3">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings.ttsEnabled}
-                    onChange={(e) =>
-                      updateSetting("ttsEnabled", e.target.checked)
-                    }
-                    className="w-3.5 h-3.5 rounded"
-                  />
-                  <span className="text-xs text-card-foreground">
-                    Auto-speak
-                  </span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings.highContrast}
-                    onChange={(e) =>
-                      updateSetting("highContrast", e.target.checked)
-                    }
-                    className="w-3.5 h-3.5 rounded"
-                  />
-                  <span className="text-xs text-card-foreground">
-                    High Contrast
-                  </span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings.largeText}
-                    onChange={(e) =>
-                      updateSetting("largeText", e.target.checked)
-                    }
-                    className="w-3.5 h-3.5 rounded"
-                  />
-                  <span className="text-xs text-card-foreground">
-                    Large Text
-                  </span>
-                </label>
+              {!cameraActive ? (
+                <button
+                  onClick={startCamera}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 transition-all active:scale-[0.98]"
+                >
+                  <Camera className="w-4 h-4" /> Activate Camera
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <div className="relative rounded-2xl overflow-hidden bg-black aspect-video">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover"
+                    />
+                    {identifying && (
+                      <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-3">
+                        <div className="w-12 h-12 rounded-full bg-purple-600/20 flex items-center justify-center">
+                          <Loader2 className="w-6 h-6 text-purple-400 animate-spin" />
+                        </div>
+                        <p className="text-white text-sm font-semibold">
+                          Analysing scene…
+                        </p>
+                      </div>
+                    )}
+                    {/* Scan lines overlay */}
+                    {!identifying && (
+                      <div className="absolute inset-0 border-2 border-purple-400/30 rounded-2xl pointer-events-none">
+                        <div className="absolute top-3 left-3 w-6 h-6 border-t-2 border-l-2 border-purple-400 rounded-tl-lg" />
+                        <div className="absolute top-3 right-3 w-6 h-6 border-t-2 border-r-2 border-purple-400 rounded-tr-lg" />
+                        <div className="absolute bottom-3 left-3 w-6 h-6 border-b-2 border-l-2 border-purple-400 rounded-bl-lg" />
+                        <div className="absolute bottom-3 right-3 w-6 h-6 border-b-2 border-r-2 border-purple-400 rounded-br-lg" />
+                      </div>
+                    )}
+                  </div>
+                  <canvas ref={canvasRef} className="hidden" />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleIdentify}
+                      disabled={identifying}
+                      className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 transition-all active:scale-[0.98]"
+                    >
+                      {identifying ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                      {identifying ? "Analysing…" : "Identify Objects"}
+                    </button>
+                    <button
+                      onClick={stopCamera}
+                      className="px-4 py-3 rounded-xl bg-secondary border border-border text-sm font-semibold text-muted-foreground hover:bg-secondary/80 transition-colors"
+                    >
+                      Stop
+                    </button>
+                  </div>
+                </div>
+              )}
+            </Card>
+
+            {identified && (
+              <Card className="border-green-500/25 bg-green-500/5">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+                  <p className="text-xs font-bold text-green-700 uppercase tracking-wide">
+                    Scene Description
+                  </p>
+                </div>
+                <p className="text-sm text-card-foreground leading-relaxed">
+                  {identified}
+                </p>
+                <button
+                  onClick={() =>
+                    speak(identified, s.ttsRate, s.ttsPitch, s.ttsVolume)
+                  }
+                  className="flex items-center gap-1.5 text-xs text-purple-600 hover:underline mt-1 font-medium"
+                >
+                  <Volume2 className="w-3.5 h-3.5" /> Read aloud
+                </button>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {/* ── ASK AI TAB ── */}
+        {tab === "ask" && (
+          <div className="space-y-4">
+            <Card>
+              <SectionTitle
+                icon={<MessageSquare className="w-3.5 h-3.5" />}
+                label="Ask AI Assistant"
+              />
+              <p className="text-xs text-muted-foreground">
+                Type or speak any question about your trip, destination, or the
+                app.
+              </p>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && askAI(query)}
+                  placeholder="e.g. What are the best places to visit in Goa?"
+                  className="flex-1 px-3 py-2.5 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/30 placeholder:text-muted-foreground/60"
+                  aria-label="Ask the AI assistant"
+                />
+                <button
+                  onClick={askByVoice}
+                  disabled={isListening || aiLoading}
+                  className="p-2.5 rounded-xl bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                  aria-label="Ask by voice"
+                  title="Speak question"
+                >
+                  {isListening ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Mic className="w-4 h-4" />
+                  )}
+                </button>
               </div>
 
-              <div className="space-y-2">
+              <button
+                onClick={() => askAI(query)}
+                disabled={aiLoading || !query.trim()}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 disabled:opacity-40 transition-all active:scale-[0.98]"
+              >
+                {aiLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" /> Thinking…
+                  </>
+                ) : (
+                  <>
+                    <MessageSquare className="w-4 h-4" /> Ask AI
+                  </>
+                )}
+              </button>
+            </Card>
+
+            {aiReply && (
+              <Card className="border-purple-500/20 bg-purple-500/5">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="w-4 h-4 text-purple-600" />
+                  <p className="text-xs font-bold text-purple-700 uppercase tracking-wide">
+                    AI Response
+                  </p>
+                </div>
+                <p className="text-sm text-card-foreground leading-relaxed">
+                  {aiReply}
+                </p>
+                <button
+                  onClick={() =>
+                    speak(aiReply, s.ttsRate, s.ttsPitch, s.ttsVolume)
+                  }
+                  className="flex items-center gap-1.5 text-xs text-purple-600 hover:underline mt-1 font-medium"
+                >
+                  <Volume2 className="w-3.5 h-3.5" /> Read aloud
+                </button>
+              </Card>
+            )}
+
+            {/* Suggested questions */}
+            <Card>
+              <p className="text-xs font-semibold text-muted-foreground mb-2">
+                Suggested questions:
+              </p>
+              <div className="space-y-1.5">
+                {[
+                  "What are the top safety tips for solo travellers?",
+                  "How do I use the SOS feature?",
+                  "What does the itinerary page show?",
+                  "How do I split expenses with my group?",
+                ].map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => {
+                      setQuery(q);
+                      askAI(q);
+                    }}
+                    className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg bg-background border border-border hover:bg-purple-500/8 hover:border-purple-500/25 text-xs text-muted-foreground hover:text-card-foreground transition-all"
+                  >
+                    <ChevronRight className="w-3 h-3 text-purple-500 shrink-0" />
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* ── SETTINGS TAB ── */}
+        {tab === "settings" && (
+          <div className="space-y-4">
+            <Card>
+              <SectionTitle
+                icon={<Settings2 className="w-3.5 h-3.5" />}
+                label="Voice Settings"
+              />
+
+              <div className="space-y-4">
+                {/* Speech rate */}
                 <div>
-                  <label className="text-[10px] text-muted-foreground flex items-center justify-between mb-1">
-                    <span>Speech Rate</span>
-                    <span className="font-medium text-card-foreground">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-medium text-card-foreground">
+                      Speech Rate
+                    </label>
+                    <span className="text-xs font-bold text-purple-600 bg-purple-500/10 px-2 py-0.5 rounded-lg">
                       {settings.ttsRate}x
                     </span>
-                  </label>
+                  </div>
                   <input
                     type="range"
                     min={0.5}
@@ -609,18 +845,29 @@ export default function AccessibilityPanel() {
                     step={0.1}
                     value={settings.ttsRate}
                     onChange={(e) =>
-                      updateSetting("ttsRate", Number(e.target.value))
+                      setSettings((p) => ({
+                        ...p,
+                        ttsRate: Number(e.target.value),
+                      }))
                     }
-                    className="w-full accent-purple-600"
+                    className="w-full accent-purple-600 h-2"
                   />
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>Slow (0.5x)</span>
+                    <span>Fast (2x)</span>
+                  </div>
                 </div>
+
+                {/* Pitch */}
                 <div>
-                  <label className="text-[10px] text-muted-foreground flex items-center justify-between mb-1">
-                    <span>Pitch</span>
-                    <span className="font-medium text-card-foreground">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-medium text-card-foreground">
+                      Pitch
+                    </label>
+                    <span className="text-xs font-bold text-purple-600 bg-purple-500/10 px-2 py-0.5 rounded-lg">
                       {settings.ttsPitch}
                     </span>
-                  </label>
+                  </div>
                   <input
                     type="range"
                     min={0.5}
@@ -628,18 +875,29 @@ export default function AccessibilityPanel() {
                     step={0.1}
                     value={settings.ttsPitch}
                     onChange={(e) =>
-                      updateSetting("ttsPitch", Number(e.target.value))
+                      setSettings((p) => ({
+                        ...p,
+                        ttsPitch: Number(e.target.value),
+                      }))
                     }
-                    className="w-full accent-purple-600"
+                    className="w-full accent-purple-600 h-2"
                   />
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>Low</span>
+                    <span>High</span>
+                  </div>
                 </div>
+
+                {/* Volume */}
                 <div>
-                  <label className="text-[10px] text-muted-foreground flex items-center justify-between mb-1">
-                    <span>Volume</span>
-                    <span className="font-medium text-card-foreground">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-medium text-card-foreground">
+                      Volume
+                    </label>
+                    <span className="text-xs font-bold text-purple-600 bg-purple-500/10 px-2 py-0.5 rounded-lg">
                       {Math.round(settings.ttsVolume * 100)}%
                     </span>
-                  </label>
+                  </div>
                   <input
                     type="range"
                     min={0}
@@ -647,410 +905,114 @@ export default function AccessibilityPanel() {
                     step={0.05}
                     value={settings.ttsVolume}
                     onChange={(e) =>
-                      updateSetting("ttsVolume", Number(e.target.value))
+                      setSettings((p) => ({
+                        ...p,
+                        ttsVolume: Number(e.target.value),
+                      }))
                     }
-                    className="w-full accent-purple-600"
+                    className="w-full accent-purple-600 h-2"
                   />
-                </div>
-              </div>
-
-              <button
-                onClick={() => {
-                  speak(
-                    "This is a test of the text to speech system.",
-                    settings,
-                  );
-                }}
-                className="w-full py-1.5 rounded-lg bg-purple-500/10 text-purple-600 text-xs font-semibold hover:bg-purple-500/20 transition-colors"
-              >
-                Test Voice
-              </button>
-            </div>
-          )}
-
-          {/* ── Section 1: Text to Speech ── */}
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <Volume2 className="w-3.5 h-3.5" /> Text to Speech
-            </p>
-
-            {!hasTTS && (
-              <p className="text-xs text-orange-500 bg-orange-500/10 px-3 py-2 rounded-lg">
-                ⚠️ TTS not supported in this browser.
-              </p>
-            )}
-
-            <textarea
-              value={customText}
-              onChange={(e) => setCustomText(e.target.value)}
-              placeholder="Type or paste any text here to hear it spoken aloud..."
-              rows={3}
-              className="w-full px-3 py-2 rounded-xl bg-background border border-border text-xs focus:outline-none focus:ring-2 focus:ring-purple-500/20 resize-none"
-              aria-label="Text to speak"
-            />
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleSpeak(customText)}
-                disabled={!hasTTS || !customText.trim() || isSpeaking}
-                className="flex-1 py-2 rounded-xl bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-1.5 transition-colors"
-                aria-label="Speak text"
-              >
-                {isSpeaking ? (
-                  <>
-                    <Square className="w-3.5 h-3.5" /> Speaking...
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-3.5 h-3.5" /> Speak Text
-                  </>
-                )}
-              </button>
-              {isSpeaking && (
-                <button
-                  onClick={handleStop}
-                  className="px-3 py-2 rounded-xl bg-secondary text-muted-foreground text-xs font-semibold hover:bg-secondary/80 flex items-center gap-1.5 transition-colors"
-                  aria-label="Stop speaking"
-                >
-                  <Square className="w-3.5 h-3.5" />
-                  Stop
-                </button>
-              )}
-            </div>
-
-            {/* Quick phrases */}
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                "Read page content",
-                "Current time",
-                "Help",
-                "Navigate to dashboard",
-              ].map((phrase) => (
-                <button
-                  key={phrase}
-                  onClick={() => {
-                    if (phrase === "Current time") {
-                      const t = new Date().toLocaleTimeString("en-IN", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        hour12: true,
-                      });
-                      handleSpeak(`The current time is ${t}`);
-                    } else if (phrase === "Help") {
-                      handleSpeak(
-                        "You can use this panel to hear text spoken, give voice commands, and identify objects using your camera. Hold the SOS button for emergencies.",
-                      );
-                    } else {
-                      handleSpeak(phrase);
-                    }
-                  }}
-                  className="px-2 py-1 rounded-lg bg-secondary text-[10px] font-medium text-muted-foreground hover:bg-purple-500/10 hover:text-purple-600 transition-colors"
-                >
-                  {phrase}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* ── Section 2: Voice Commands ── */}
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <Mic className="w-3.5 h-3.5" /> Voice Commands
-            </p>
-
-            {!hasSR ? (
-              <p className="text-xs text-orange-500 bg-orange-500/10 px-3 py-2 rounded-lg">
-                ⚠️ Speech recognition requires Chrome or Edge.
-              </p>
-            ) : (
-              <>
-                <button
-                  onClick={isListening ? stopListening : startListening}
-                  className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
-                    isListening
-                      ? "bg-red-500 text-white shadow-lg scale-[1.02] animate-pulse"
-                      : "bg-purple-600 text-white hover:bg-purple-700"
-                  }`}
-                  aria-label={
-                    isListening ? "Stop listening" : "Start voice recognition"
-                  }
-                >
-                  {isListening ? (
-                    <>
-                      <div className="flex gap-1 items-center">
-                        <span
-                          className="w-1.5 h-4 bg-white rounded-full animate-bounce"
-                          style={{ animationDelay: "0ms" }}
-                        />
-                        <span
-                          className="w-1.5 h-6 bg-white rounded-full animate-bounce"
-                          style={{ animationDelay: "100ms" }}
-                        />
-                        <span
-                          className="w-1.5 h-4 bg-white rounded-full animate-bounce"
-                          style={{ animationDelay: "200ms" }}
-                        />
-                      </div>
-                      Listening... (tap to stop)
-                    </>
-                  ) : (
-                    <>
-                      <Mic className="w-4 h-4" />
-                      Start Listening
-                    </>
-                  )}
-                </button>
-
-                {transcript && (
-                  <div className="px-3 py-2 rounded-xl bg-purple-500/5 border border-purple-500/20 space-y-1">
-                    <p className="text-[10px] text-muted-foreground">
-                      Transcript:
-                    </p>
-                    <p className="text-xs text-card-foreground italic">
-                      "{transcript}"
-                    </p>
-                    {voiceResult && (
-                      <p className="text-[10px] text-purple-600 font-medium">
-                        {voiceResult}
-                      </p>
-                    )}
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>Mute</span>
+                    <span>Full</span>
                   </div>
-                )}
-
-                {/* Available commands hint */}
-                <div className="px-3 py-2 rounded-xl bg-secondary/40 space-y-1">
-                  <p className="text-[10px] font-semibold text-muted-foreground">
-                    Example commands:
-                  </p>
-                  {[
-                    "Go to dashboard",
-                    "Open itinerary",
-                    "Check safety",
-                    "What time is it",
-                    "Help me navigate",
-                  ].map((cmd) => (
-                    <p
-                      key={cmd}
-                      className="text-[10px] text-muted-foreground flex items-center gap-1"
-                    >
-                      <span className="text-purple-500">›</span> "{cmd}"
-                    </p>
-                  ))}
                 </div>
-              </>
-            )}
-          </div>
+              </div>
 
-          {/* ── Section 3: AI Voice Chat ── */}
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <MessageSquare className="w-3.5 h-3.5" /> Ask AI (Voice or Text)
-            </p>
+              <button
+                onClick={() =>
+                  speak(
+                    "This is a test of the Radiator Routes text to speech system.",
+                    settings.ttsRate,
+                    settings.ttsPitch,
+                    settings.ttsVolume,
+                  )
+                }
+                className="w-full py-2.5 rounded-xl bg-purple-500/10 text-purple-600 text-sm font-semibold hover:bg-purple-500/20 transition-colors border border-purple-500/20"
+              >
+                🔊 Test Voice
+              </button>
+            </Card>
 
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={aiChatQuery}
-                onChange={(e) => setAiChatQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && askAI()}
-                placeholder="Ask anything about your trip..."
-                className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-xs focus:outline-none focus:ring-2 focus:ring-purple-500/20"
-                aria-label="Ask AI assistant"
+            <Card>
+              <SectionTitle
+                icon={<Eye className="w-3.5 h-3.5" />}
+                label="Visual Settings"
               />
-              <button
-                onClick={askByVoice}
-                disabled={isListening || aiLoading}
-                className="p-2 rounded-xl bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 transition-colors"
-                aria-label="Ask by voice"
-                title="Ask by voice"
-              >
-                {isListening ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Mic className="w-4 h-4" />
-                )}
-              </button>
-              <button
-                onClick={askAI}
-                disabled={aiLoading || !aiChatQuery.trim()}
-                className="p-2 rounded-xl bg-secondary text-muted-foreground hover:bg-secondary/80 disabled:opacity-50 transition-colors"
-                aria-label="Submit question"
-              >
-                {aiLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <MessageSquare className="w-4 h-4" />
-                )}
-              </button>
-            </div>
-
-            {aiChatResponse && (
-              <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/20 space-y-2">
-                <p className="text-[10px] text-muted-foreground font-semibold">
-                  AI Response:
-                </p>
-                <p className="text-xs text-card-foreground leading-relaxed">
-                  {aiChatResponse}
-                </p>
-                <button
-                  onClick={() => speak(aiChatResponse, settings)}
-                  className="text-[10px] text-purple-600 hover:underline flex items-center gap-1"
-                >
-                  <Volume2 className="w-3 h-3" /> Speak response
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* ── Section 4: Object Identification ── */}
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <ScanLine className="w-3.5 h-3.5" /> Object Identification
-            </p>
-
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Point your camera at an object, sign, or scene and let AI describe
-              what it sees — designed for visually impaired travelers.
-            </p>
-
-            {!cameraActive ? (
-              <button
-                onClick={startCamera}
-                className="w-full py-2.5 rounded-xl bg-secondary border border-border text-xs font-semibold text-card-foreground hover:bg-secondary/80 flex items-center justify-center gap-2 transition-colors"
-                aria-label="Start camera"
-              >
-                <Camera className="w-4 h-4 text-purple-600" />
-                Activate Camera
-              </button>
-            ) : (
-              <div className="space-y-2">
-                <div className="relative rounded-xl overflow-hidden bg-black aspect-video">
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover"
-                    aria-label="Camera feed"
-                  />
-                  {identifying && (
-                    <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2">
-                      <Loader2 className="w-8 h-8 text-white animate-spin" />
-                      <p className="text-white text-xs font-semibold">
-                        Identifying...
-                      </p>
+              <div className="space-y-3">
+                {[
+                  {
+                    key: "highContrast" as const,
+                    label: "High Contrast Mode",
+                    desc: "Increases text and UI contrast for better visibility",
+                    emoji: "🔲",
+                  },
+                  {
+                    key: "largeText" as const,
+                    label: "Large Text",
+                    desc: "Increases base font size across the app",
+                    emoji: "🔤",
+                  },
+                ].map(({ key, label, desc, emoji }) => (
+                  <label
+                    key={key}
+                    className="flex items-center justify-between gap-3 cursor-pointer p-3 rounded-xl bg-background border border-border hover:bg-secondary/40 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg">{emoji}</span>
+                      <div>
+                        <p className="text-sm font-medium text-card-foreground">
+                          {label}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground leading-tight">
+                          {desc}
+                        </p>
+                      </div>
                     </div>
-                  )}
-                </div>
-
-                {/* Hidden canvas for capture */}
-                <canvas ref={canvasRef} className="hidden" />
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={identifyObjects}
-                    disabled={identifying}
-                    className="flex-1 py-2.5 rounded-xl bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
-                    aria-label="Identify objects in camera view"
-                  >
-                    {identifying ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <ScanLine className="w-3.5 h-3.5" />
-                    )}
-                    {identifying ? "Analyzing..." : "Identify Objects"}
-                  </button>
-                  <button
-                    onClick={stopCamera}
-                    className="px-3 py-2.5 rounded-xl bg-secondary text-muted-foreground text-xs font-semibold hover:bg-secondary/80 flex items-center gap-1.5 transition-colors"
-                    aria-label="Stop camera"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                    Stop
-                  </button>
-                </div>
+                    <div
+                      className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${settings[key] ? "bg-purple-600" : "bg-border"}`}
+                      onClick={() =>
+                        setSettings((p) => ({ ...p, [key]: !p[key] }))
+                      }
+                    >
+                      <div
+                        className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${settings[key] ? "translate-x-6" : "translate-x-1"}`}
+                      />
+                    </div>
+                  </label>
+                ))}
               </div>
-            )}
+            </Card>
 
-            {identifiedText && (
-              <div className="p-3 rounded-xl bg-green-500/5 border border-green-500/20 space-y-2">
-                <p className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1">
-                  <Eye className="w-3 h-3 text-green-600" /> What I see:
+            <Card>
+              <SectionTitle
+                icon={<Sparkles className="w-3.5 h-3.5" />}
+                label="About Accessibility"
+              />
+              <div className="space-y-2 text-xs text-muted-foreground leading-relaxed">
+                <p>
+                  Radiator Routes is designed to be fully usable by visually
+                  impaired travellers. Features include:
                 </p>
-                <p className="text-xs text-card-foreground leading-relaxed">
-                  {identifiedText}
-                </p>
-                <button
-                  onClick={() => speak(identifiedText, settings)}
-                  className="text-[10px] text-purple-600 hover:underline flex items-center gap-1"
-                  aria-label="Speak the identified objects description"
-                >
-                  <Volume2 className="w-3 h-3" /> Speak description
-                </button>
+                <ul className="space-y-1.5 mt-2">
+                  {[
+                    "🔊 Text-to-Speech for all content",
+                    "🎙️ Voice command navigation",
+                    "📷 AI-powered object identification",
+                    "🤖 Voice-activated AI assistant",
+                    "🔲 High contrast & large text modes",
+                    "🆘 One-tap SOS with live location",
+                  ].map((item) => (
+                    <li key={item} className="flex items-start gap-2">
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
-            )}
+            </Card>
           </div>
-
-          {/* ── Quick Access Bar ── */}
-          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border">
-            <button
-              onClick={() => {
-                const time = new Date().toLocaleTimeString("en-IN", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  hour12: true,
-                });
-                const date = new Date().toLocaleDateString("en-IN", {
-                  weekday: "long",
-                  day: "numeric",
-                  month: "long",
-                });
-                speak(`Today is ${date}. The time is ${time}.`, settings);
-              }}
-              className="py-2 rounded-xl bg-secondary text-[11px] font-medium text-muted-foreground hover:bg-purple-500/10 hover:text-purple-600 transition-colors flex items-center justify-center gap-1.5"
-              aria-label="Speak current date and time"
-            >
-              🕐 Date &amp; Time
-            </button>
-            <button
-              onClick={() => {
-                speak(
-                  "Emergency tip: In India, call 100 for Police, 108 for Ambulance, 1091 for Women Helpline, and 101 for Fire. Hold the red SOS button in the app for emergency alerts.",
-                  settings,
-                );
-              }}
-              className="py-2 rounded-xl bg-secondary text-[11px] font-medium text-muted-foreground hover:bg-red-500/10 hover:text-red-600 transition-colors flex items-center justify-center gap-1.5"
-              aria-label="Speak emergency numbers"
-            >
-              🆘 Emergency Numbers
-            </button>
-            <button
-              onClick={() => {
-                speak(
-                  "Navigation tip: You can ask the AI assistant any question about your trip, or use voice commands by tapping the microphone button.",
-                  settings,
-                );
-              }}
-              className="py-2 rounded-xl bg-secondary text-[11px] font-medium text-muted-foreground hover:bg-purple-500/10 hover:text-purple-600 transition-colors flex items-center justify-center gap-1.5"
-              aria-label="Speak navigation help"
-            >
-              🗺️ Navigation Help
-            </button>
-            <button
-              onClick={() => {
-                speak(
-                  "Accessibility features: Text to Speech reads content aloud. Voice Commands let you speak to navigate. Object Identification uses your camera to describe what you see.",
-                  settings,
-                );
-              }}
-              className="py-2 rounded-xl bg-secondary text-[11px] font-medium text-muted-foreground hover:bg-purple-500/10 hover:text-purple-600 transition-colors flex items-center justify-center gap-1.5"
-              aria-label="Explain accessibility features"
-            >
-              ♿ A11y Guide
-            </button>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
