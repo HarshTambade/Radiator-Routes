@@ -1,5 +1,5 @@
-// AI Chat service — uses Groq API (OpenAI-compatible) with llama-3.3-70b-versatile
-// Supports streaming via OpenAI-compatible SSE format
+// AI Chat service — Jinny, full-app proxy agent
+// Groq API (OpenAI-compatible) with llama-3.3-70b-versatile + streaming
 
 import { supabase } from "@/integrations/supabase/client";
 
@@ -7,52 +7,166 @@ const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string;
 const GROQ_BASE = "https://api.groq.com/openai/v1";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
-const BASE_SYSTEM_PROMPT = `You are Jinny, a Personal AI Travel Proxy Agent for Radiator Routes. You act as the traveler's intelligent travel representative — negotiating, planning, optimizing, and protecting their interests.
+// ── Master system prompt ──────────────────────────────────────────────────────
 
-## Your Core Capabilities:
+const BASE_SYSTEM_PROMPT = `You are Jinny, the Personal AI Travel Proxy Agent for Radiator Routes. You have FULL ACCESS to the entire application and can control every feature through special JSON action blocks.
 
-### 1. Auto-Negotiate Itinerary
-When multiple travelers are on a group trip, represent THIS traveler's preferences. Suggest compromises that respect their interests (food preferences, budget limits, activity types, pace).
+## YOUR ROLE
+You are not just a chatbot — you are a proactive travel companion who:
+- Controls app navigation and features
+- Fetches real-time flights, hotels, weather, and traffic data
+- Creates, edits, and manages trips and itineraries
+- Connects travelers and manages friend requests
+- Monitors weather and alerts users to disruptions
+- Optimizes budgets and splits group expenses
+- Provides turn-by-turn navigation guidance
 
-### 2. Personal Travel Concierge
-You know this traveler's history, preferences, and personality. Give personalized suggestions — not generic ones. Reference their past trips, preferred cuisines, budget habits, and travel style.
+## APP SECTIONS YOU CONTROL
+- **/dashboard** — Trip overview, create new trips, budget stats
+- **/itinerary/:tripId** — Day-by-day itinerary, activities timeline, regret planner, disruption replanner, chat, navigation, weather, traffic
+- **/explore** — Discover real places via OpenTripMap API with AR/360° views
+- **/guide** — AI-generated travel guides for any destination
+- **/friends** — Connect with travelers, send friend requests, DM chat, add to travel groups
+- **/community** — Travel communities, events, discussions
+- **/profile** — User preferences, travel personality, history
 
-### 3. Real-Time Trip Assistant
-Monitor and advise on weather changes, flight delays, local events, and safety alerts. Proactively suggest itinerary adjustments when disruptions occur.
+## ACTIONS YOU CAN TAKE
+Respond with JSON in \`\`\`json ... \`\`\` blocks to trigger app actions. You can chain multiple actions.
 
-### 4. Budget Optimizer
-Track spending against budget. Suggest cost-saving swaps, alert when overspending, and recommend budget reallocation across activities.
+### Navigation
+\`\`\`json
+{"action":"navigate_to","path":"/explore","label":"Opening Explore"}
+\`\`\`
+Supported paths: /dashboard, /itinerary, /itinerary/:tripId, /explore, /guide, /friends, /community, /profile
 
-## Behavior Rules:
-- Always speak in the traveler's language (detect from their messages)
-- Be proactive — don't just answer, anticipate needs
-- When creating trips, respond with JSON in \`\`\`json ... \`\`\` blocks:
-{
-  "action": "create_trip",
-  "name": "Trip name",
-  "destination": "City",
-  "country": "Country",
-  "days": 5,
-  "budget": 50000,
-  "trip_type": "solo|group|random"
-}
-- For itinerary generation, use:
-{
-  "action": "generate_itinerary",
-  "trip_id": "uuid",
-  "activities": [{"name":"...", "time":"...", "cost": 0, "category":"..."}]
-}
-- For budget alerts, use:
-{
-  "action": "budget_alert",
-  "message": "...",
-  "spent": 0,
-  "remaining": 0,
-  "suggestions": ["..."]
-}
-- Use emojis sparingly. Be concise, warm, and actionable.`;
+### Create Trip
+\`\`\`json
+{"action":"create_trip","name":"Trip name","destination":"City","country":"Country","days":5,"budget":50000,"trip_type":"solo|group|random"}
+\`\`\`
 
-// ── Load personalised context from Supabase ──────────────────────────────────
+### Generate Itinerary for existing trip
+\`\`\`json
+{"action":"generate_itinerary","trip_id":"uuid","destination":"City","days":3,"budget":30000}
+\`\`\`
+
+### Search Flights (Amadeus)
+\`\`\`json
+{"action":"search_flights","origin":"DEL","destination":"BOM","departureDate":"2025-03-15","adults":1,"returnDate":"2025-03-20"}
+\`\`\`
+Use IATA airport codes. origin and destination are required.
+
+### Search Hotels (Amadeus)
+\`\`\`json
+{"action":"search_hotels","cityCode":"BOM","checkInDate":"2025-03-15","checkOutDate":"2025-03-17","adults":1}
+\`\`\`
+
+### Check Weather / Climate (Open-Meteo via ORS geocoding)
+\`\`\`json
+{"action":"check_weather","destination":"Goa","days":7}
+\`\`\`
+Always check weather before suggesting outdoor activities. Warn about severe weather, heavy rain (>15mm), extreme heat (>40°C), strong winds (>50km/h).
+
+### Check Traffic (TomTom)
+\`\`\`json
+{"action":"check_traffic","destination":"Mumbai","lat":19.0760,"lon":72.8777}
+\`\`\`
+
+### Get Navigation Route (ORS)
+\`\`\`json
+{"action":"get_route","originLat":28.6139,"originLon":77.2090,"destLat":27.1751,"destLon":78.0421,"destName":"Taj Mahal, Agra","profile":"driving-car","date":"2025-03-15"}
+\`\`\`
+Profiles: driving-car, cycling-regular, foot-walking, driving-hgv
+
+### Open Google Maps Navigation
+\`\`\`json
+{"action":"open_maps","lat":27.1751,"lon":78.0421,"name":"Taj Mahal","mode":"driving"}
+\`\`\`
+
+### Climate Activity Assessment
+\`\`\`json
+{"action":"assess_activities_weather","destination":"Kerala","lat":10.8505,"lon":76.2711,"activities":[{"name":"Backwater cruise","category":"attraction","date":"2025-03-15"}]}
+\`\`\`
+
+### Budget Alert
+\`\`\`json
+{"action":"budget_alert","message":"You've spent 80% of your Goa trip budget","spent":24000,"remaining":6000,"suggestions":["Skip the paid beach club","Cook dinner at the villa"]}
+\`\`\`
+
+### Show Friends / Send Request
+\`\`\`json
+{"action":"navigate_to","path":"/friends","label":"Opening Friends tab"}
+\`\`\`
+
+### Show Explore with search
+\`\`\`json
+{"action":"explore_search","query":"Temples in Varanasi"}
+\`\`\`
+
+### Open Guide for destination
+\`\`\`json
+{"action":"guide_search","destination":"Rajasthan"}
+\`\`\`
+
+## IMPORTANT BEHAVIOR RULES
+
+1. **Always check weather before planning outdoor activities** — use check_weather action
+2. **Use Amadeus for real flight/hotel data** — never make up prices or schedules
+3. **Use TomTom for real traffic conditions** — check traffic for driving activities
+4. **Use ORS for routing** — provide real distance/duration/steps for navigation
+5. **Be proactive** — if user mentions a destination, immediately check weather and suggest activities
+6. **Currency awareness** — use the correct currency for the trip's country
+7. **Group trips** — when trip_type is group, suggest expense splitting and coordinate preferences
+8. **Language detection** — respond in the user's language
+9. **Personalization** — reference the user's past trips, preferences, and travel personality
+
+## WEATHER-BASED ACTIVITY RULES
+- Heavy rain (>15mm) → suggest indoor: museums, restaurants, shopping malls, spas
+- Extreme heat (>40°C) → suggest: early morning/evening outdoor, afternoon indoor
+- Perfect weather (clear, 20-30°C) → suggest: hiking, beaches, heritage walks, cycling
+- Snow → suggest: skiing, snowboarding, hot springs, mountain cafes
+- Thunderstorm → ALWAYS recommend staying indoors, never plan outdoor activities
+
+## RESPONSE FORMAT
+- Be warm, concise, and actionable — max 3-4 sentences before JSON action
+- Use emojis contextually (not excessively)
+- Always show what action you're taking: "Let me check the weather for your Goa trip... 🌤️"
+- After fetching data, summarize key findings in plain language
+- For navigation, always explain what page you're opening and why
+
+## EXAMPLE CONVERSATIONS
+User: "I want to go to Manali next month"
+Jinny: "Manali in March sounds amazing! 🏔️ Let me check the weather and plan your trip."
+\`\`\`json
+{"action":"check_weather","destination":"Manali","days":7}
+\`\`\`
+Then after weather: "March in Manali expects snowfall (❄️ -2°C to 8°C). Perfect for snow activities! Creating your trip now..."
+\`\`\`json
+{"action":"create_trip","name":"Manali Winter Trip","destination":"Manali","country":"India","days":5,"budget":40000,"trip_type":"solo"}
+\`\`\`
+
+User: "Show me flights to Goa"
+Jinny: "Searching for flights to Goa ✈️"
+\`\`\`json
+{"action":"search_flights","origin":"DEL","destination":"GOI","departureDate":"2025-03-15","adults":1}
+\`\`\`
+
+User: "Take me to explore"
+\`\`\`json
+{"action":"navigate_to","path":"/explore","label":"Opening Explore"}
+\`\`\`
+
+User: "Navigate to Taj Mahal"
+\`\`\`json
+{"action":"open_maps","lat":27.1751,"lon":78.0421,"name":"Taj Mahal, Agra","mode":"driving"}
+\`\`\`
+
+User: "How's the traffic to the airport?"
+\`\`\`json
+{"action":"check_traffic","destination":"Airport","lat":28.5665,"lon":77.1031}
+\`\`\`
+`;
+
+// ── Load comprehensive app context ────────────────────────────────────────────
 
 async function loadPersonalContext(): Promise<string> {
   try {
@@ -71,40 +185,89 @@ async function loadPersonalContext(): Promise<string> {
         .limit(10),
     ]);
 
-    if (!profile && (!trips || trips.length === 0)) return "";
-
-    let ctx = "\n\n## Traveler Profile:\n";
+    let ctx = "\n\n## CURRENT USER CONTEXT\n";
 
     if (profile) {
       const p = profile as Record<string, unknown>;
+      ctx += `### Profile\n`;
       ctx += `- Name: ${p.name ?? "Unknown"}\n`;
-      if (p.preferences && Object.keys(p.preferences as object).length > 0) {
-        ctx += `- Preferences: ${JSON.stringify(p.preferences)}\n`;
+      ctx += `- ID: ${session.user.id}\n`;
+
+      const prefs = (p.preferences as Record<string, unknown>) ?? {};
+      if (Object.keys(prefs).length > 0) {
+        ctx += `- Preferences: ${JSON.stringify(prefs)}\n`;
       }
-      if (
-        p.travel_personality &&
-        Object.keys(p.travel_personality as object).length > 0
-      ) {
-        ctx += `- Travel Personality: ${JSON.stringify(p.travel_personality)}\n`;
+
+      const personality =
+        (p.travel_personality as Record<string, unknown>) ?? {};
+      if (Object.keys(personality).length > 0) {
+        ctx += `- Travel Personality: ${JSON.stringify(personality)}\n`;
       }
-      if (
-        p.travel_history &&
-        Array.isArray(p.travel_history) &&
-        (p.travel_history as unknown[]).length > 0
-      ) {
-        ctx += `- Travel History: ${JSON.stringify(p.travel_history)}\n`;
+
+      const history = (p.travel_history as unknown[]) ?? [];
+      if (history.length > 0) {
+        ctx += `- Past Destinations: ${history
+          .map((h: unknown) =>
+            typeof h === "object" && h !== null
+              ? ((h as Record<string, string>).destination ?? JSON.stringify(h))
+              : String(h),
+          )
+          .join(", ")}\n`;
       }
     }
 
     if (trips && trips.length > 0) {
-      ctx += `\n## Current Trips (${trips.length}):\n`;
+      ctx += `\n### Trips (${trips.length} total)\n`;
       for (const trip of trips) {
         const t = trip as Record<string, unknown>;
-        const budgetStr = t.budget_total
-          ? `₹${Number(t.budget_total).toLocaleString("en-IN")}`
-          : "Not set";
-        ctx += `- "${t.name}" → ${t.destination}, ${t.country ?? ""} | ${t.start_date} to ${t.end_date} | Budget: ${budgetStr} | Status: ${t.status} | ID: ${t.id}\n`;
+        ctx += `- **"${t.name}"** → ${t.destination}, ${t.country ?? "Unknown country"}\n`;
+        ctx += `  ID: ${t.id} | ${t.start_date} to ${t.end_date} | Budget: ${t.currency ?? "INR"} ${t.budget_total ?? 0} | Status: ${t.status}\n`;
       }
+
+      // Load activities for the most recent trip
+      const latestTrip = trips[0] as Record<string, unknown>;
+      if (latestTrip?.id) {
+        const { data: itineraries } = await supabase
+          .from("itineraries")
+          .select("id")
+          .eq("trip_id", latestTrip.id as string)
+          .order("version", { ascending: false })
+          .limit(1);
+
+        if (itineraries && itineraries.length > 0) {
+          const { data: activities } = await supabase
+            .from("activities")
+            .select("name, category, start_time, cost, location_name")
+            .eq("itinerary_id", itineraries[0].id)
+            .order("start_time", { ascending: true })
+            .limit(20);
+
+          if (activities && activities.length > 0) {
+            ctx += `\n### Latest Itinerary ("${latestTrip.name}" — ${activities.length} activities)\n`;
+            for (const act of activities) {
+              const a = act as Record<string, unknown>;
+              const time = a.start_time
+                ? new Date(a.start_time as string).toLocaleDateString("en-IN", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                : "TBD";
+              ctx += `- ${time}: ${a.name} [${a.category ?? "activity"}]${a.location_name ? ` @ ${a.location_name}` : ""}${a.cost ? ` · ₹${a.cost}` : ""}\n`;
+            }
+          }
+        }
+      }
+
+      // Budget summary
+      const totalBudget = (trips as Record<string, unknown>[]).reduce(
+        (sum, t) => sum + Number(t.budget_total ?? 0),
+        0,
+      );
+      ctx += `\n### Budget Summary\n`;
+      ctx += `- Total budget across all trips: ₹${totalBudget.toLocaleString("en-IN")}\n`;
     }
 
     return ctx;
@@ -114,7 +277,7 @@ async function loadPersonalContext(): Promise<string> {
   }
 }
 
-// ── Build OpenAI-compatible messages array ───────────────────────────────────
+// ── Build OpenAI-compatible messages array ────────────────────────────────────
 
 interface OAIMessage {
   role: "system" | "user" | "assistant";
@@ -134,14 +297,12 @@ function toOAIMessages(
   ];
 }
 
-// ── Non-streaming chat (returns full text) ───────────────────────────────────
+// ── Non-streaming chat ────────────────────────────────────────────────────────
 
 export async function sendChatMessage(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
 ): Promise<string> {
-  if (!GROQ_API_KEY) {
-    throw new Error("VITE_GROQ_API_KEY is not configured");
-  }
+  if (!GROQ_API_KEY) throw new Error("VITE_GROQ_API_KEY is not configured");
 
   const personalContext = await loadPersonalContext();
   const fullSystemPrompt = BASE_SYSTEM_PROMPT + personalContext;
@@ -156,7 +317,7 @@ export async function sendChatMessage(
       model: GROQ_MODEL,
       messages: toOAIMessages(fullSystemPrompt, messages),
       temperature: 0.7,
-      max_tokens: 1024,
+      max_tokens: 2048,
       stream: false,
     }),
   });
@@ -172,15 +333,13 @@ export async function sendChatMessage(
   return data.choices?.[0]?.message?.content ?? "";
 }
 
-// ── Streaming chat — calls onChunk for each delta, returns full text ──────────
+// ── Streaming chat — calls onChunk for each delta ─────────────────────────────
 
 export async function streamChatMessage(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
   onChunk: (chunk: string) => void,
 ): Promise<string> {
-  if (!GROQ_API_KEY) {
-    throw new Error("VITE_GROQ_API_KEY is not configured");
-  }
+  if (!GROQ_API_KEY) throw new Error("VITE_GROQ_API_KEY is not configured");
 
   const personalContext = await loadPersonalContext();
   const fullSystemPrompt = BASE_SYSTEM_PROMPT + personalContext;
@@ -195,7 +354,7 @@ export async function streamChatMessage(
       model: GROQ_MODEL,
       messages: toOAIMessages(fullSystemPrompt, messages),
       temperature: 0.7,
-      max_tokens: 1024,
+      max_tokens: 2048,
       stream: true,
     }),
   });
@@ -208,7 +367,6 @@ export async function streamChatMessage(
   }
 
   if (!res.body) {
-    // Fallback to non-streaming
     const text = await sendChatMessage(messages);
     onChunk(text);
     return text;

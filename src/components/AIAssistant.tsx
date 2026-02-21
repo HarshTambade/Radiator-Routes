@@ -9,6 +9,18 @@ import {
   Brain,
   Wallet,
   Navigation,
+  Plane,
+  Hotel,
+  CloudSun,
+  Car,
+  Map,
+  Users,
+  Compass,
+  BookOpen,
+  LayoutDashboard,
+  MapPin,
+  Route,
+  ExternalLink,
 } from "lucide-react";
 import orangeBot from "@/assets/orange-bot.png";
 import { useNavigate } from "react-router-dom";
@@ -18,14 +30,70 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import { streamChatMessage } from "@/services/aiChat";
+import { amadeusFlightOffers, amadeusHotelList } from "@/services/amadeus";
+import { trafficFlow, trafficIncidents } from "@/services/traffic";
+import {
+  getWeatherContext,
+  getClimateAwareRoute,
+  geocodeDestination,
+} from "@/services/climate";
+import { formatCurrency } from "@/lib/currency";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
 const PROXY_CAPABILITIES = [
-  { icon: Brain, label: "Concierge", desc: "Personalized suggestions" },
-  { icon: Navigation, label: "Negotiate", desc: "Group trip planning" },
-  { icon: Shield, label: "Monitor", desc: "Real-time alerts" },
-  { icon: Wallet, label: "Budget", desc: "Spending optimizer" },
+  {
+    icon: LayoutDashboard,
+    label: "Dashboard",
+    prompt: "Show me my trips and travel stats.",
+  },
+  { icon: Plane, label: "Flights", prompt: "Search flights for my next trip." },
+  {
+    icon: CloudSun,
+    label: "Weather",
+    prompt: "Check the weather for my upcoming trip destination.",
+  },
+  {
+    icon: Car,
+    label: "Traffic",
+    prompt: "Check live traffic conditions for my trip.",
+  },
+  {
+    icon: Navigation,
+    label: "Navigate",
+    prompt: "Help me navigate to my next activity.",
+  },
+  {
+    icon: Brain,
+    label: "Plan Trip",
+    prompt: "Create a new trip for me based on my preferences.",
+  },
+  {
+    icon: Users,
+    label: "Friends",
+    prompt: "Open my friends and travel companions.",
+  },
+  {
+    icon: Compass,
+    label: "Explore",
+    prompt: "Show me places to explore near my destination.",
+  },
+  {
+    icon: BookOpen,
+    label: "Guide",
+    prompt: "Generate a travel guide for my destination.",
+  },
+  {
+    icon: Wallet,
+    label: "Budget",
+    prompt: "Analyze my spending and suggest ways to save money.",
+  },
+  {
+    icon: Shield,
+    label: "Safety",
+    prompt: "Check safety ratings and alerts for my destination.",
+  },
+  { icon: Hotel, label: "Hotels", prompt: "Find hotels for my upcoming trip." },
 ];
 
 export default function AIAssistant() {
@@ -217,62 +285,395 @@ export default function AIAssistant() {
     });
   }, [messages]);
 
-  // ── Handle AI-requested actions (create trip, budget alert) ─────────────
+  // ── Inject a tool-result message into the chat ───────────────────────────
+  const injectToolResult = useCallback((content: string) => {
+    setMessages((prev) => [...prev, { role: "assistant" as const, content }]);
+  }, []);
+
+  // ── Handle AI-requested actions (full app control) ───────────────────────
   const handleAction = useCallback(
     async (content: string) => {
-      const jsonMatch = content.match(/```json\s*([\s\S]*?)```/);
-      if (!jsonMatch) return;
-      try {
-        const action = JSON.parse(jsonMatch[1]);
+      // Extract ALL json blocks (Jinny may chain multiple actions)
+      const jsonMatches = [...content.matchAll(/```json\s*([\s\S]*?)```/g)];
+      if (!jsonMatches.length) return;
 
-        if (action.action === "create_trip" && user) {
-          const today = new Date();
-          const startStr = formatLocalDate(today);
-          const endDate = new Date(today);
-          endDate.setDate(endDate.getDate() + (action.days || 3));
-          const endStr = formatLocalDate(endDate);
+      for (const match of jsonMatches) {
+        try {
+          const action = JSON.parse(match[1]);
+          const act: string = action.action ?? "";
 
-          const { error: insertError } = await supabase.from("trips").insert({
-            name: action.name || `Trip to ${action.destination}`,
-            destination: action.destination,
-            country: action.country || "India",
-            start_date: startStr,
-            end_date: endStr,
-            budget_total: action.budget || 0,
-            organizer_id: user.id,
-          });
-          if (insertError) throw insertError;
-
-          queryClient.invalidateQueries({ queryKey: ["trips"] });
-          toast({
-            title: "Trip created! 🎉",
-            description: `${action.destination} trip is ready.`,
-          });
-
-          const { data: newTrips } = await supabase
-            .from("trips")
-            .select("id")
-            .eq("organizer_id", user.id)
-            .order("created_at", { ascending: false })
-            .limit(1);
-          if (newTrips && newTrips.length > 0) {
-            navigate(`/itinerary/${newTrips[0].id}`);
+          // ── Navigate to any app page ──────────────────────────────────
+          if (act === "navigate_to" && action.path) {
+            const label = action.label || `Opening ${action.path}`;
+            toast({ title: `🗺️ ${label}` });
+            navigate(action.path);
+            continue;
           }
-        }
 
-        if (action.action === "budget_alert") {
-          toast({
-            title: "💰 Budget Alert",
-            description:
-              action.message ||
-              `Spent: ₹${action.spent?.toLocaleString("en-IN")} | Remaining: ₹${action.remaining?.toLocaleString("en-IN")}`,
-          });
+          // ── Create Trip ───────────────────────────────────────────────
+          if (act === "create_trip" && user) {
+            const today = new Date();
+            const startStr = formatLocalDate(today);
+            const endDate = new Date(today);
+            endDate.setDate(endDate.getDate() + (action.days || 3));
+            const endStr = formatLocalDate(endDate);
+
+            const { error: insertError } = await supabase.from("trips").insert({
+              name: action.name || `Trip to ${action.destination}`,
+              destination: action.destination,
+              country: action.country || "",
+              start_date: startStr,
+              end_date: endStr,
+              budget_total: action.budget || 0,
+              organizer_id: user.id,
+            });
+            if (insertError) throw insertError;
+
+            queryClient.invalidateQueries({ queryKey: ["trips"] });
+            toast({
+              title: "Trip created! 🎉",
+              description: `${action.destination} trip is ready.`,
+            });
+
+            const { data: newTrips } = await supabase
+              .from("trips")
+              .select("id")
+              .eq("organizer_id", user.id)
+              .order("created_at", { ascending: false })
+              .limit(1);
+            if (newTrips && newTrips.length > 0) {
+              navigate(`/itinerary/${newTrips[0].id}`);
+            }
+            continue;
+          }
+
+          // ── Generate Itinerary ────────────────────────────────────────
+          if (act === "generate_itinerary" && action.trip_id) {
+            toast({
+              title: "🧠 Generating itinerary…",
+              description: "Navigating to your trip.",
+            });
+            navigate(`/itinerary/${action.trip_id}`);
+            continue;
+          }
+
+          // ── Budget Alert ──────────────────────────────────────────────
+          if (act === "budget_alert") {
+            toast({
+              title: "💰 Budget Alert",
+              description:
+                action.message ||
+                `Spent: ₹${action.spent?.toLocaleString("en-IN")} | Remaining: ₹${action.remaining?.toLocaleString("en-IN")}`,
+            });
+            if (action.suggestions?.length) {
+              injectToolResult(
+                `💡 **Budget Tips:**\n${(action.suggestions as string[]).map((s: string) => `• ${s}`).join("\n")}`,
+              );
+            }
+            continue;
+          }
+
+          // ── Search Flights (Amadeus) ──────────────────────────────────
+          if (act === "search_flights") {
+            injectToolResult("✈️ Searching flights via Amadeus…");
+            try {
+              const data: any = await amadeusFlightOffers({
+                origin: action.origin,
+                destination: action.destination,
+                departureDate: action.departureDate,
+                adults: action.adults ?? 1,
+                returnDate: action.returnDate,
+                max: 5,
+              });
+              const offers = data?.data ?? [];
+              if (!offers.length) {
+                injectToolResult(
+                  "✈️ No flights found for those dates. Try different dates or airports.",
+                );
+              } else {
+                let result = `✈️ **Top ${Math.min(offers.length, 5)} Flights** (${action.origin} → ${action.destination})\n\n`;
+                for (const offer of offers.slice(0, 5)) {
+                  const price = offer.price?.grandTotal ?? "N/A";
+                  const currency = offer.price?.currency ?? "INR";
+                  const itinerary = offer.itineraries?.[0];
+                  const segments = itinerary?.segments ?? [];
+                  const dep = segments[0]?.departure?.at
+                    ? new Date(segments[0].departure.at).toLocaleString(
+                        "en-IN",
+                        {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        },
+                      )
+                    : "–";
+                  const arr = segments[segments.length - 1]?.arrival?.at
+                    ? new Date(
+                        segments[segments.length - 1].arrival.at,
+                      ).toLocaleString("en-IN", {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "–";
+                  const stops = segments.length - 1;
+                  const duration =
+                    itinerary?.duration?.replace("PT", "").toLowerCase() ?? "–";
+                  result += `**${currency} ${Number(price).toLocaleString()}** · ${dep} → ${arr} · ${stops === 0 ? "Direct" : `${stops} stop${stops > 1 ? "s" : ""}`} · ⏱️ ${duration}\n`;
+                }
+                result += `\n_Prices are indicative. Book on the airline's website._`;
+                injectToolResult(result);
+              }
+            } catch (e: any) {
+              injectToolResult(
+                `✈️ Flight search error: ${e.message}. Check that VITE_AMADEUS_API_KEY and VITE_AMADEUS_API_SECRET are set.`,
+              );
+            }
+            continue;
+          }
+
+          // ── Search Hotels (Amadeus) ───────────────────────────────────
+          if (act === "search_hotels") {
+            injectToolResult(
+              `🏨 Searching hotels in ${action.cityCode ?? action.destination}…`,
+            );
+            try {
+              const data: any = await amadeusHotelList({
+                cityCode: action.cityCode ?? action.destination,
+                radius: 5,
+              });
+              const hotels = data?.data ?? [];
+              if (!hotels.length) {
+                injectToolResult("🏨 No hotels found for that location.");
+              } else {
+                let result = `🏨 **Hotels in ${action.cityCode ?? action.destination}** (${hotels.length} found)\n\n`;
+                for (const h of hotels.slice(0, 8)) {
+                  result += `• **${h.name}** — ${h.address?.cityName ?? ""} ${h.rating ? `⭐ ${h.rating}` : ""}\n`;
+                }
+                result += `\n_Check availability and exact pricing on booking platforms._`;
+                injectToolResult(result);
+              }
+            } catch (e: any) {
+              injectToolResult(
+                `🏨 Hotel search error: ${e.message}. Check Amadeus API keys.`,
+              );
+            }
+            continue;
+          }
+
+          // ── Check Weather / Climate ───────────────────────────────────
+          if (act === "check_weather") {
+            const dest = action.destination ?? "your destination";
+            injectToolResult(`🌤️ Fetching weather for **${dest}**…`);
+            try {
+              const weatherText = await getWeatherContext(dest);
+              injectToolResult(weatherText);
+            } catch (e: any) {
+              injectToolResult(`🌤️ Weather fetch failed: ${e.message}`);
+            }
+            continue;
+          }
+
+          // ── Check Traffic (TomTom) ────────────────────────────────────
+          if (act === "check_traffic") {
+            const dest = action.destination ?? "your location";
+            injectToolResult(`🚦 Checking live traffic near **${dest}**…`);
+            try {
+              let lat = action.lat as number | undefined;
+              let lon = action.lon as number | undefined;
+              if ((!lat || !lon) && action.destination) {
+                const coords = await geocodeDestination(action.destination);
+                if (coords) {
+                  lat = coords.lat;
+                  lon = coords.lon;
+                }
+              }
+              if (!lat || !lon) {
+                injectToolResult(
+                  "🚦 Could not determine coordinates for traffic check.",
+                );
+                continue;
+              }
+              const flow: any = await trafficFlow({ lat, lon });
+              const flowData = flow?.flowSegmentData;
+              let result = `🚦 **Traffic near ${dest}**\n\n`;
+              if (flowData) {
+                const speed = flowData.currentSpeed ?? 0;
+                const freeFlow = flowData.freeFlowSpeed ?? 0;
+                const ratio = freeFlow > 0 ? speed / freeFlow : 1;
+                const congestion =
+                  ratio < 0.3
+                    ? "🔴 Heavy"
+                    : ratio < 0.6
+                      ? "🟡 Moderate"
+                      : ratio < 0.85
+                        ? "🟠 Light"
+                        : "🟢 Free flow";
+                result += `- **Current Speed:** ${speed} km/h (free-flow: ${freeFlow} km/h)\n`;
+                result += `- **Congestion:** ${congestion}\n`;
+                result += `- **Confidence:** ${((flowData.confidence ?? 0) * 100).toFixed(0)}%\n`;
+              }
+              // Also check incidents in ~10km bbox
+              try {
+                const incidents: any = await trafficIncidents({
+                  minLat: lat - 0.1,
+                  minLon: lon - 0.1,
+                  maxLat: lat + 0.1,
+                  maxLon: lon + 0.1,
+                });
+                const inc = incidents?.incidents ?? [];
+                if (inc.length > 0) {
+                  result += `\n⚠️ **${inc.length} incident${inc.length > 1 ? "s" : ""} nearby:**\n`;
+                  for (const i of inc.slice(0, 5)) {
+                    const desc =
+                      i.properties?.events?.[0]?.description ?? "Incident";
+                    result += `• ${desc}\n`;
+                  }
+                } else {
+                  result += `\n✅ No incidents reported nearby.`;
+                }
+              } catch {
+                /* incidents optional */
+              }
+              injectToolResult(result);
+            } catch (e: any) {
+              injectToolResult(
+                `🚦 Traffic check error: ${e.message}. Check VITE_TRAFFIC_API_KEY.`,
+              );
+            }
+            continue;
+          }
+
+          // ── Get ORS Route ─────────────────────────────────────────────
+          if (act === "get_route") {
+            const destName = action.destName ?? "destination";
+            injectToolResult(`🗺️ Calculating route to **${destName}**…`);
+            try {
+              const route = await getClimateAwareRoute({
+                originLat: action.originLat,
+                originLon: action.originLon,
+                destLat: action.destLat,
+                destLon: action.destLon,
+                profile: action.profile ?? "driving-car",
+                date: action.date,
+              });
+              let result = `🗺️ **Route to ${destName}**\n\n`;
+              result += `- 📏 Distance: **${route.distanceKm} km**\n`;
+              result += `- ⏱️ Duration: **${route.durationMin} min**\n`;
+              result += `- ⛰️ Elevation gain: **${route.elevationGain} m**\n`;
+              result += `- ${route.weatherAlongRoute}\n`;
+              if (route.avoidanceReasons.length > 0) {
+                result += `\n⚠️ **Heads up:**\n${route.avoidanceReasons.map((r) => `• ${r}`).join("\n")}\n`;
+              }
+              if (route.steps.length > 0) {
+                result += `\n📍 **Turn-by-turn directions:**\n`;
+                for (const step of route.steps.slice(0, 8)) {
+                  result += `• ${step.instruction}${step.distanceM > 0 ? ` (${step.distanceM > 1000 ? `${(step.distanceM / 1000).toFixed(1)} km` : `${step.distanceM} m`})` : ""}\n`;
+                }
+                if (route.steps.length > 8)
+                  result += `_…and ${route.steps.length - 8} more steps_\n`;
+              }
+              result += `\n[📱 Open in Google Maps](https://www.google.com/maps/dir/?api=1&destination=${action.destLat},${action.destLon}&travelmode=${(action.profile ?? "driving-car").includes("foot") ? "walking" : (action.profile ?? "").includes("cycling") ? "bicycling" : "driving"})`;
+              injectToolResult(result);
+            } catch (e: any) {
+              injectToolResult(
+                `🗺️ Route calculation failed: ${e.message}. Check VITE_ORS_API_KEY.`,
+              );
+            }
+            continue;
+          }
+
+          // ── Open Google Maps Navigation ───────────────────────────────
+          if (act === "open_maps") {
+            const mode = action.mode ?? "driving";
+            const name = action.name ?? "destination";
+            let mapsUrl: string;
+            if (action.lat && action.lon) {
+              mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${action.lat},${action.lon}&travelmode=${mode}`;
+            } else if (action.name) {
+              mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(action.name)}&travelmode=${mode}`;
+            } else {
+              injectToolResult(
+                "🗺️ I need coordinates or a place name to open maps navigation.",
+              );
+              continue;
+            }
+            window.open(mapsUrl, "_blank");
+            injectToolResult(
+              `🗺️ Opening Google Maps navigation to **${name}** (${mode} mode). If the page didn't open, [click here](${mapsUrl}).`,
+            );
+            continue;
+          }
+
+          // ── Explore Search ────────────────────────────────────────────
+          if (act === "explore_search") {
+            toast({
+              title: "🔍 Opening Explore",
+              description: action.query ?? "",
+            });
+            navigate("/explore");
+            continue;
+          }
+
+          // ── Guide Search ──────────────────────────────────────────────
+          if (act === "guide_search") {
+            toast({
+              title: "📖 Opening Travel Guide",
+              description: action.destination ?? "",
+            });
+            navigate("/guide");
+            continue;
+          }
+
+          // ── Assess Activities Weather ─────────────────────────────────
+          if (act === "assess_activities_weather") {
+            injectToolResult(
+              `🌤️ Assessing weather suitability for your activities…`,
+            );
+            try {
+              const coords =
+                action.lat && action.lon
+                  ? { lat: action.lat as number, lon: action.lon as number }
+                  : await geocodeDestination(action.destination ?? "");
+              if (!coords) {
+                injectToolResult(
+                  "Could not find coordinates for weather assessment.",
+                );
+                continue;
+              }
+              const { getActivityWeatherSuitability } =
+                await import("@/services/climate");
+              const results = await getActivityWeatherSuitability({
+                lat: coords.lat,
+                lon: coords.lon,
+                activities: action.activities ?? [],
+              });
+              let result = `🌤️ **Activity Weather Assessment — ${action.destination ?? ""}**\n\n`;
+              for (const r of results) {
+                const bar =
+                  "█".repeat(Math.round(r.score / 10)) +
+                  "░".repeat(10 - Math.round(r.score / 10));
+                result += `**${r.activityName}** (${r.date})\n`;
+                result += `Score: ${bar} ${r.score}/100 — ${r.recommendation}\n`;
+                result += `Best time: ⏰ ${r.bestTimeWindow}\n`;
+                if (r.warnings.length > 0)
+                  result += r.warnings.map((w) => `⚠️ ${w}`).join("\n") + "\n";
+                result += "\n";
+              }
+              injectToolResult(result);
+            } catch (e: any) {
+              injectToolResult(`Weather assessment error: ${e.message}`);
+            }
+            continue;
+          }
+        } catch (e: any) {
+          console.error("Action parse error:", e);
         }
-      } catch (e: any) {
-        console.error("Action error:", e);
       }
     },
-    [user, navigate, queryClient, toast],
+    [user, navigate, queryClient, toast, injectToolResult],
   );
 
   // ── Send a message (SSE streaming) ──────────────────────────────────────
@@ -479,6 +880,9 @@ export default function AIAssistant() {
     [sendMessage],
   );
 
+  // ── Show more capabilities toggle ───────────────────────────────────────
+  const [showAllCaps, setShowAllCaps] = useState(false);
+
   // ── Draggable floating bot button ───────────────────────────────────────
   const [pos, setPos] = useState({
     x: window.innerWidth - 100,
@@ -592,30 +996,33 @@ export default function AIAssistant() {
 
           {/* Capability pills – shown while conversation is still short */}
           {messages.length <= 1 && (
-            <div className="flex gap-2 px-4 py-2 overflow-x-auto border-b border-border bg-background/50">
-              {PROXY_CAPABILITIES.map((cap) => {
-                const Icon = cap.icon;
-                return (
-                  <button
-                    key={cap.label}
-                    onClick={() =>
-                      handleQuickAction(
-                        cap.label === "Concierge"
-                          ? "Based on my travel history and preferences, suggest my next perfect trip."
-                          : cap.label === "Negotiate"
-                            ? "Help me negotiate the itinerary for my upcoming group trip. Balance everyone's preferences."
-                            : cap.label === "Monitor"
-                              ? "Check for any disruptions, weather alerts, or changes affecting my upcoming trips."
-                              : "Analyze my spending across all trips and suggest where I can save money.",
-                      )
-                    }
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-secondary text-secondary-foreground text-[11px] font-medium hover:bg-secondary/80 transition-colors whitespace-nowrap shrink-0"
-                  >
-                    <Icon className="w-3 h-3" />
-                    {cap.label}
-                  </button>
-                );
-              })}
+            <div className="border-b border-border bg-background/50">
+              <div className="flex gap-1.5 px-3 py-2 overflow-x-auto flex-wrap">
+                {(showAllCaps
+                  ? PROXY_CAPABILITIES
+                  : PROXY_CAPABILITIES.slice(0, 6)
+                ).map((cap) => {
+                  const Icon = cap.icon;
+                  return (
+                    <button
+                      key={cap.label}
+                      onClick={() => handleQuickAction(cap.prompt)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-secondary text-secondary-foreground text-[11px] font-medium hover:bg-primary/10 hover:text-primary transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <Icon className="w-3 h-3" />
+                      {cap.label}
+                    </button>
+                  );
+                })}
+                <button
+                  onClick={() => setShowAllCaps((v) => !v)}
+                  className="flex items-center gap-1 px-2 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-medium hover:bg-primary/20 transition-colors whitespace-nowrap shrink-0"
+                >
+                  {showAllCaps
+                    ? "Less ▲"
+                    : `+${PROXY_CAPABILITIES.length - 6} more ▼`}
+                </button>
+              </div>
             </div>
           )}
 
@@ -626,6 +1033,15 @@ export default function AIAssistant() {
                 key={i}
                 className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
               >
+                {m.role === "assistant" && (
+                  <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 mr-2 mt-0.5">
+                    <img
+                      src={orangeBot}
+                      alt="Jinny"
+                      className="w-6 h-6 object-cover"
+                    />
+                  </div>
+                )}
                 <div
                   className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${
                     m.role === "user"
@@ -634,11 +1050,11 @@ export default function AIAssistant() {
                   }`}
                 >
                   {m.role === "assistant" ? (
-                    <div className="prose prose-sm max-w-none [&_p]:m-0 [&_ul]:my-1 [&_li]:my-0">
+                    <div className="prose prose-sm max-w-none dark:prose-invert [&_p]:m-0 [&_ul]:my-1 [&_li]:my-0 [&_strong]:font-semibold [&_a]:text-primary [&_a]:underline">
                       <ReactMarkdown>
                         {m.content.replace(
                           /```json[\s\S]*?```/g,
-                          "✅ *Action processed*",
+                          "✅ *Action executed*",
                         )}
                       </ReactMarkdown>
                     </div>
@@ -649,7 +1065,14 @@ export default function AIAssistant() {
               </div>
             ))}
             {isLoading && messages[messages.length - 1]?.role === "user" && (
-              <div className="flex justify-start">
+              <div className="flex justify-start items-center gap-2">
+                <div className="w-6 h-6 rounded-full overflow-hidden shrink-0">
+                  <img
+                    src={orangeBot}
+                    alt="Jinny"
+                    className="w-6 h-6 object-cover"
+                  />
+                </div>
                 <div className="bg-secondary px-3 py-2 rounded-xl rounded-bl-sm flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
                   <span className="text-[11px] text-muted-foreground">

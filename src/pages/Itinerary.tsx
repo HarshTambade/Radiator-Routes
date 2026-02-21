@@ -19,10 +19,25 @@ import {
   Zap,
   Map as MapIcon,
   Download,
+  Navigation,
+  ExternalLink,
+  CloudSun,
+  Wind,
+  Droplets,
+  Thermometer,
+  Car,
+  Route,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { formatCurrency } from "@/lib/currency";
+import {
+  getWeatherForecast,
+  geocodeDestination,
+  WMO_CODES,
+  type DailyForecast,
+} from "@/services/climate";
+import { trafficFlow as fetchTrafficFlow } from "@/services/traffic";
 import {
   useTrip,
   useTrips,
@@ -66,6 +81,17 @@ export default function Itinerary() {
   const { data: activities = [] } = useActivities(activeItinerary?.id);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Weather & Traffic state
+  const [weatherForecast, setWeatherForecast] = useState<DailyForecast[]>([]);
+  const [loadingWeather, setLoadingWeather] = useState(false);
+  const [trafficData, setTrafficData] = useState<any>(null);
+  const [loadingTraffic, setLoadingTraffic] = useState(false);
+  const [showWeather, setShowWeather] = useState(true);
+  const [navLoading, setNavLoading] = useState<string | null>(null);
+  const [routeInfo, setRouteInfo] = useState<
+    Record<string, { dist: string; dur: string }>
+  >({});
 
   // Auto-redirect to first trip if no tripId
   useEffect(() => {
@@ -112,6 +138,158 @@ export default function Itinerary() {
     };
     geocode();
   }, [trip?.destination, trip?.country]);
+
+  // Fetch weather forecast for trip destination
+  useEffect(() => {
+    if (!trip?.destination) return;
+    const fetchWeather = async () => {
+      setLoadingWeather(true);
+      try {
+        const coords = await geocodeDestination(
+          `${trip.destination} ${trip.country || ""}`.trim(),
+        );
+        if (!coords) return;
+        const forecast = await getWeatherForecast({
+          lat: coords.lat,
+          lon: coords.lon,
+          days: 7,
+        });
+        setWeatherForecast(forecast.daily);
+
+        // Also fetch traffic
+        setLoadingTraffic(true);
+        try {
+          const tf = await fetchTrafficFlow({
+            lat: coords.lat,
+            lon: coords.lon,
+          });
+          setTrafficData(tf);
+        } catch {
+          /* traffic optional */
+        } finally {
+          setLoadingTraffic(false);
+        }
+      } catch {
+        /* silently fail */
+      } finally {
+        setLoadingWeather(false);
+      }
+    };
+    fetchWeather();
+  }, [trip?.destination, trip?.country]);
+
+  // Navigate to activity on Google Maps / Apple Maps
+  const openNavigation = (activity: {
+    location_name?: string | null;
+    location_lat?: number | null;
+    location_lng?: number | null;
+    name: string;
+  }) => {
+    const lat = activity.location_lat;
+    const lng = activity.location_lng;
+    const name = activity.location_name || activity.name;
+
+    let url: string;
+    if (lat && lng) {
+      // Universal Google Maps navigation URL (opens in Maps app on mobile)
+      url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+    } else {
+      url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(name)}&travelmode=driving`;
+    }
+    window.open(url, "_blank");
+  };
+
+  // Get ORS route from current location
+  const getRouteToActivity = async (activity: {
+    id: string;
+    location_name?: string | null;
+    location_lat?: number | null;
+    location_lng?: number | null;
+    name: string;
+  }) => {
+    setNavLoading(activity.id);
+    try {
+      // Get user's current location
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          timeout: 8000,
+        }),
+      );
+      const { latitude: oLat, longitude: oLon } = pos.coords;
+
+      let dLat = activity.location_lat;
+      let dLon = activity.location_lng;
+
+      if (!dLat || !dLon) {
+        const coords = await geocodeDestination(
+          activity.location_name || activity.name,
+        );
+        if (coords) {
+          dLat = coords.lat;
+          dLon = coords.lon;
+        }
+      }
+
+      if (!dLat || !dLon) {
+        toast({
+          title: "Location not found",
+          description: "Could not find coordinates for this activity.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const ORS_KEY = import.meta.env.VITE_ORS_API_KEY as string;
+      const res = await fetch(
+        "https://api.openrouteservice.org/v2/directions/driving-car/json",
+        {
+          method: "POST",
+          headers: {
+            Authorization: ORS_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            coordinates: [
+              [oLon, oLat],
+              [dLon, dLat],
+            ],
+            units: "km",
+          }),
+        },
+      );
+      if (!res.ok) throw new Error("Route fetch failed");
+      const data = await res.json();
+      const summary = data.routes?.[0]?.summary;
+      if (summary) {
+        const dist = `${(summary.distance ?? 0).toFixed(1)} km`;
+        const dur = `${Math.round((summary.duration ?? 0) / 60)} min`;
+        setRouteInfo((prev) => ({
+          ...prev,
+          [activity.id]: { dist, dur },
+        }));
+        toast({
+          title: `📍 Route to ${activity.name}`,
+          description: `${dist} · ~${dur} by car`,
+        });
+      }
+    } catch (err: any) {
+      if (err.code === 1) {
+        toast({
+          title: "Location permission denied",
+          description: "Enable location access to get directions.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Route error",
+          description: err.message,
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setNavLoading(null);
+    }
+  };
 
   // Load messages for chat
   useEffect(() => {
@@ -369,6 +547,38 @@ export default function Itinerary() {
 
   const currentDayActivities =
     days.length > 0 ? activityDays[days[selectedDay]] || [] : [];
+
+  // Weather for selected day
+  const selectedDayDate =
+    days.length > 0
+      ? activities.find(
+          (a) =>
+            new Date(a.start_time).toLocaleDateString("en-IN", {
+              weekday: "short",
+              day: "numeric",
+              month: "short",
+            }) === days[selectedDay],
+        )?.start_time
+      : undefined;
+  const selectedDayWeather = selectedDayDate
+    ? weatherForecast.find(
+        (d) => d.date === new Date(selectedDayDate).toISOString().split("T")[0],
+      )
+    : null;
+
+  // Traffic summary
+  const trafficFlow_ = trafficData?.flowSegmentData;
+  const trafficSpeed = trafficFlow_?.currentSpeed ?? 0;
+  const trafficFreeFlow = trafficFlow_?.freeFlowSpeed ?? 1;
+  const trafficRatio = trafficSpeed / trafficFreeFlow;
+  const trafficLabel =
+    trafficRatio < 0.3
+      ? "🔴 Heavy"
+      : trafficRatio < 0.6
+        ? "🟡 Moderate"
+        : trafficRatio < 0.85
+          ? "🟠 Light"
+          : "🟢 Free flow";
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -714,6 +924,192 @@ export default function Itinerary() {
           )}
         </div>
 
+        {/* Weather Forecast Panel */}
+        {(loadingWeather || weatherForecast.length > 0) && (
+          <div className="bg-card rounded-2xl shadow-card mb-6 overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <CloudSun className="w-4 h-4 text-primary" />
+                <span className="text-sm font-semibold text-card-foreground">
+                  Weather Forecast · {trip.destination}
+                </span>
+              </div>
+              <button
+                onClick={() => setShowWeather((v) => !v)}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                {showWeather ? "Hide" : "Show"}
+              </button>
+            </div>
+            {showWeather && (
+              <div className="p-4">
+                {loadingWeather ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Fetching forecast…
+                  </div>
+                ) : (
+                  <>
+                    {/* 7-day scroll */}
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {weatherForecast.map((day) => {
+                        const isToday =
+                          day.date === new Date().toISOString().split("T")[0];
+                        const isSel = selectedDayWeather?.date === day.date;
+                        return (
+                          <div
+                            key={day.date}
+                            className={`flex-shrink-0 flex flex-col items-center gap-1 px-3 py-2.5 rounded-xl border transition-colors ${
+                              isSel
+                                ? "border-primary bg-primary/5"
+                                : isToday
+                                  ? "border-warning/50 bg-warning/5"
+                                  : "border-border bg-secondary/30"
+                            }`}
+                          >
+                            <span className="text-[10px] font-medium text-muted-foreground">
+                              {isToday
+                                ? "Today"
+                                : new Date(
+                                    day.date + "T12:00:00",
+                                  ).toLocaleDateString("en-IN", {
+                                    weekday: "short",
+                                    day: "numeric",
+                                    month: "short",
+                                  })}
+                            </span>
+                            <span className="text-xl">{day.weatherEmoji}</span>
+                            <span className="text-xs font-semibold text-card-foreground">
+                              {day.tempMax}°
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {day.tempMin}°
+                            </span>
+                            {day.precipitationSum > 1 && (
+                              <span className="text-[10px] text-blue-500">
+                                {day.precipitationSum.toFixed(0)}mm
+                              </span>
+                            )}
+                            {day.isSevere && (
+                              <span className="text-[9px] text-destructive font-bold">
+                                ⚠️
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Selected day detail */}
+                    {selectedDayWeather && (
+                      <div
+                        className={`mt-3 p-3 rounded-xl ${selectedDayWeather.isSevere ? "bg-destructive/10 border border-destructive/30" : "bg-secondary/40"}`}
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-lg">
+                            {selectedDayWeather.weatherEmoji}
+                          </span>
+                          <span className="text-sm font-semibold text-card-foreground">
+                            {selectedDayWeather.weatherLabel}
+                          </span>
+                          {selectedDayWeather.isSevere && (
+                            <span className="text-xs text-destructive font-bold">
+                              ⚠️ Severe
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Thermometer className="w-3 h-3" />
+                            {selectedDayWeather.tempMin}–
+                            {selectedDayWeather.tempMax}°C
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Droplets className="w-3 h-3" />
+                            {selectedDayWeather.precipitationSum.toFixed(1)}mm
+                            rain
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Wind className="w-3 h-3" />
+                            {selectedDayWeather.windspeedMax.toFixed(0)} km/h
+                          </span>
+                          <span>
+                            🔆 UV {selectedDayWeather.uvIndex.toFixed(0)}
+                          </span>
+                          <span>
+                            🌅{" "}
+                            {selectedDayWeather.sunrise
+                              .split("T")[1]
+                              ?.slice(0, 5)}
+                          </span>
+                          <span>
+                            🌇{" "}
+                            {selectedDayWeather.sunset
+                              .split("T")[1]
+                              ?.slice(0, 5)}
+                          </span>
+                        </div>
+                        {selectedDayWeather.isSevere && (
+                          <p className="mt-2 text-xs text-destructive font-medium">
+                            ⚠️ Severe weather — consider indoor alternatives
+                            today.
+                          </p>
+                        )}
+                        {selectedDayWeather.precipitationSum > 15 && (
+                          <p className="mt-1 text-xs text-warning font-medium">
+                            🌧️ Heavy rain expected — carry an umbrella and allow
+                            extra travel time.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Traffic Status Panel */}
+        {(loadingTraffic || trafficData) && (
+          <div className="bg-card rounded-2xl shadow-card mb-6 px-5 py-3 flex items-center gap-3">
+            <Car className="w-4 h-4 text-primary shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-card-foreground">
+                Live Traffic · {trip.destination}
+              </p>
+              {loadingTraffic ? (
+                <p className="text-xs text-muted-foreground">
+                  Checking traffic…
+                </p>
+              ) : trafficFlow_ ? (
+                <p className="text-xs text-muted-foreground">
+                  {trafficLabel} · {trafficSpeed} km/h current (
+                  {trafficFreeFlow} km/h free flow)
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Traffic data unavailable
+                </p>
+              )}
+            </div>
+            {!loadingTraffic && trafficFlow_ && (
+              <div
+                className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                  trafficRatio < 0.3
+                    ? "bg-destructive/10 text-destructive"
+                    : trafficRatio < 0.6
+                      ? "bg-warning/10 text-warning"
+                      : trafficRatio < 0.85
+                        ? "bg-orange-100 text-orange-600"
+                        : "bg-success/10 text-success"
+                }`}
+              >
+                {trafficLabel}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Destination Map */}
         {destCoords && (
           <div className="bg-card rounded-2xl shadow-card mb-6 overflow-hidden">
@@ -903,17 +1299,17 @@ export default function Itinerary() {
                   </div>
                   <div className="flex-1 pb-6">
                     <div className="bg-card rounded-2xl p-4 shadow-card hover:shadow-elevated transition-shadow group cursor-pointer">
-                      <div className="flex items-center justify-between">
-                        <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
                           <h3 className="font-semibold text-card-foreground text-sm">
                             {activity.name}
                           </h3>
                           {activity.description && (
-                            <p className="text-xs text-muted-foreground mt-1">
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
                               {activity.description}
                             </p>
                           )}
-                          <div className="flex items-center gap-3 mt-1.5">
+                          <div className="flex flex-wrap items-center gap-3 mt-1.5">
                             <span className="flex items-center gap-1 text-xs text-muted-foreground">
                               <Clock className="w-3 h-3" />
                               {new Date(activity.start_time).toLocaleTimeString(
@@ -941,7 +1337,42 @@ export default function Itinerary() {
                                 ★ {activity.review_score}
                               </span>
                             )}
+                            {routeInfo[activity.id] && (
+                              <span className="flex items-center gap-1 text-xs text-primary font-medium">
+                                <Route className="w-3 h-3" />
+                                {routeInfo[activity.id].dist} ·{" "}
+                                {routeInfo[activity.id].dur}
+                              </span>
+                            )}
                           </div>
+                        </div>
+                        {/* Navigation buttons */}
+                        <div className="flex gap-1.5 shrink-0">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              getRouteToActivity(activity);
+                            }}
+                            disabled={navLoading === activity.id}
+                            title="Get route from my location (ORS)"
+                            className="p-1.5 rounded-lg bg-secondary hover:bg-primary/10 hover:text-primary text-muted-foreground transition-colors disabled:opacity-50"
+                          >
+                            {navLoading === activity.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Route className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openNavigation(activity);
+                            }}
+                            title="Open in Google Maps"
+                            className="p-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                          >
+                            <Navigation className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
                       {activity.notes && (
