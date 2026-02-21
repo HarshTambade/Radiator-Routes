@@ -42,12 +42,14 @@ interface DmMessage {
 }
 
 function getInitials(name: string) {
-  return name
-    .split(" ")
-    .map((n) => n[0] || "")
-    .join("")
-    .toUpperCase()
-    .slice(0, 2) || "?";
+  return (
+    name
+      .split(" ")
+      .map((n) => n[0] || "")
+      .join("")
+      .toUpperCase()
+      .slice(0, 2) || "?"
+  );
 }
 
 export default function Friends() {
@@ -88,33 +90,60 @@ export default function Friends() {
   const { data: friendRequests = [] } = useQuery({
     queryKey: ["friend-requests", user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Step 1: fetch raw friend requests without relying on FK joins
+      const { data: requests, error } = await supabase
         .from("friend_requests")
-        .select(
-          "*, sender:sender_id(id,name,avatar_url), receiver:receiver_id(id,name,avatar_url)"
-        )
+        .select("*")
         .or(`sender_id.eq.${user!.id},receiver_id.eq.${user!.id}`)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data || [];
+      if (!requests || requests.length === 0) return [];
+
+      // Step 2: collect unique user IDs involved in those requests
+      const userIds = Array.from(
+        new Set(requests.flatMap((r: any) => [r.sender_id, r.receiver_id])),
+      );
+
+      // Step 3: fetch profiles for those IDs
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, name, avatar_url")
+        .in("id", userIds);
+
+      const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
+
+      // Step 4: attach sender/receiver profile objects
+      return requests.map((r: any) => ({
+        ...r,
+        sender: profileMap.get(r.sender_id) ?? {
+          id: r.sender_id,
+          name: "Unknown",
+          avatar_url: null,
+        },
+        receiver: profileMap.get(r.receiver_id) ?? {
+          id: r.receiver_id,
+          name: "Unknown",
+          avatar_url: null,
+        },
+      }));
     },
     enabled: !!user,
   });
 
   const acceptedFriends = (friendRequests as any[]).filter(
-    (r) => r.status === "accepted"
+    (r) => r.status === "accepted",
   );
   const pendingReceived = (friendRequests as any[]).filter(
-    (r) => r.status === "pending" && r.receiver_id === user?.id
+    (r) => r.status === "pending" && r.receiver_id === user?.id,
   );
   const pendingSent = (friendRequests as any[]).filter(
-    (r) => r.status === "pending" && r.sender_id === user?.id
+    (r) => r.status === "pending" && r.sender_id === user?.id,
   );
 
   const friendIds = new Set(
     acceptedFriends.map((r) =>
-      r.sender_id === user?.id ? r.receiver_id : r.sender_id
-    )
+      r.sender_id === user?.id ? r.receiver_id : r.sender_id,
+    ),
   );
   const sentToIds = new Set(pendingSent.map((r: any) => r.receiver_id));
 
@@ -138,19 +167,38 @@ export default function Friends() {
     queryFn: async () => {
       const orgTrips = trips.filter((t) => t.organizer_id === user?.id);
       if (orgTrips.length === 0) return [];
-      const { data, error } = await supabase
+
+      // Fetch join requests without relying on FK join for profiles
+      const { data: requests, error } = await supabase
         .from("trip_join_requests")
-        .select(
-          "*, trips(name, destination), profiles:user_id(name, avatar_url)"
-        )
+        .select("*, trips(name, destination)")
         .in(
           "trip_id",
-          orgTrips.map((t) => t.id)
+          orgTrips.map((t) => t.id),
         )
         .eq("status", "pending")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data || [];
+      if (!requests || requests.length === 0) return [];
+
+      // Separately fetch profiles for the requesting users
+      const requesterIds = Array.from(
+        new Set((requests as any[]).map((r) => r.user_id)),
+      );
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, name, avatar_url")
+        .in("id", requesterIds);
+
+      const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
+
+      return (requests as any[]).map((r) => ({
+        ...r,
+        profiles: profileMap.get(r.user_id) ?? {
+          name: "Unknown User",
+          avatar_url: null,
+        },
+      }));
     },
     enabled: trips.length > 0 && !!user,
   });
@@ -170,6 +218,37 @@ export default function Friends() {
     enabled: !!user,
   });
 
+  // ── Send join request to a trip ───────────────────────────────────────────
+  const sendJoinRequest = async (tripId: string, tripName: string) => {
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from("trip_join_requests")
+        .insert({ trip_id: tripId, user_id: user.id, status: "pending" });
+      if (error) {
+        if (
+          error.message?.toLowerCase().includes("duplicate") ||
+          error.code === "23505"
+        ) {
+          toast({
+            title: "Already requested",
+            description: "You already sent a join request for this trip.",
+          });
+          return;
+        }
+        throw error;
+      }
+      queryClient.invalidateQueries({ queryKey: ["my-join-requests"] });
+      toast({ title: `Join request sent for "${tripName}"! ✅` });
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
+    }
+  };
+
   // ── Load DMs ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!chatWithUser || !user) return;
@@ -179,7 +258,7 @@ export default function Friends() {
         .from("direct_messages")
         .select("*")
         .or(
-          `and(sender_id.eq.${user.id},receiver_id.eq.${chatWithUser.id}),and(sender_id.eq.${chatWithUser.id},receiver_id.eq.${user.id})`
+          `and(sender_id.eq.${user.id},receiver_id.eq.${chatWithUser.id}),and(sender_id.eq.${chatWithUser.id},receiver_id.eq.${user.id})`,
         )
         .order("created_at", { ascending: true });
       setDmMessages((data as DmMessage[]) || []);
@@ -197,12 +276,11 @@ export default function Friends() {
           if (
             (msg.sender_id === user.id &&
               msg.receiver_id === chatWithUser.id) ||
-            (msg.sender_id === chatWithUser.id &&
-              msg.receiver_id === user.id)
+            (msg.sender_id === chatWithUser.id && msg.receiver_id === user.id)
           ) {
             setDmMessages((prev) => [...prev, msg]);
           }
-        }
+        },
       )
       .subscribe();
 
@@ -235,7 +313,7 @@ export default function Friends() {
 
   const respondFriendRequest = async (
     requestId: string,
-    action: "accepted" | "rejected"
+    action: "accepted" | "rejected",
   ) => {
     try {
       const { error } = await supabase
@@ -343,7 +421,7 @@ export default function Friends() {
     requestId: string,
     action: "accepted" | "rejected",
     tripId: string,
-    userId: string
+    userId: string,
   ) => {
     try {
       const { error } = await supabase
@@ -372,16 +450,39 @@ export default function Friends() {
   };
 
   const filteredUsers = allUsers.filter((u) =>
-    u.name.toLowerCase().includes(searchQuery.toLowerCase())
+    u.name?.toLowerCase().includes(searchQuery.toLowerCase()),
   );
+
+  // Public trips the user could request to join (not organizer, not already member)
+  const { data: publicTrips = [] } = useQuery({
+    queryKey: ["public-trips-for-join", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("trips")
+        .select("id, name, destination, country, organizer_id")
+        .neq("organizer_id", user!.id)
+        .order("start_date", { ascending: true })
+        .limit(20);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!user,
+  });
+
+  const totalRequestBadge =
+    pendingReceived.length + joinRequests.length || undefined;
 
   const tabs: { id: Tab; label: string; badge?: number }[] = [
     { id: "discover", label: "Discover People" },
-    { id: "friends", label: "My Friends", badge: acceptedFriends.length || undefined },
+    {
+      id: "friends",
+      label: "My Friends",
+      badge: acceptedFriends.length || undefined,
+    },
     {
       id: "requests",
       label: "Requests",
-      badge: pendingReceived.length || undefined,
+      badge: totalRequestBadge,
     },
     { id: "invites", label: "Trip Invites" },
   ];
@@ -487,9 +588,7 @@ export default function Friends() {
               type="text"
               value={chatMsg}
               onChange={(e) => setChatMsg(e.target.value)}
-              onKeyDown={(e) =>
-                e.key === "Enter" && !e.shiftKey && sendDm()
-              }
+              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendDm()}
               placeholder={`Message ${chatWithUser.name}...`}
               className="flex-1 px-4 py-2.5 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
@@ -573,7 +672,9 @@ export default function Friends() {
           ) : filteredUsers.length === 0 ? (
             <div className="text-center py-16">
               <Globe className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-              <p className="font-semibold text-foreground">No travelers found</p>
+              <p className="font-semibold text-foreground">
+                No travelers found
+              </p>
               <p className="text-sm text-muted-foreground mt-1">
                 Try a different search term
               </p>
@@ -587,7 +688,7 @@ export default function Friends() {
                   (r) =>
                     r.sender_id === person.id &&
                     r.receiver_id === user?.id &&
-                    r.status === "pending"
+                    r.status === "pending",
                 );
 
                 return (
@@ -606,10 +707,10 @@ export default function Friends() {
                         {isFriend
                           ? "✓ Friend"
                           : receivedReq
-                          ? "Wants to connect"
-                          : sent
-                          ? "Request sent"
-                          : "Traveler"}
+                            ? "Wants to connect"
+                            : sent
+                              ? "Request sent"
+                              : "Traveler"}
                       </p>
                     </div>
                     <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
@@ -708,8 +809,7 @@ export default function Friends() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {acceptedFriends.map((r: any) => {
-                const friend =
-                  r.sender_id === user?.id ? r.receiver : r.sender;
+                const friend = r.sender_id === user?.id ? r.receiver : r.sender;
                 if (!friend) return null;
                 return (
                   <div
@@ -758,7 +858,6 @@ export default function Friends() {
                             ))}
                         </select>
                       )}
-
                     </div>
                   </div>
                 );
@@ -778,19 +877,32 @@ export default function Friends() {
               </h2>
               <div className="space-y-2">
                 {pendingReceived.map((r: any) => (
-                  <div key={r.id} className="bg-card rounded-2xl p-4 shadow-card flex items-center gap-3">
+                  <div
+                    key={r.id}
+                    className="bg-card rounded-2xl p-4 shadow-card flex items-center gap-3"
+                  >
                     <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary shrink-0">
                       {getInitials(r.sender?.name || "?")}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-card-foreground">{r.sender?.name || "Unknown"}</p>
-                      <p className="text-xs text-muted-foreground">Wants to be travel friends</p>
+                      <p className="text-sm font-semibold text-card-foreground">
+                        {r.sender?.name || "Unknown"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Wants to be travel friends
+                      </p>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => respondFriendRequest(r.id, "accepted")} className="p-2 rounded-xl bg-success/10 text-success hover:bg-success/20 transition-colors">
+                      <button
+                        onClick={() => respondFriendRequest(r.id, "accepted")}
+                        className="p-2 rounded-xl bg-success/10 text-success hover:bg-success/20 transition-colors"
+                      >
                         <CheckCircle className="w-5 h-5" />
                       </button>
-                      <button onClick={() => respondFriendRequest(r.id, "rejected")} className="p-2 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors">
+                      <button
+                        onClick={() => respondFriendRequest(r.id, "rejected")}
+                        className="p-2 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+                      >
                         <XCircle className="w-5 h-5" />
                       </button>
                     </div>
@@ -807,7 +919,10 @@ export default function Friends() {
               </h2>
               <div className="space-y-2">
                 {(joinRequests as any[]).map((req: any) => (
-                  <div key={req.id} className="bg-card rounded-2xl p-4 shadow-card flex items-center gap-4">
+                  <div
+                    key={req.id}
+                    className="bg-card rounded-2xl p-4 shadow-card flex items-center gap-4"
+                  >
                     <div className="w-10 h-10 rounded-full bg-warning/10 flex items-center justify-center">
                       <Clock className="w-5 h-5 text-warning" />
                     </div>
@@ -816,14 +931,35 @@ export default function Friends() {
                         {req.profiles?.name || "Unknown User"}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        wants to join <span className="font-medium">{req.trips?.name}</span>
+                        wants to join{" "}
+                        <span className="font-medium">{req.trips?.name}</span>
                       </p>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => handleJoinRequest(req.id, "accepted", req.trip_id, req.user_id)} className="p-2 rounded-xl bg-success/10 text-success hover:bg-success/20 transition-colors">
+                      <button
+                        onClick={() =>
+                          handleJoinRequest(
+                            req.id,
+                            "accepted",
+                            req.trip_id,
+                            req.user_id,
+                          )
+                        }
+                        className="p-2 rounded-xl bg-success/10 text-success hover:bg-success/20 transition-colors"
+                      >
                         <CheckCircle className="w-5 h-5" />
                       </button>
-                      <button onClick={() => handleJoinRequest(req.id, "rejected", req.trip_id, req.user_id)} className="p-2 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors">
+                      <button
+                        onClick={() =>
+                          handleJoinRequest(
+                            req.id,
+                            "rejected",
+                            req.trip_id,
+                            req.user_id,
+                          )
+                        }
+                        className="p-2 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+                      >
                         <XCircle className="w-5 h-5" />
                       </button>
                     </div>
@@ -835,16 +971,40 @@ export default function Friends() {
 
           {(myRequests as any[]).length > 0 && (
             <div>
-              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">My Trip Requests</h2>
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                My Trip Requests
+              </h2>
               <div className="space-y-2">
                 {(myRequests as any[]).map((req: any) => (
-                  <div key={req.id} className="bg-card rounded-2xl p-4 shadow-card flex items-center gap-3">
-                    <div className={"w-8 h-8 rounded-full flex items-center justify-center " + (req.status === "accepted" ? "bg-success/10" : req.status === "rejected" ? "bg-destructive/10" : "bg-warning/10")}>
-                      {req.status === "accepted" ? <CheckCircle className="w-4 h-4 text-success" /> : req.status === "rejected" ? <XCircle className="w-4 h-4 text-destructive" /> : <Clock className="w-4 h-4 text-warning" />}
+                  <div
+                    key={req.id}
+                    className="bg-card rounded-2xl p-4 shadow-card flex items-center gap-3"
+                  >
+                    <div
+                      className={
+                        "w-8 h-8 rounded-full flex items-center justify-center " +
+                        (req.status === "accepted"
+                          ? "bg-success/10"
+                          : req.status === "rejected"
+                            ? "bg-destructive/10"
+                            : "bg-warning/10")
+                      }
+                    >
+                      {req.status === "accepted" ? (
+                        <CheckCircle className="w-4 h-4 text-success" />
+                      ) : req.status === "rejected" ? (
+                        <XCircle className="w-4 h-4 text-destructive" />
+                      ) : (
+                        <Clock className="w-4 h-4 text-warning" />
+                      )}
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm text-card-foreground"><span className="font-medium">{req.trips?.name}</span></p>
-                      <p className="text-xs text-muted-foreground capitalize">{req.status}</p>
+                      <p className="text-sm text-card-foreground">
+                        <span className="font-medium">{req.trips?.name}</span>
+                      </p>
+                      <p className="text-xs text-muted-foreground capitalize">
+                        {req.status}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -852,13 +1012,19 @@ export default function Friends() {
             </div>
           )}
 
-          {pendingReceived.length === 0 && joinRequests.length === 0 && myRequests.length === 0 && (
-            <div className="text-center py-16">
-              <Clock className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-              <p className="font-semibold text-foreground">No pending requests</p>
-              <p className="text-sm text-muted-foreground mt-1">All caught up!</p>
-            </div>
-          )}
+          {pendingReceived.length === 0 &&
+            joinRequests.length === 0 &&
+            myRequests.length === 0 && (
+              <div className="text-center py-16">
+                <Clock className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+                <p className="font-semibold text-foreground">
+                  No pending requests
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  All caught up!
+                </p>
+              </div>
+            )}
         </div>
       )}
 
@@ -868,8 +1034,12 @@ export default function Friends() {
           {invites.length === 0 ? (
             <div className="text-center py-16">
               <LinkIcon className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-              <p className="font-semibold text-foreground">No invite links yet</p>
-              <p className="text-sm text-muted-foreground mt-1">Create a link to invite friends to your trip</p>
+              <p className="font-semibold text-foreground">
+                No invite links yet
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Create a link to invite friends to your trip
+              </p>
               <button
                 onClick={() => setShowInvite(true)}
                 className="mt-4 px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90"
@@ -880,7 +1050,10 @@ export default function Friends() {
           ) : (
             <div className="space-y-3">
               {(invites as any[]).map((inv: any) => (
-                <div key={inv.id} className="bg-card rounded-2xl p-4 shadow-card flex items-center gap-4">
+                <div
+                  key={inv.id}
+                  className="bg-card rounded-2xl p-4 shadow-card flex items-center gap-4"
+                >
                   <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                     <LinkIcon className="w-5 h-5 text-primary" />
                   </div>
@@ -920,14 +1093,21 @@ export default function Friends() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-card-foreground">Generate Invite Link</h3>
-              <button onClick={() => setShowInvite(false)} className="p-1 rounded-lg hover:bg-secondary">
+              <h3 className="text-lg font-bold text-card-foreground">
+                Generate Invite Link
+              </h3>
+              <button
+                onClick={() => setShowInvite(false)}
+                className="p-1 rounded-lg hover:bg-secondary"
+              >
                 <X className="w-4 h-4 text-muted-foreground" />
               </button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="text-sm text-muted-foreground mb-1 block">Select a trip</label>
+                <label className="text-sm text-muted-foreground mb-1 block">
+                  Select a trip
+                </label>
                 <select
                   value={selectedTripId}
                   onChange={(e) => setSelectedTripId(e.target.value)}
@@ -944,7 +1124,8 @@ export default function Friends() {
                 </select>
               </div>
               <p className="text-xs text-muted-foreground">
-                A unique link will be generated. Share it with friends so they can request to join your trip.
+                A unique link will be generated. Share it with friends so they
+                can request to join your trip.
               </p>
               <button
                 onClick={handleGenerateInvite}

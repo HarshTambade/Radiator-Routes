@@ -49,10 +49,11 @@ import { planItinerary } from "@/services/aiPlanner";
 import { nominatimSearch } from "@/services/nominatim";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import RegretPlanner from "@/components/RegretPlanner";
 import DisruptionReplanner from "@/components/DisruptionReplanner";
 import CollaborativePlanner from "@/components/CollaborativePlanner";
+import TripMoneyExpenses from "@/components/TripMoneyExpenses";
 import WorldMap from "@/components/WorldMap";
 import Map3D from "@/components/Map3D";
 
@@ -81,6 +82,26 @@ export default function Itinerary() {
   const { data: activities = [] } = useActivities(activeItinerary?.id);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Fetch trip members for expense splitting
+  const { data: tripMembers = [] } = useQuery({
+    queryKey: ["trip-members-expense", tripId],
+    queryFn: async () => {
+      if (!tripId) return [];
+      const { data: memberships } = await supabase
+        .from("trip_memberships")
+        .select("user_id, role")
+        .eq("trip_id", tripId);
+      if (!memberships || memberships.length === 0) return [];
+      const userIds = memberships.map((m: any) => m.user_id);
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, name")
+        .in("id", userIds);
+      return (profiles || []).map((p: any) => p.name || "Traveler");
+    },
+    enabled: !!tripId,
+  });
 
   // Weather & Traffic state
   const [weatherForecast, setWeatherForecast] = useState<DailyForecast[]>([]);
@@ -1217,6 +1238,18 @@ export default function Itinerary() {
           onActivityUpdated={() => {
             queryClient.invalidateQueries({ queryKey: ["activities"] });
           }}
+        />
+
+        {/* Trip Money & Expense Split */}
+        <TripMoneyExpenses
+          activities={activities as any}
+          tripBudget={Number(trip.budget_total) || 0}
+          country={trip.country ?? undefined}
+          travelers={
+            Number((trip as any).travelers) ||
+            (tripMembers.length > 0 ? tripMembers.length + 1 : 1)
+          }
+          memberNames={tripMembers.length > 0 ? tripMembers : undefined}
         />
 
         {activities.length === 0 ? (

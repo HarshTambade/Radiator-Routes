@@ -96,6 +96,42 @@ const PROXY_CAPABILITIES = [
   { icon: Hotel, label: "Hotels", prompt: "Find hotels for my upcoming trip." },
 ];
 
+// ── Text-to-Speech helper ─────────────────────────────────────────────────────
+function speakJinny(text: string) {
+  if (typeof window === "undefined" || !window.speechSynthesis) return;
+  // Strip markdown / JSON blocks for clean speech
+  const plain = text
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/\*\*/g, "")
+    .replace(/\*/g, "")
+    .replace(/#{1,6}\s/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\n{2,}/g, ". ")
+    .replace(/\n/g, " ")
+    .trim()
+    .slice(0, 400);
+  if (!plain) return;
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(plain);
+  utter.rate = 1.0;
+  utter.pitch = 0.95;
+  utter.volume = 1;
+  // Prefer a natural English voice
+  const voices = window.speechSynthesis.getVoices();
+  const preferred =
+    voices.find((v) => v.name.includes("Daniel") && v.lang === "en-GB") ||
+    voices.find((v) => v.name.includes("Google UK English")) ||
+    voices.find((v) => v.lang === "en-GB") ||
+    voices.find(
+      (v) =>
+        v.lang.startsWith("en-") &&
+        !v.name.includes("zira") &&
+        !v.name.includes("Zira"),
+    );
+  if (preferred) utter.voice = preferred;
+  window.speechSynthesis.speak(utter);
+}
+
 export default function AIAssistant() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -103,6 +139,8 @@ export default function AIAssistant() {
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [wakeListening, setWakeListening] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [voiceSupported, setVoiceSupported] = useState(true);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -112,6 +150,7 @@ export default function AIAssistant() {
   const isListeningRef = useRef(false);
   const wakeActiveRef = useRef(false);
   const isLoadingRef = useRef(false);
+  const ttsEnabledRef = useRef(true);
   // Keeps a mirror of the messages state so stale closures can read current history
   const messagesRef = useRef<Msg[]>([]);
 
@@ -132,6 +171,25 @@ export default function AIAssistant() {
   useEffect(() => {
     isLoadingRef.current = isLoading;
   }, [isLoading]);
+
+  // Keep ttsEnabledRef in sync
+  useEffect(() => {
+    ttsEnabledRef.current = ttsEnabled;
+  }, [ttsEnabled]);
+
+  // Check voice support on mount + pre-load voices
+  useEffect(() => {
+    const SR =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+    setVoiceSupported(!!SR);
+    // Pre-load TTS voices (Chrome requires this)
+    if (window.speechSynthesis) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () =>
+        window.speechSynthesis.getVoices();
+    }
+  }, []);
 
   // ── Wake-word listener ("hey jinny") ─────────────────────────────────────
   useEffect(() => {
@@ -195,7 +253,11 @@ export default function AIAssistant() {
           if (
             transcript.includes("hey jinny") ||
             transcript.includes("hey jenny") ||
-            transcript.includes("hey ginny")
+            transcript.includes("hey ginny") ||
+            transcript.includes("hey jini") ||
+            transcript.includes("a jinny") ||
+            transcript.includes("ok jinny") ||
+            transcript.includes("okay jinny")
           ) {
             wakeActiveRef.current = false;
             try {
@@ -204,10 +266,18 @@ export default function AIAssistant() {
               /* ignore */
             }
             setOpen(true);
+            speakJinny("At your service. I'm listening.");
             toast({
               title: "🧡 Jinny activated!",
-              description: "Hey! How can I help you?",
+              description: "At your service — I'm listening.",
             });
+            // Auto-start voice after a short delay so the panel can open
+            setTimeout(() => {
+              if (!isListeningRef.current) {
+                // Trigger startVoice via a custom event so we don't have circular deps
+                window.dispatchEvent(new CustomEvent("jinny-start-voice"));
+              }
+            }, 800);
             break;
           }
         }
@@ -288,6 +358,7 @@ export default function AIAssistant() {
   // ── Inject a tool-result message into the chat ───────────────────────────
   const injectToolResult = useCallback((content: string) => {
     setMessages((prev) => [...prev, { role: "assistant" as const, content }]);
+    if (ttsEnabledRef.current) speakJinny(content);
   }, []);
 
   // ── Handle AI-requested actions (full app control) ───────────────────────
@@ -713,6 +784,11 @@ export default function AIAssistant() {
           });
         });
 
+        // Speak Jinny's response via TTS (strip JSON blocks first)
+        if (ttsEnabledRef.current && assistantSoFar) {
+          speakJinny(assistantSoFar);
+        }
+
         handleAction(assistantSoFar);
       } catch (e: any) {
         const msg: string = e?.message ?? "";
@@ -750,11 +826,12 @@ export default function AIAssistant() {
   const stopVoice = useCallback(() => {
     isListeningRef.current = false;
     try {
-      recognitionRef.current?.stop();
+      recognitionRef.current?.abort();
     } catch {
       /* ignore */
     }
     setIsListening(false);
+    setInput("");
   }, []);
 
   // ── Start continuous voice input ─────────────────────────────────────────
@@ -768,10 +845,12 @@ export default function AIAssistant() {
 
     if (!SpeechRecognition) {
       toast({
-        title: "Not supported",
-        description: "Speech recognition isn't available in this browser.",
+        title: "Voice not supported",
+        description:
+          "Speech recognition requires Chrome or Edge. Please type your message instead.",
         variant: "destructive",
       });
+      setVoiceSupported(false);
       return;
     }
 
@@ -781,10 +860,14 @@ export default function AIAssistant() {
       return;
     }
 
+    // Stop TTS while user is speaking
+    window.speechSynthesis?.cancel();
+
     const recognition = new SpeechRecognition();
-    recognition.continuous = true;
+    recognition.continuous = false; // single utterance → more reliable on mobile
     recognition.interimResults = true;
     recognition.lang = "en-US";
+    recognition.maxAlternatives = 1;
 
     // Save reference so stopVoice() and the close-effect can cancel it
     recognitionRef.current = recognition;
@@ -792,6 +875,7 @@ export default function AIAssistant() {
 
     // Accumulates confirmed (final) words across multiple result events
     let finalTranscript = "";
+    let autoSubmitTimer: ReturnType<typeof setTimeout> | null = null;
 
     recognition.onstart = () => {
       setIsListening(true);
@@ -800,69 +884,78 @@ export default function AIAssistant() {
     };
 
     recognition.onend = () => {
-      if (isListeningRef.current) {
-        // Still in listening mode – restart to keep recording
-        try {
-          recognition.start();
-        } catch {
-          /* ignore */
-        }
-      } else {
-        // User pressed stop (or panel closed) – submit what was heard
-        setIsListening(false);
-        const text = finalTranscript.trim();
-        if (text) {
-          finalTranscript = "";
-          sendMessage(text);
-        }
-        setInput("");
+      setIsListening(false);
+      isListeningRef.current = false;
+      const text = finalTranscript.trim();
+      if (text) {
+        sendMessage(text);
       }
+      setInput("");
     };
 
     recognition.onerror = (e: any) => {
       const { error } = e;
+      isListeningRef.current = false;
+      setIsListening(false);
 
       if (error === "not-allowed" || error === "service-not-allowed") {
-        // Microphone permission denied – stop entirely
-        isListeningRef.current = false;
-        setIsListening(false);
         toast({
-          title: "Mic blocked",
+          title: "Microphone blocked",
           description:
-            "Please allow microphone access in your browser settings.",
+            "Please allow microphone access in your browser settings, then try again.",
           variant: "destructive",
+        });
+        setVoiceSupported(false);
+        return;
+      }
+      if (error === "aborted") return;
+      if (error === "no-speech") {
+        toast({
+          title: "No speech detected",
+          description: "Tap the mic and speak clearly.",
         });
         return;
       }
-
-      if (error === "aborted") {
-        // We called recognition.stop() / recognition.abort() ourselves.
-        // Don't touch isListeningRef here – onend will handle the state.
-        return;
+      if (error === "network") {
+        toast({
+          title: "Network error",
+          description: "Check your internet connection and try again.",
+          variant: "destructive",
+        });
       }
-
-      // no-speech, network, audio-capture, etc. → onend will auto-restart
     };
 
     recognition.onresult = (event: any) => {
-      // Process only NEW results (from event.resultIndex onward) to avoid
-      // double-counting segments that were already finalized in prior events.
+      // Clear pending auto-submit timer
+      if (autoSubmitTimer) clearTimeout(autoSubmitTimer);
+
       for (let i = event.resultIndex; i < event.results.length; i++) {
         if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
+          finalTranscript += event.results[i][0].transcript + " ";
         }
       }
 
-      // Build the current interim (in-progress) text from all non-final results
+      // Build live interim preview
       let interim = "";
       for (let i = 0; i < event.results.length; i++) {
         if (!event.results[i].isFinal) {
           interim += event.results[i][0].transcript;
         }
       }
+      setInput((finalTranscript + interim).trim());
 
-      // Show live preview: confirmed words + whatever is still in-flight
-      setInput(finalTranscript + interim);
+      // Auto-submit after 1.5s of silence if we have final text
+      if (finalTranscript.trim()) {
+        autoSubmitTimer = setTimeout(() => {
+          if (isListeningRef.current) {
+            try {
+              recognition.stop();
+            } catch {
+              /* ignore */
+            }
+          }
+        }, 1500);
+      }
     };
 
     try {
@@ -871,8 +964,24 @@ export default function AIAssistant() {
       console.error("Recognition start failed:", err);
       isListeningRef.current = false;
       setIsListening(false);
+      toast({
+        title: "Microphone error",
+        description: "Could not start microphone. Please try again.",
+        variant: "destructive",
+      });
     }
   }, [sendMessage, stopVoice, toast]);
+
+  // ── Listen for auto-start voice event (from wake word) ───────────────────
+  useEffect(() => {
+    const handler = () => {
+      if (open && !isListeningRef.current) {
+        startVoice();
+      }
+    };
+    window.addEventListener("jinny-start-voice", handler);
+    return () => window.removeEventListener("jinny-start-voice", handler);
+  }, [open, startVoice]);
 
   // ── Quick-action capability pills ───────────────────────────────────────
   const handleQuickAction = useCallback(
@@ -882,6 +991,11 @@ export default function AIAssistant() {
 
   // ── Show more capabilities toggle ───────────────────────────────────────
   const [showAllCaps, setShowAllCaps] = useState(false);
+
+  // ── Stop TTS when panel closes ────────────────────────────────────────────
+  useEffect(() => {
+    if (!open) window.speechSynthesis?.cancel();
+  }, [open]);
 
   // ── Draggable floating bot button ───────────────────────────────────────
   const [pos, setPos] = useState({
@@ -981,17 +1095,38 @@ export default function AIAssistant() {
                 </h3>
                 <p className="text-[10px] text-muted-foreground flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-success inline-block" />
-                  Your travel companion • {userName}
+                  Your AI Travel Agent • {userName}
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => setOpen(false)}
-              className="p-1.5 rounded-lg hover:bg-secondary transition-colors"
-              aria-label="Close chat"
-            >
-              <X className="w-4 h-4 text-muted-foreground" />
-            </button>
+            <div className="flex items-center gap-1">
+              {/* TTS toggle */}
+              <button
+                onClick={() => {
+                  setTtsEnabled((v) => {
+                    if (v) window.speechSynthesis?.cancel();
+                    return !v;
+                  });
+                }}
+                title={
+                  ttsEnabled ? "Mute Jinny's voice" : "Unmute Jinny's voice"
+                }
+                className={`p-1.5 rounded-lg transition-colors text-xs font-bold ${
+                  ttsEnabled
+                    ? "text-primary hover:bg-primary/10"
+                    : "text-muted-foreground hover:bg-secondary line-through"
+                }`}
+              >
+                {ttsEnabled ? "🔊" : "🔇"}
+              </button>
+              <button
+                onClick={() => setOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-secondary transition-colors"
+                aria-label="Close chat"
+              >
+                <X className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
           </div>
 
           {/* Capability pills – shown while conversation is still short */}
@@ -1096,10 +1231,20 @@ export default function AIAssistant() {
             <div className="flex items-center gap-2">
               <button
                 onClick={isListening ? stopVoice : startVoice}
+                disabled={!voiceSupported}
+                title={
+                  !voiceSupported
+                    ? "Voice not supported in this browser"
+                    : isListening
+                      ? "Stop recording (or press Enter)"
+                      : 'Start voice input (or say "Hey Jinny")'
+                }
                 className={`p-2 rounded-lg transition-colors ${
-                  isListening
-                    ? "bg-destructive text-destructive-foreground animate-pulse"
-                    : "hover:bg-secondary text-muted-foreground"
+                  !voiceSupported
+                    ? "opacity-30 cursor-not-allowed text-muted-foreground"
+                    : isListening
+                      ? "bg-destructive text-destructive-foreground animate-pulse"
+                      : "hover:bg-secondary text-muted-foreground"
                 }`}
                 aria-label={
                   isListening ? "Stop recording" : "Start voice input"

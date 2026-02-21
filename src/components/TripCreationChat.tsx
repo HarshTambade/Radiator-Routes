@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { extractIntent } from "@/services/aiPlanner";
+import { nominatimSearch } from "@/services/nominatim";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -275,11 +276,30 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
       case "destination": {
         const parts = value.split(",").map((s) => s.trim());
         const dest = parts[0] || value;
-        const country = parts[1] || "";
-        setTripData((prev) => ({ ...prev, destination: dest, country }));
+        // Country provided explicitly by the user
+        let country = parts[1] || "";
 
         setAiLoading(true);
         try {
+          // Auto-detect country via Nominatim geocoding if not provided
+          if (!country) {
+            try {
+              const geoResults = await nominatimSearch(dest, 1);
+              if (geoResults && geoResults.length > 0) {
+                const geo = geoResults[0] as any;
+                // address.country is the full country name
+                country =
+                  geo.address?.country ||
+                  geo.display_name?.split(",").pop()?.trim() ||
+                  "";
+              }
+            } catch {
+              // Geocoding failed — proceed without country
+            }
+          }
+
+          setTripData((prev) => ({ ...prev, destination: dest, country }));
+
           const suggestion = (await extractIntent({
             transcript: `Best time to visit ${dest} ${country}, typical budget per day`,
           })) as any;
@@ -287,9 +307,10 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
             ? `Average daily budget: ~${getCurrencySymbol(country)}${Math.round(suggestion.budget_range.max / (suggestion.duration_days || 5)).toLocaleString()}`
             : "";
           addBotMessage(
-            `Great choice! **${dest}${country ? `, ${country}` : ""}** 🎉\n\n${budgetHint ? `💡 ${budgetHint}\n\n` : ""}**When do you want to travel?** Enter dates (e.g., "2025-03-15 to 2025-03-20") or say "5 days from March 15".`,
+            `Great choice! **${dest}${country ? `, ${country}` : ""}** 🎉\n\n${country ? `🌍 Country auto-detected: **${country}** — currency set automatically.\n\n` : ""}${budgetHint ? `💡 ${budgetHint}\n\n` : ""}**When do you want to travel?** Enter dates (e.g., "2025-03-15 to 2025-03-20") or say "5 days from March 15".`,
           );
         } catch {
+          setTripData((prev) => ({ ...prev, destination: dest, country }));
           addBotMessage(
             `**${dest}${country ? `, ${country}` : ""}** sounds amazing! 🎉\n\n**When do you want to travel?** Enter dates like "2025-03-15 to 2025-03-20".`,
           );
