@@ -490,7 +490,7 @@ export default function Friends() {
   // ── Chat screen ────────────────────────────────────────────────────────────
   if (chatWithUser) {
     return (
-      <div className="flex flex-col h-[calc(100vh-64px)] max-w-2xl mx-auto">
+      <div className="flex flex-col h-[calc(100dvh-140px)] md:h-[calc(100dvh-64px)] max-w-2xl mx-auto">
         {/* header */}
         <div className="flex items-center gap-3 px-4 py-3 bg-card border-b border-border shadow-sm">
           <button
@@ -611,18 +611,20 @@ export default function Friends() {
 
   // ── Main view ──────────────────────────────────────────────────────────────
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-4 md:p-6 max-w-4xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-5">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Travel Friends</h1>
+          <h1 className="text-xl md:text-2xl font-bold text-foreground">
+            Travel Friends
+          </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Connect, chat &amp; travel together
           </p>
         </div>
         <button
           onClick={() => setShowInvite(true)}
-          className="px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 flex items-center gap-2"
+          className="px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 flex items-center gap-2 self-start sm:self-auto"
         >
           <LinkIcon className="w-4 h-4" />
           Invite Link
@@ -630,12 +632,12 @@ export default function Friends() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-secondary/50 p-1 rounded-xl overflow-x-auto">
+      <div className="flex gap-1 mb-5 md:mb-6 bg-secondary/50 p-1 rounded-xl overflow-x-auto">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap flex-1 justify-center ${
+            className={`flex items-center gap-1.5 px-3 md:px-4 py-2 rounded-lg text-xs md:text-sm font-medium transition-all whitespace-nowrap flex-1 justify-center ${
               activeTab === tab.id
                 ? "bg-card text-foreground shadow-card"
                 : "text-muted-foreground hover:text-foreground"
@@ -680,7 +682,7 @@ export default function Friends() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {filteredUsers.map((person) => {
                 const isFriend = friendIds.has(person.id);
                 const sent = sentToIds.has(person.id);
@@ -807,7 +809,7 @@ export default function Friends() {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {acceptedFriends.map((r: any) => {
                 const friend = r.sender_id === user?.id ? r.receiver : r.sender;
                 if (!friend) return null;

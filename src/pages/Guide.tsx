@@ -81,10 +81,10 @@ export default function Guide() {
   };
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 md:p-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 md:mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">
+          <h1 className="text-xl md:text-2xl font-bold text-foreground">
             AI Travel Guide
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -94,7 +94,7 @@ export default function Guide() {
       </div>
 
       {/* Search */}
-      <div className="flex gap-3 mb-6">
+      <div className="flex gap-2 md:gap-3 mb-5 md:mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
@@ -109,7 +109,7 @@ export default function Guide() {
         <button
           onClick={handleSearch}
           disabled={loading}
-          className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50"
+          className="px-4 md:px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 shrink-0"
         >
           {loading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -216,7 +216,7 @@ export default function Guide() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5">
           {guides.map((guide) => (
             <div
               key={guide.id}

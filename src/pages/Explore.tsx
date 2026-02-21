@@ -377,19 +377,21 @@ export default function Explore() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6 h-screen overflow-hidden flex flex-col">
+    <div className="p-4 lg:p-6 flex flex-col min-h-screen lg:h-screen lg:overflow-hidden">
       {/* Page header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 md:mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Explore</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h1 className="text-xl md:text-2xl font-bold text-foreground">
+            Explore
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
             Discover places, search flights, hotels &amp; restaurants
           </p>
         </div>
       </div>
 
       {/* Mode switcher tabs */}
-      <div className="flex gap-1 mb-5 bg-secondary/50 p-1 rounded-xl overflow-x-auto shrink-0">
+      <div className="flex gap-1 mb-4 bg-secondary/50 p-1 rounded-xl overflow-x-auto shrink-0">
         {(
           [
             { id: "places" as SearchMode, label: "Places", icon: CompassIcon },
@@ -405,14 +407,14 @@ export default function Explore() {
           <button
             key={id}
             onClick={() => setSearchMode(id)}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap flex-1 justify-center ${
+            className={`flex items-center gap-1 md:gap-1.5 px-2 md:px-4 py-2 rounded-lg text-xs md:text-sm font-medium transition-all whitespace-nowrap flex-1 justify-center ${
               searchMode === id
                 ? "bg-card text-foreground shadow-card"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <Icon className="w-4 h-4" />
-            {label}
+            <Icon className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
+            <span>{label}</span>
           </button>
         ))}
       </div>
@@ -421,7 +423,7 @@ export default function Explore() {
       {searchMode === "places" && (
         <>
           {/* Search bar */}
-          <div className="flex gap-3 mb-4 shrink-0">
+          <div className="flex gap-2 md:gap-3 mb-3 md:mb-4 shrink-0">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
@@ -436,7 +438,7 @@ export default function Explore() {
             <button
               onClick={() => handleSearch()}
               disabled={loading}
-              className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50"
+              className="px-4 md:px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 shrink-0"
             >
               {loading ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -699,7 +701,7 @@ export default function Explore() {
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
                 {places.map((place, i) => {
                   const coords = getPlaceCoords(place);
                   const hasCoords = !isNaN(coords.lat) && !isNaN(coords.lng);
@@ -811,15 +813,15 @@ export default function Explore() {
       {/* ── FLIGHTS ── */}
       {searchMode === "flights" && (
         <div className="flex-1 overflow-y-auto space-y-4">
-          <div className="bg-card rounded-2xl p-5 shadow-card space-y-4">
-            <h2 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
+          <div className="bg-card rounded-2xl p-4 md:p-5 shadow-card mb-4 shrink-0">
+            <h3 className="font-semibold text-card-foreground mb-3 md:mb-4 flex items-center gap-2">
               <Plane className="w-4 h-4 text-primary" />
               Search Flights (Amadeus)
-            </h2>
+            </h3>
             <p className="text-xs text-muted-foreground">
               Enter IATA airport codes (e.g. DEL, BOM, GOI, JFK, LHR)
             </p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 mb-4">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">
                   From (IATA)
@@ -1053,12 +1055,12 @@ export default function Explore() {
       {/* ── HOTELS ── */}
       {searchMode === "hotels" && (
         <div className="flex-1 overflow-y-auto space-y-4">
-          <div className="bg-card rounded-2xl p-5 shadow-card space-y-4">
-            <h2 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
+          <div className="bg-card rounded-2xl p-4 md:p-5 shadow-card mb-4 shrink-0">
+            <h3 className="font-semibold text-card-foreground mb-3 md:mb-4 flex items-center gap-2">
               <Hotel className="w-4 h-4 text-primary" />
               Search Hotels (Amadeus)
-            </h2>
-            <div className="grid grid-cols-2 gap-3">
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 mb-4">
               <div className="col-span-2">
                 <label className="text-xs text-muted-foreground mb-1 block">
                   City Name
@@ -1223,11 +1225,11 @@ export default function Explore() {
       {/* ── RESTAURANTS ── */}
       {searchMode === "restaurants" && (
         <div className="flex-1 overflow-y-auto space-y-4">
-          <div className="bg-card rounded-2xl p-5 shadow-card space-y-3">
-            <h2 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
+          <div className="bg-card rounded-2xl p-4 md:p-5 shadow-card mb-4 shrink-0">
+            <h3 className="font-semibold text-card-foreground mb-3 md:mb-4 flex items-center gap-2">
               <Utensils className="w-4 h-4 text-primary" />
               Find Restaurants & Cafes
-            </h2>
+            </h3>
             <div className="flex gap-3">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -1283,7 +1285,7 @@ export default function Explore() {
                 {restaurantResults.length} restaurants found near{" "}
                 {restaurantQuery}
               </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5 overflow-y-auto">
                 {restaurantResults.map((place: any, i: number) => {
                   const starRating = toFiveStars(place.rate);
                   return (

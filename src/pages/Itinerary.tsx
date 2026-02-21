@@ -28,6 +28,7 @@ import {
   Car,
   Route,
   Shield,
+  X,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -627,22 +628,24 @@ export default function Itinerary() {
           : "🟢 Free flow";
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex flex-col lg:flex-row min-h-screen lg:h-screen lg:overflow-hidden">
       {/* Main content */}
       <div
-        className={`flex-1 p-6 overflow-y-auto ${showChat ? "max-w-[calc(100%-360px)]" : ""}`}
+        className={`flex-1 p-4 lg:p-6 overflow-y-auto min-w-0 ${showChat ? "lg:max-w-[calc(100%-360px)]" : ""}`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">{trip.name}</h1>
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4 md:mb-6">
+          <div className="min-w-0">
+            <h1 className="text-xl md:text-2xl font-bold text-foreground truncate">
+              {trip.name}
+            </h1>
             <p className="text-sm text-muted-foreground mt-1">
               {trip.destination} · Budget:{" "}
               {formatCurrency(Number(trip.budget_total), trip.country)} ·{" "}
               {trip.status}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 shrink-0">
             <button
               onClick={() => {
                 // Download itinerary as text file
@@ -863,43 +866,43 @@ export default function Itinerary() {
                 });
               }}
               disabled={activities.length === 0}
-              className="px-4 py-2 rounded-xl bg-card border border-border text-sm font-medium text-muted-foreground hover:bg-secondary transition-colors shadow-card flex items-center gap-2 disabled:opacity-50"
+              className="px-3 py-2 rounded-xl bg-card border border-border text-xs md:text-sm font-medium text-muted-foreground hover:bg-secondary transition-colors shadow-card flex items-center gap-1.5 disabled:opacity-50"
             >
-              <Download className="w-4 h-4" />
-              Download
+              <Download className="w-3.5 h-3.5 md:w-4 md:h-4" />
+              <span className="hidden sm:inline">Download</span>
             </button>
             <button
               onClick={() => setShowChat(!showChat)}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors shadow-card flex items-center gap-2 ${
+              className={`px-3 py-2 rounded-xl text-xs md:text-sm font-medium transition-colors shadow-card flex items-center gap-1.5 ${
                 showChat
                   ? "bg-primary text-primary-foreground"
                   : "bg-card border border-border text-muted-foreground hover:bg-secondary"
               }`}
             >
-              <MessageSquare className="w-4 h-4" />
+              <MessageSquare className="w-3.5 h-3.5 md:w-4 md:h-4" />
               Chat
             </button>
             <button
               onClick={handleReplan}
               disabled={replanning || !activeItinerary}
-              className="px-4 py-2 rounded-xl bg-card border border-border text-sm font-medium text-muted-foreground hover:bg-secondary transition-colors shadow-card flex items-center gap-2 disabled:opacity-50"
+              className="px-3 py-2 rounded-xl bg-card border border-border text-xs md:text-sm font-medium text-muted-foreground hover:bg-secondary transition-colors shadow-card flex items-center gap-1.5 disabled:opacity-50"
             >
               {replanning ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin" />
               ) : (
-                <AlertTriangle className="w-4 h-4" />
+                <AlertTriangle className="w-3.5 h-3.5 md:w-4 md:h-4" />
               )}
-              Replan
+              <span className="hidden sm:inline">Replan</span>
             </button>
             <button
               onClick={handleGenerateItinerary}
               disabled={generating}
-              className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity shadow-card flex items-center gap-2 disabled:opacity-50"
+              className="px-3 py-2 rounded-xl bg-primary text-primary-foreground text-xs md:text-sm font-medium hover:opacity-90 transition-opacity shadow-card flex items-center gap-1.5 disabled:opacity-50"
             >
               {generating ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin" />
               ) : (
-                <Brain className="w-4 h-4" />
+                <Brain className="w-3.5 h-3.5 md:w-4 md:h-4" />
               )}
               {activities.length > 0 ? "Regenerate" : "Generate AI Plan"}
             </button>
@@ -907,8 +910,8 @@ export default function Itinerary() {
         </div>
 
         {/* Trip Info */}
-        <div className="bg-card rounded-2xl p-5 shadow-card mb-6">
-          <div className="grid grid-cols-4 gap-4">
+        <div className="bg-card rounded-2xl p-4 md:p-5 shadow-card mb-4 md:mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
             <div className="text-center">
               <p className="text-xs text-muted-foreground">Destination</p>
               <p className="text-sm font-bold text-card-foreground">
@@ -1469,69 +1472,149 @@ export default function Itinerary() {
         )}
       </div>
 
-      {/* Chat Panel */}
+      {/* Chat Panel — side panel on desktop, bottom-sheet modal on mobile */}
       {showChat && (
-        <div className="w-[360px] shrink-0 border-l border-border flex flex-col bg-card animate-fade-in">
-          <div className="p-4 border-b border-border">
-            <h3 className="font-semibold text-card-foreground flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 text-primary" />
-              Trip Chat
-            </h3>
-            <p className="text-xs text-muted-foreground mt-1">
-              Real-time group collaboration
-            </p>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {messages.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-8">
-                No messages yet. Start the conversation!
-              </p>
-            ) : (
-              messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex ${msg.sender_id === user?.id ? "justify-end" : "justify-start"}`}
-                >
-                  <div
-                    className={`max-w-[80%] px-3 py-2 rounded-xl text-sm ${
-                      msg.sender_id === user?.id
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-secondary text-secondary-foreground"
-                    }`}
-                  >
-                    {msg.content}
-                    <p className="text-[10px] opacity-60 mt-1">
-                      {new Date(msg.created_at).toLocaleTimeString("en-IN", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </p>
-                  </div>
-                </div>
-              ))
-            )}
-            <div ref={chatEndRef} />
-          </div>
-          <div className="p-4 border-t border-border">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-                placeholder="Type a message..."
-                className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />
+        <>
+          {/* Mobile: full-screen overlay */}
+          <div className="fixed inset-0 z-[55] flex flex-col bg-card lg:hidden animate-fade-in">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0">
+              <div>
+                <h3 className="font-semibold text-card-foreground flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-primary" />
+                  Trip Chat
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Real-time group collaboration
+                </p>
+              </div>
               <button
-                onClick={handleSendMessage}
-                disabled={sendingMsg || !chatInput.trim()}
-                className="p-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                onClick={() => setShowChat(false)}
+                className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Close chat"
               >
-                <Send className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-background">
+              {messages.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-8">
+                  No messages yet. Start the conversation!
+                </p>
+              ) : (
+                messages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`flex ${msg.sender_id === user?.id ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className={`max-w-[80%] px-3 py-2 rounded-xl text-sm ${
+                        msg.sender_id === user?.id
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-secondary text-secondary-foreground"
+                      }`}
+                    >
+                      {msg.content}
+                      <p className="text-[10px] opacity-60 mt-1">
+                        {new Date(msg.created_at).toLocaleTimeString("en-IN", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              )}
+              <div ref={chatEndRef} />
+            </div>
+            <div
+              className="p-4 border-t border-border bg-card shrink-0"
+              style={{
+                paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 1rem)",
+              }}
+            >
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+                  placeholder="Type a message..."
+                  className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <button
+                  onClick={handleSendMessage}
+                  disabled={sendingMsg || !chatInput.trim()}
+                  className="p-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
+
+          {/* Desktop: side panel */}
+          <div className="hidden lg:flex w-[360px] shrink-0 border-l border-border flex-col bg-card animate-fade-in">
+            <div className="p-4 border-b border-border">
+              <h3 className="font-semibold text-card-foreground flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-primary" />
+                Trip Chat
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Real-time group collaboration
+              </p>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {messages.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-8">
+                  No messages yet. Start the conversation!
+                </p>
+              ) : (
+                messages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`flex ${msg.sender_id === user?.id ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className={`max-w-[80%] px-3 py-2 rounded-xl text-sm ${
+                        msg.sender_id === user?.id
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-secondary text-secondary-foreground"
+                      }`}
+                    >
+                      {msg.content}
+                      <p className="text-[10px] opacity-60 mt-1">
+                        {new Date(msg.created_at).toLocaleTimeString("en-IN", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              )}
+              <div ref={chatEndRef} />
+            </div>
+            <div className="p-4 border-t border-border">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+                  placeholder="Type a message..."
+                  className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <button
+                  onClick={handleSendMessage}
+                  disabled={sendingMsg || !chatInput.trim()}
+                  className="p-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
