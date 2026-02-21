@@ -1,11 +1,11 @@
-// AI Chat service — uses Gemini directly, replacing the Supabase ai-chat edge function
-// Supports streaming via Gemini's streamGenerateContent endpoint
+// AI Chat service — uses Groq API (OpenAI-compatible) with llama-3.3-70b-versatile
+// Supports streaming via OpenAI-compatible SSE format
 
 import { supabase } from "@/integrations/supabase/client";
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string;
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
-const GEMINI_MODEL = "gemini-2.5-flash-preview-05-20";
+const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string;
+const GROQ_BASE = "https://api.groq.com/openai/v1";
+const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 const BASE_SYSTEM_PROMPT = `You are Jinny, a Personal AI Travel Proxy Agent for Radiator Routes. You act as the traveler's intelligent travel representative — negotiating, planning, optimizing, and protecting their interests.
 
@@ -114,22 +114,24 @@ async function loadPersonalContext(): Promise<string> {
   }
 }
 
-// ── Gemini message type ───────────────────────────────────────────────────────
+// ── Build OpenAI-compatible messages array ───────────────────────────────────
 
-interface GeminiMessage {
-  role: "user" | "model";
-  parts: Array<{ text: string }>;
+interface OAIMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
 }
 
-// ── Map chat history to Gemini format ────────────────────────────────────────
-
-function toGeminiMessages(
+function toOAIMessages(
+  systemPrompt: string,
   messages: Array<{ role: "user" | "assistant"; content: string }>,
-): GeminiMessage[] {
-  return messages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
+): OAIMessage[] {
+  return [
+    { role: "system", content: systemPrompt },
+    ...messages.map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    })),
+  ];
 }
 
 // ── Non-streaming chat (returns full text) ───────────────────────────────────
@@ -137,41 +139,37 @@ function toGeminiMessages(
 export async function sendChatMessage(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
 ): Promise<string> {
-  if (!GEMINI_API_KEY) {
-    throw new Error("VITE_GEMINI_API_KEY is not configured");
+  if (!GROQ_API_KEY) {
+    throw new Error("VITE_GROQ_API_KEY is not configured");
   }
 
   const personalContext = await loadPersonalContext();
   const fullSystemPrompt = BASE_SYSTEM_PROMPT + personalContext;
 
-  const url = `${GEMINI_BASE}/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-
-  const body = {
-    system_instruction: {
-      parts: [{ text: fullSystemPrompt }],
-    },
-    contents: toGeminiMessages(messages),
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 1024,
-    },
-  };
-
-  const res = await fetch(url, {
+  const res = await fetch(`${GROQ_BASE}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: toOAIMessages(fullSystemPrompt, messages),
+      temperature: 0.7,
+      max_tokens: 1024,
+      stream: false,
+    }),
   });
 
   if (!res.ok) {
     const errText = await res.text();
     if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 403) throw new Error("INVALID_API_KEY");
-    throw new Error(`Gemini API error [${res.status}]: ${errText}`);
+    if (res.status === 401) throw new Error("INVALID_API_KEY");
+    throw new Error(`Groq API error [${res.status}]: ${errText}`);
   }
 
   const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  return data.choices?.[0]?.message?.content ?? "";
 }
 
 // ── Streaming chat — calls onChunk for each delta, returns full text ──────────
@@ -180,37 +178,33 @@ export async function streamChatMessage(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
   onChunk: (chunk: string) => void,
 ): Promise<string> {
-  if (!GEMINI_API_KEY) {
-    throw new Error("VITE_GEMINI_API_KEY is not configured");
+  if (!GROQ_API_KEY) {
+    throw new Error("VITE_GROQ_API_KEY is not configured");
   }
 
   const personalContext = await loadPersonalContext();
   const fullSystemPrompt = BASE_SYSTEM_PROMPT + personalContext;
 
-  const url = `${GEMINI_BASE}/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse&key=${GEMINI_API_KEY}`;
-
-  const body = {
-    system_instruction: {
-      parts: [{ text: fullSystemPrompt }],
-    },
-    contents: toGeminiMessages(messages),
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 1024,
-    },
-  };
-
-  const res = await fetch(url, {
+  const res = await fetch(`${GROQ_BASE}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: toOAIMessages(fullSystemPrompt, messages),
+      temperature: 0.7,
+      max_tokens: 1024,
+      stream: true,
+    }),
   });
 
   if (!res.ok) {
     const errText = await res.text();
     if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 403) throw new Error("INVALID_API_KEY");
-    throw new Error(`Gemini stream error [${res.status}]: ${errText}`);
+    if (res.status === 401) throw new Error("INVALID_API_KEY");
+    throw new Error(`Groq stream error [${res.status}]: ${errText}`);
   }
 
   if (!res.body) {
@@ -244,7 +238,7 @@ export async function streamChatMessage(
 
       try {
         const parsed = JSON.parse(jsonStr);
-        const chunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        const chunk = parsed.choices?.[0]?.delta?.content ?? "";
         if (chunk) {
           fullText += chunk;
           onChunk(chunk);
@@ -255,7 +249,7 @@ export async function streamChatMessage(
     }
   }
 
-  // Flush any remaining buffer
+  // Flush remaining buffer
   if (buffer.trim()) {
     const remaining = buffer.trim();
     if (remaining.startsWith("data: ")) {
@@ -263,7 +257,7 @@ export async function streamChatMessage(
       if (jsonStr && jsonStr !== "[DONE]") {
         try {
           const parsed = JSON.parse(jsonStr);
-          const chunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+          const chunk = parsed.choices?.[0]?.delta?.content ?? "";
           if (chunk) {
             fullText += chunk;
             onChunk(chunk);

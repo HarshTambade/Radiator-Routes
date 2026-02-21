@@ -1,12 +1,11 @@
-// Gemini AI service — replaces HuggingFace across all features
-// Uses Google Gemini API directly from the browser
+// AI service — uses Groq API (OpenAI-compatible) with llama-3.3-70b-versatile
+// Drop-in replacement for the previous Gemini service — all exports preserved
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string;
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
-// Use gemini-2.5-flash for best performance
-const GEMINI_MODEL = "gemini-2.5-flash-preview-05-20";
+const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string;
+const GROQ_BASE = "https://api.groq.com/openai/v1";
+const GROQ_MODEL = "llama-3.3-70b-versatile";
 
-// ── Core Gemini caller ───────────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface GeminiMessage {
   role: "user" | "model";
@@ -23,9 +22,17 @@ export interface GeminiResponse {
   }>;
 }
 
+// Internal OpenAI-style message
+interface OAIMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+// ── Core non-streaming caller ────────────────────────────────────────────────
+
 /**
- * Call Gemini generateContent (non-streaming).
- * Returns the raw text content from the first candidate.
+ * Call Groq generateContent (non-streaming).
+ * Returns the raw text content from the first choice.
  */
 export async function callGemini(
   systemInstruction: string,
@@ -33,52 +40,46 @@ export async function callGemini(
   temperature = 0.7,
   maxOutputTokens = 2048,
 ): Promise<string> {
-  if (!GEMINI_API_KEY) {
-    throw new Error("VITE_GEMINI_API_KEY is not configured");
+  if (!GROQ_API_KEY) {
+    throw new Error("VITE_GROQ_API_KEY is not configured");
   }
 
-  const url = `${GEMINI_BASE}/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const messages: OAIMessage[] = [
+    { role: "system", content: systemInstruction },
+    { role: "user", content: userPrompt },
+  ];
 
-  const body = {
-    system_instruction: {
-      parts: [{ text: systemInstruction }],
-    },
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: userPrompt }],
-      },
-    ],
-    generationConfig: {
-      temperature,
-      maxOutputTokens,
-      responseMimeType: "text/plain",
-    },
-  };
-
-  const res = await fetch(url, {
+  const res = await fetch(`${GROQ_BASE}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages,
+      temperature,
+      max_tokens: maxOutputTokens,
+      stream: false,
+    }),
   });
 
   if (!res.ok) {
     const errText = await res.text();
     if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 403) throw new Error("INVALID_API_KEY");
-    if (res.status === 500 || res.status === 503)
-      throw new Error(`GEMINI_ERROR_${res.status}`);
-    throw new Error(`Gemini API error [${res.status}]: ${errText}`);
+    if (res.status === 401) throw new Error("INVALID_API_KEY");
+    if (res.status === 503 || res.status === 500)
+      throw new Error(`GROQ_ERROR_${res.status}`);
+    throw new Error(`Groq API error [${res.status}]: ${errText}`);
   }
 
-  const data = (await res.json()) as GeminiResponse;
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  return text;
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content ?? "";
 }
 
 /**
- * Call Gemini with a multi-turn conversation (for chat).
- * Returns the text of the assistant's reply.
+ * Call Groq with a multi-turn conversation.
+ * Preserves the same signature as the old Gemini version.
  */
 export async function callGeminiChat(
   systemInstruction: string,
@@ -86,47 +87,46 @@ export async function callGeminiChat(
   temperature = 0.7,
   maxOutputTokens = 1024,
 ): Promise<string> {
-  if (!GEMINI_API_KEY) {
-    throw new Error("VITE_GEMINI_API_KEY is not configured");
+  if (!GROQ_API_KEY) {
+    throw new Error("VITE_GROQ_API_KEY is not configured");
   }
 
-  const url = `${GEMINI_BASE}/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const oaiMessages: OAIMessage[] = [
+    { role: "system", content: systemInstruction },
+    ...messages.map((m) => ({
+      role: (m.role === "model" ? "assistant" : "user") as "user" | "assistant",
+      content: m.content,
+    })),
+  ];
 
-  const contents: GeminiMessage[] = messages.map((m) => ({
-    role: m.role,
-    parts: [{ text: m.content }],
-  }));
-
-  const body = {
-    system_instruction: {
-      parts: [{ text: systemInstruction }],
-    },
-    contents,
-    generationConfig: {
-      temperature,
-      maxOutputTokens,
-    },
-  };
-
-  const res = await fetch(url, {
+  const res = await fetch(`${GROQ_BASE}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: oaiMessages,
+      temperature,
+      max_tokens: maxOutputTokens,
+      stream: false,
+    }),
   });
 
   if (!res.ok) {
     const errText = await res.text();
     if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 403) throw new Error("INVALID_API_KEY");
-    throw new Error(`Gemini API error [${res.status}]: ${errText}`);
+    if (res.status === 401) throw new Error("INVALID_API_KEY");
+    throw new Error(`Groq API error [${res.status}]: ${errText}`);
   }
 
-  const data = (await res.json()) as GeminiResponse;
-  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content ?? "";
 }
 
 /**
- * Stream Gemini response using Server-Sent Events.
+ * Stream Groq response using Server-Sent Events (OpenAI SSE format).
  * Calls onChunk for each text delta, returns full text when done.
  */
 export async function streamGemini(
@@ -136,42 +136,51 @@ export async function streamGemini(
   temperature = 0.7,
   maxOutputTokens = 1024,
 ): Promise<string> {
-  if (!GEMINI_API_KEY) {
-    throw new Error("VITE_GEMINI_API_KEY is not configured");
+  if (!GROQ_API_KEY) {
+    throw new Error("VITE_GROQ_API_KEY is not configured");
   }
 
-  const url = `${GEMINI_BASE}/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse&key=${GEMINI_API_KEY}`;
+  const oaiMessages: OAIMessage[] = [
+    { role: "system", content: systemInstruction },
+    ...messages.map((m) => ({
+      role: (m.role === "model" ? "assistant" : "user") as "user" | "assistant",
+      content: m.content,
+    })),
+  ];
 
-  const contents: GeminiMessage[] = messages.map((m) => ({
-    role: m.role,
-    parts: [{ text: m.content }],
-  }));
-
-  const body = {
-    system_instruction: {
-      parts: [{ text: systemInstruction }],
-    },
-    contents,
-    generationConfig: {
-      temperature,
-      maxOutputTokens,
-    },
-  };
-
-  const res = await fetch(url, {
+  const res = await fetch(`${GROQ_BASE}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: oaiMessages,
+      temperature,
+      max_tokens: maxOutputTokens,
+      stream: true,
+    }),
   });
 
   if (!res.ok) {
     const errText = await res.text();
     if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 403) throw new Error("INVALID_API_KEY");
-    throw new Error(`Gemini stream error [${res.status}]: ${errText}`);
+    if (res.status === 401) throw new Error("INVALID_API_KEY");
+    throw new Error(`Groq stream error [${res.status}]: ${errText}`);
   }
 
-  if (!res.body) throw new Error("No response body for streaming");
+  if (!res.body) {
+    // Fallback: non-streaming
+    const text = await callGeminiChat(
+      systemInstruction,
+      messages,
+      temperature,
+      maxOutputTokens,
+    );
+    onChunk(text);
+    return text;
+  }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -193,10 +202,11 @@ export async function streamGemini(
 
       const jsonStr = line.slice(6).trim();
       if (jsonStr === "[DONE]") break;
+      if (!jsonStr) continue;
 
       try {
-        const parsed = JSON.parse(jsonStr) as GeminiResponse;
-        const chunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        const parsed = JSON.parse(jsonStr);
+        const chunk = parsed.choices?.[0]?.delta?.content ?? "";
         if (chunk) {
           fullText += chunk;
           onChunk(chunk);
@@ -265,9 +275,9 @@ export function handleGeminiError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   if (msg === "RATE_LIMIT")
     return "AI rate limit exceeded. Please wait a moment and try again.";
-  if (msg === "INVALID_API_KEY") return "Gemini API key is invalid or expired.";
-  if (msg.startsWith("GEMINI_ERROR_"))
-    return "Gemini service is temporarily unavailable. Please try again.";
+  if (msg === "INVALID_API_KEY") return "Groq API key is invalid or expired.";
+  if (msg.startsWith("GROQ_ERROR_"))
+    return "Groq service is temporarily unavailable. Please try again.";
   return msg;
 }
 
