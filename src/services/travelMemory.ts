@@ -1,4 +1,5 @@
-// Travel Memory AI service — uses Gemini directly, replacing the Supabase travel-memory edge function
+// Travel Memory AI service — uses Groq via gemini.ts (drop-in)
+// Uses JSON mode + simplified prompts to prevent truncation
 
 import { callGemini, extractJSON, handleGeminiError } from "./gemini";
 import { supabase } from "@/integrations/supabase/client";
@@ -39,9 +40,7 @@ export async function getMemory(): Promise<TravelMemory & { name: string }> {
     data: { session },
   } = await supabase.auth.getSession();
 
-  if (!session?.user) {
-    throw new Error("Authentication required");
-  }
+  if (!session?.user) throw new Error("Authentication required");
 
   const { data: profile, error } = await supabase
     .from("profiles")
@@ -49,9 +48,7 @@ export async function getMemory(): Promise<TravelMemory & { name: string }> {
     .eq("id", session.user.id)
     .single();
 
-  if (error) {
-    throw new Error("Failed to fetch memory: " + error.message);
-  }
+  if (error) throw new Error("Failed to fetch memory: " + error.message);
 
   return {
     name: (profile?.name as string) ?? "",
@@ -76,13 +73,10 @@ export async function learnMemory(): Promise<{
     data: { session },
   } = await supabase.auth.getSession();
 
-  if (!session?.user) {
-    throw new Error("Authentication required");
-  }
+  if (!session?.user) throw new Error("Authentication required");
 
   const userId = session.user.id;
 
-  // Fetch all trips for this user
   const { data: trips, error: tripsError } = await supabase
     .from("trips")
     .select(
@@ -91,9 +85,8 @@ export async function learnMemory(): Promise<{
     .order("created_at", { ascending: false })
     .limit(20);
 
-  if (tripsError) {
+  if (tripsError)
     throw new Error("Failed to fetch trips: " + tripsError.message);
-  }
 
   if (!trips || trips.length === 0) {
     return {
@@ -106,14 +99,12 @@ export async function learnMemory(): Promise<{
     };
   }
 
-  // Fetch itineraries for those trips
   const tripIds = trips.map((t) => t.id);
   const { data: itineraries } = await supabase
     .from("itineraries")
     .select("id, trip_id")
     .in("trip_id", tripIds);
 
-  // Fetch activities across all itineraries
   let allActivities: Record<string, unknown>[] = [];
   if (itineraries && itineraries.length > 0) {
     const itineraryIds = itineraries.map((i) => i.id);
@@ -121,114 +112,96 @@ export async function learnMemory(): Promise<{
       .from("activities")
       .select("name, category, cost, location_name, status")
       .in("itinerary_id", itineraryIds)
-      .limit(100);
+      .limit(60);
     allActivities = (activities as Record<string, unknown>[]) ?? [];
   }
 
-  // Fetch current profile to merge with existing memory
   const { data: profile } = await supabase
     .from("profiles")
     .select("preferences, travel_personality, travel_history, name")
     .eq("id", userId)
     .single();
 
-  // Build trip summary for the AI prompt
   const tripSummary = trips
     .map(
       (t) =>
         `- "${t.name}" → ${t.destination}, ${(t as Record<string, unknown>).country ?? "India"} | ` +
         `${t.start_date} to ${t.end_date} | ` +
-        `Budget: ₹${(t as Record<string, unknown>).budget_total ?? 0} ${(t as Record<string, unknown>).currency ?? "INR"} | ` +
-        `Status: ${t.status}`,
+        `₹${(t as Record<string, unknown>).budget_total ?? 0} | ` +
+        `${t.status}`,
     )
     .join("\n");
 
-  const activitySummary = allActivities
-    .slice(0, 60)
-    .map(
-      (a) =>
-        `- ${a.name} | Category: ${a.category} | Cost: ₹${a.cost ?? 0} | ` +
-        `Location: ${a.location_name ?? "N/A"} | Status: ${a.status ?? "pending"}`,
-    )
-    .join("\n");
+  const activitySummary =
+    allActivities.length > 0
+      ? allActivities
+          .map(
+            (a) =>
+              `${a.name} | ${a.category} | ₹${a.cost ?? 0} | ${a.location_name ?? "N/A"}`,
+          )
+          .join("\n")
+      : "No activities recorded yet";
 
   const existingPrefs = JSON.stringify(
     (profile?.preferences as Record<string, unknown>) ?? {},
-    null,
-    2,
   );
   const existingPersonality = JSON.stringify(
     (profile?.travel_personality as Record<string, unknown>) ?? {},
-    null,
-    2,
   );
 
   const systemPrompt =
-    "You are a travel behaviour analyst. Analyse trip and activity data to extract a persistent memory profile for a traveller. Respond ONLY with valid JSON. No markdown, no explanation outside the JSON object.";
+    "You are a travel behaviour analyst. " +
+    "Always respond with a single valid JSON object only. No markdown, no prose.";
 
-  const userPrompt = `Analyse this traveller's complete trip history and extract a persistent memory profile.
+  const userPrompt = `Analyse this traveller's trip history and build a memory profile.
 
-Traveller name: ${(profile as Record<string, unknown>)?.name ?? "Unknown"}
+Traveller: ${(profile as Record<string, unknown>)?.name ?? "Unknown"}
 
-## Trips (${trips.length} total):
+Trips (${trips.length}):
 ${tripSummary}
 
-## Activities (${allActivities.length} total, showing up to 60):
-${activitySummary || "No activities recorded yet"}
+Activities (${allActivities.length}):
+${activitySummary}
 
-## Existing Preferences (to merge with, not overwrite):
-${existingPrefs}
+Existing preferences (merge, do not erase): ${existingPrefs}
+Existing personality (merge, do not erase): ${existingPersonality}
 
-## Existing Travel Personality (to merge with, not overwrite):
-${existingPersonality}
-
-Instructions:
-1. Analyse spending patterns, preferred destinations, activity categories, and pace
-2. Identify personality traits from the data (adventurous, budget-conscious, foodie, etc.)
-3. Merge with existing preferences — do not erase existing valid data
-4. Generate actionable insights the AI travel assistant can use to personalise plans
-
-Return EXACTLY this JSON structure:
+Return JSON:
 {
   "preferences": {
-    "favorite_categories": ["food", "attraction", "shopping"],
-    "avg_daily_budget": 5000,
-    "preferred_pace": "moderate",
-    "cuisine_preferences": ["street food", "local cuisine"],
-    "accommodation_style": "mid-range",
-    "transport_preference": "mixed",
-    "preferred_destinations": ["city names from history"],
-    "time_preference": "morning",
-    "group_size_preference": "solo"
+    "favorite_categories": [string],
+    "avg_daily_budget": number,
+    "preferred_pace": "slow" | "moderate" | "fast",
+    "cuisine_preferences": [string],
+    "accommodation_style": string,
+    "transport_preference": string,
+    "preferred_destinations": [string],
+    "time_preference": string,
+    "group_size_preference": string
   },
   "travel_personality": {
-    "type": "Explorer",
-    "risk_tolerance": "medium",
-    "planning_style": "semi-planned",
-    "social_preference": "small_groups",
-    "description": "A concise one-sentence personality summary"
+    "type": string,
+    "risk_tolerance": "low" | "medium" | "high",
+    "planning_style": string,
+    "social_preference": string,
+    "description": string
   },
   "travel_history": [
     {
-      "destination": "City name",
-      "country": "Country",
-      "trips_count": 1,
-      "total_spent": 15000,
-      "favorite_activity": "Most visited activity name"
+      "destination": string,
+      "country": string,
+      "trips_count": number,
+      "total_spent": number,
+      "favorite_activity": string
     }
   ],
-  "insights": [
-    "You tend to prefer street food over fine dining",
-    "Your average trip lasts 3–4 days",
-    "You favour morning activities and early starts"
-  ]
+  "insights": [string]
 }`;
 
   try {
-    const raw = await callGemini(systemPrompt, userPrompt, 0.3, 2048);
+    const raw = await callGemini(systemPrompt, userPrompt, 0.3, 2048, true);
     const memory = extractJSON(raw) as TravelMemory & { insights?: string[] };
 
-    // Update the profile with learned memory
     const { error: updateError } = await supabase
       .from("profiles")
       .update({
@@ -238,9 +211,8 @@ Return EXACTLY this JSON structure:
       })
       .eq("id", userId);
 
-    if (updateError) {
+    if (updateError)
       throw new Error("Failed to save travel memory: " + updateError.message);
-    }
 
     return {
       success: true,
@@ -255,14 +227,15 @@ Return EXACTLY this JSON structure:
 
 // ── clear-memory ──────────────────────────────────────────────────────────────
 
-export async function clearMemory(): Promise<{ success: boolean; message: string }> {
+export async function clearMemory(): Promise<{
+  success: boolean;
+  message: string;
+}> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
 
-  if (!session?.user) {
-    throw new Error("Authentication required");
-  }
+  if (!session?.user) throw new Error("Authentication required");
 
   const { error } = await supabase
     .from("profiles")
@@ -273,9 +246,7 @@ export async function clearMemory(): Promise<{ success: boolean; message: string
     })
     .eq("id", session.user.id);
 
-  if (error) {
-    throw new Error("Failed to clear memory: " + error.message);
-  }
+  if (error) throw new Error("Failed to clear memory: " + error.message);
 
   return { success: true, message: "Travel memory cleared." };
 }
@@ -293,17 +264,13 @@ export async function updateMemory(params: {
     data: { session },
   } = await supabase.auth.getSession();
 
-  if (!session?.user) {
-    throw new Error("Authentication required");
-  }
+  if (!session?.user) throw new Error("Authentication required");
 
-  if (!preferences && !travel_personality && !travel_history) {
+  if (!preferences && !travel_personality && !travel_history)
     throw new Error(
       "At least one of preferences, travel_personality, or travel_history must be provided",
     );
-  }
 
-  // Fetch existing values to merge
   const { data: existing } = await supabase
     .from("profiles")
     .select("preferences, travel_personality, travel_history")
@@ -339,14 +306,12 @@ export async function updateMemory(params: {
     .update(merged)
     .eq("id", session.user.id);
 
-  if (error) {
-    throw new Error("Failed to update memory: " + error.message);
-  }
+  if (error) throw new Error("Failed to update memory: " + error.message);
 
   return { success: true, updated };
 }
 
-// ── Unified action-based dispatcher (mirrors the edge-function interface) ─────
+// ── Unified dispatcher ────────────────────────────────────────────────────────
 
 export async function travelMemory(body: {
   action: string;
@@ -359,16 +324,12 @@ export async function travelMemory(body: {
   switch (action) {
     case "get-memory":
       return getMemory();
-
     case "learn":
       return learnMemory();
-
     case "clear-memory":
       return clearMemory();
-
     case "update-memory":
       return updateMemory(params as Parameters<typeof updateMemory>[0]);
-
     default:
       throw new Error(
         `Unknown action: "${action}". Supported: get-memory, learn, clear-memory, update-memory`,

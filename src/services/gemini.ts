@@ -31,14 +31,15 @@ interface OAIMessage {
 // ── Core non-streaming caller ────────────────────────────────────────────────
 
 /**
- * Call Groq generateContent (non-streaming).
- * Returns the raw text content from the first choice.
+ * Call Groq (non-streaming).
+ * Set jsonMode=true to force JSON output via response_format.
  */
 export async function callGemini(
   systemInstruction: string,
   userPrompt: string,
   temperature = 0.7,
-  maxOutputTokens = 2048,
+  maxOutputTokens = 8192,
+  jsonMode = false,
 ): Promise<string> {
   if (!GROQ_API_KEY) {
     throw new Error("VITE_GROQ_API_KEY is not configured");
@@ -49,19 +50,25 @@ export async function callGemini(
     { role: "user", content: userPrompt },
   ];
 
+  const body: Record<string, unknown> = {
+    model: GROQ_MODEL,
+    messages,
+    temperature,
+    max_tokens: maxOutputTokens,
+    stream: false,
+  };
+
+  if (jsonMode) {
+    body.response_format = { type: "json_object" };
+  }
+
   const res = await fetch(`${GROQ_BASE}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${GROQ_API_KEY}`,
     },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages,
-      temperature,
-      max_tokens: maxOutputTokens,
-      stream: false,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -85,7 +92,8 @@ export async function callGeminiChat(
   systemInstruction: string,
   messages: Array<{ role: "user" | "model"; content: string }>,
   temperature = 0.7,
-  maxOutputTokens = 1024,
+  maxOutputTokens = 2048,
+  jsonMode = false,
 ): Promise<string> {
   if (!GROQ_API_KEY) {
     throw new Error("VITE_GROQ_API_KEY is not configured");
@@ -99,19 +107,25 @@ export async function callGeminiChat(
     })),
   ];
 
+  const body: Record<string, unknown> = {
+    model: GROQ_MODEL,
+    messages: oaiMessages,
+    temperature,
+    max_tokens: maxOutputTokens,
+    stream: false,
+  };
+
+  if (jsonMode) {
+    body.response_format = { type: "json_object" };
+  }
+
   const res = await fetch(`${GROQ_BASE}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${GROQ_API_KEY}`,
     },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages: oaiMessages,
-      temperature,
-      max_tokens: maxOutputTokens,
-      stream: false,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -134,7 +148,7 @@ export async function streamGemini(
   messages: Array<{ role: "user" | "model"; content: string }>,
   onChunk: (chunk: string) => void,
   temperature = 0.7,
-  maxOutputTokens = 1024,
+  maxOutputTokens = 2048,
 ): Promise<string> {
   if (!GROQ_API_KEY) {
     throw new Error("VITE_GROQ_API_KEY is not configured");
@@ -213,6 +227,26 @@ export async function streamGemini(
         }
       } catch {
         // malformed chunk — skip
+      }
+    }
+  }
+
+  // Flush remaining buffer
+  if (buffer.trim()) {
+    const remaining = buffer.trim();
+    if (remaining.startsWith("data: ")) {
+      const jsonStr = remaining.slice(6).trim();
+      if (jsonStr && jsonStr !== "[DONE]") {
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const chunk = parsed.choices?.[0]?.delta?.content ?? "";
+          if (chunk) {
+            fullText += chunk;
+            onChunk(chunk);
+          }
+        } catch {
+          // ignore
+        }
       }
     }
   }
