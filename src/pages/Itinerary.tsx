@@ -20,6 +20,8 @@ import {
   Map as MapIcon,
   Download,
 } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { formatCurrency } from "@/lib/currency";
 import {
   useTrip,
@@ -388,42 +390,221 @@ export default function Itinerary() {
             <button
               onClick={() => {
                 // Download itinerary as text file
-                const lines: string[] = [];
-                lines.push(`${trip.name}`);
-                lines.push(
-                  `${trip.destination}${trip.country ? `, ${trip.country}` : ""}`,
+                // ── Beautiful PDF export ──────────────────────────
+                const doc = new jsPDF({
+                  orientation: "portrait",
+                  unit: "mm",
+                  format: "a4",
+                });
+                const pageW = doc.internal.pageSize.getWidth();
+                const pageH = doc.internal.pageSize.getHeight();
+                const margin = 14;
+
+                // ── Gradient-style header banner ──────────────────
+                doc.setFillColor(79, 70, 229); // indigo-600
+                doc.rect(0, 0, pageW, 38, "F");
+
+                // Decorative circle accents
+                doc.setFillColor(99, 102, 241);
+                doc.circle(pageW - 20, 8, 22, "F");
+                doc.setFillColor(67, 56, 202);
+                doc.circle(pageW - 10, 30, 14, "F");
+
+                // Trip name
+                doc.setTextColor(255, 255, 255);
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(20);
+                doc.text(trip.name, margin, 16);
+
+                // Destination & dates
+                doc.setFont("helvetica", "normal");
+                doc.setFontSize(10);
+                doc.text(
+                  `${trip.destination}${trip.country ? `, ${trip.country}` : ""}  •  ${new Date(trip.start_date).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" })} — ${new Date(trip.end_date).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" })}`,
+                  margin,
+                  25,
                 );
-                lines.push(
+
+                // Budget pill
+                doc.setFillColor(255, 255, 255, 30);
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(9);
+                doc.setTextColor(220, 220, 255);
+                doc.text(
                   `Budget: ${formatCurrency(Number(trip.budget_total), trip.country)}`,
+                  margin,
+                  33,
                 );
-                lines.push(
-                  `${new Date(trip.start_date).toLocaleDateString()} — ${new Date(trip.end_date).toLocaleDateString()}`,
-                );
-                lines.push("");
-                Object.entries(activityDays).forEach(([day, acts]) => {
-                  lines.push(`--- ${day} ---`);
-                  (acts as any[]).forEach((a) => {
-                    const time = new Date(a.start_time).toLocaleTimeString(
-                      "en-IN",
-                      { hour: "2-digit", minute: "2-digit" },
-                    );
-                    lines.push(
-                      `  ${time} | ${a.name}${a.location_name ? ` @ ${a.location_name}` : ""}${a.cost ? ` | ${formatCurrency(Number(a.cost), trip.country)}` : ""}`,
-                    );
-                    if (a.notes) lines.push(`         💡 ${a.notes}`);
+
+                let yPos = 50;
+
+                // ── Summary stats row ─────────────────────────────
+                const statBoxW = (pageW - margin * 2 - 6) / 3;
+                const stats = [
+                  {
+                    label: "Total Budget",
+                    value: formatCurrency(
+                      Number(trip.budget_total),
+                      trip.country,
+                    ),
+                  },
+                  {
+                    label: "Duration",
+                    value: `${Object.keys(activityDays).length} day${Object.keys(activityDays).length !== 1 ? "s" : ""}`,
+                  },
+                  {
+                    label: "Activities",
+                    value: `${activities.length} planned`,
+                  },
+                ];
+                stats.forEach((stat, i) => {
+                  const bx = margin + i * (statBoxW + 3);
+                  doc.setFillColor(244, 244, 255);
+                  doc.roundedRect(bx, yPos, statBoxW, 18, 3, 3, "F");
+                  doc.setFont("helvetica", "bold");
+                  doc.setFontSize(11);
+                  doc.setTextColor(79, 70, 229);
+                  doc.text(stat.value, bx + statBoxW / 2, yPos + 8, {
+                    align: "center",
                   });
-                  lines.push("");
+                  doc.setFont("helvetica", "normal");
+                  doc.setFontSize(7.5);
+                  doc.setTextColor(120, 120, 150);
+                  doc.text(stat.label, bx + statBoxW / 2, yPos + 14, {
+                    align: "center",
+                  });
                 });
-                const blob = new Blob([lines.join("\n")], {
-                  type: "text/plain",
+
+                yPos += 26;
+
+                // ── Per-day itinerary ─────────────────────────────
+                Object.entries(activityDays).forEach(([day, acts], dayIdx) => {
+                  // Day header
+                  if (yPos > pageH - 40) {
+                    doc.addPage();
+                    yPos = 20;
+                  }
+
+                  doc.setFillColor(79, 70, 229);
+                  doc.roundedRect(
+                    margin,
+                    yPos,
+                    pageW - margin * 2,
+                    9,
+                    2,
+                    2,
+                    "F",
+                  );
+                  doc.setFont("helvetica", "bold");
+                  doc.setFontSize(9);
+                  doc.setTextColor(255, 255, 255);
+                  doc.text(
+                    `Day ${dayIdx + 1}  —  ${day}`,
+                    margin + 4,
+                    yPos + 6,
+                  );
+                  yPos += 13;
+
+                  // Activities table for this day
+                  const tableRows = (acts as any[]).map((a) => {
+                    const timeStr = new Date(a.start_time).toLocaleTimeString(
+                      [],
+                      {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      },
+                    );
+                    const endStr = new Date(a.end_time).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    });
+                    return [
+                      `${timeStr} – ${endStr}`,
+                      a.name || "",
+                      a.location_name || "—",
+                      a.category
+                        ? a.category.charAt(0).toUpperCase() +
+                          a.category.slice(1)
+                        : "—",
+                      a.cost && Number(a.cost) > 0
+                        ? formatCurrency(Number(a.cost), trip.country)
+                        : "Free",
+                      a.notes || "",
+                    ];
+                  });
+
+                  autoTable(doc, {
+                    startY: yPos,
+                    head: [
+                      [
+                        "Time",
+                        "Activity",
+                        "Location",
+                        "Category",
+                        "Cost",
+                        "Notes",
+                      ],
+                    ],
+                    body: tableRows,
+                    margin: { left: margin, right: margin },
+                    theme: "grid",
+                    headStyles: {
+                      fillColor: [99, 102, 241],
+                      textColor: 255,
+                      fontStyle: "bold",
+                      fontSize: 8,
+                    },
+                    bodyStyles: {
+                      fontSize: 8,
+                      textColor: [30, 30, 60],
+                    },
+                    alternateRowStyles: {
+                      fillColor: [245, 245, 255],
+                    },
+                    columnStyles: {
+                      0: { cellWidth: 28 },
+                      1: { cellWidth: 45, fontStyle: "bold" },
+                      2: { cellWidth: 35 },
+                      3: { cellWidth: 22 },
+                      4: { cellWidth: 22 },
+                      5: { cellWidth: "auto" },
+                    },
+                    didDrawPage: (hookData) => {
+                      // Footer on each page
+                      const pCount = doc.getNumberOfPages();
+                      doc.setFont("helvetica", "normal");
+                      doc.setFontSize(7);
+                      doc.setTextColor(160, 160, 180);
+                      doc.text(
+                        `Radiator Routes  •  ${trip.name}  •  Page ${hookData.pageNumber} of ${pCount}`,
+                        pageW / 2,
+                        pageH - 6,
+                        { align: "center" },
+                      );
+                    },
+                  });
+
+                  yPos = (doc as any).lastAutoTable.finalY + 8;
                 });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `${trip.name.replace(/\s+/g, "_")}_itinerary.txt`;
-                a.click();
-                URL.revokeObjectURL(url);
-                toast({ title: "Itinerary downloaded! 📥" });
+
+                // ── Footer note ───────────────────────────────────
+                if (yPos < pageH - 20) {
+                  doc.setFont("helvetica", "italic");
+                  doc.setFontSize(7.5);
+                  doc.setTextColor(150, 150, 180);
+                  doc.text(
+                    `Generated by Radiator Routes on ${new Date().toLocaleDateString("en-US", { dateStyle: "long" })}`,
+                    pageW / 2,
+                    yPos + 6,
+                    { align: "center" },
+                  );
+                }
+
+                doc.save(`${trip.name.replace(/\s+/g, "_")}_itinerary.pdf`);
+                toast({
+                  title: "PDF downloaded! 📄",
+                  description: "Your itinerary has been saved as a PDF.",
+                });
               }}
               disabled={activities.length === 0}
               className="px-4 py-2 rounded-xl bg-card border border-border text-sm font-medium text-muted-foreground hover:bg-secondary transition-colors shadow-card flex items-center gap-2 disabled:opacity-50"
@@ -602,6 +783,7 @@ export default function Itinerary() {
         <RegretPlanner
           tripId={tripId!}
           destination={trip.destination}
+          country={trip.country ?? undefined}
           days={Math.max(
             1,
             Math.ceil(

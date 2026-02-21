@@ -14,13 +14,13 @@ import {
   ChevronUp,
   MapPin,
   Clock,
-  IndianRupee,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useQueryClient } from "@tanstack/react-query";
 import { regretCounterfactual } from "@/services/aiPlanner";
+import { formatCurrency } from "@/lib/currency";
 
 type Activity = {
   name: string;
@@ -111,6 +111,7 @@ interface RegretPlannerProps {
   destination: string;
   days: number;
   budget: number;
+  country?: string;
   activeItineraryId?: string;
   onPlanApplied: () => void;
 }
@@ -120,6 +121,7 @@ export default function RegretPlanner({
   destination,
   days,
   budget,
+  country,
   activeItineraryId,
   onPlanApplied,
 }: RegretPlannerProps) {
@@ -166,7 +168,9 @@ export default function RegretPlanner({
     setApplying(true);
     try {
       let itineraryId = activeItineraryId;
+
       if (!itineraryId) {
+        // Create a new itinerary for this trip
         const { data: newIt, error: itErr } = await supabase
           .from("itineraries")
           .insert({
@@ -175,32 +179,42 @@ export default function RegretPlanner({
             version: 1,
             variant_id: plan.variant,
           })
-          .select()
+          .select("id")
           .single();
         if (itErr) throw itErr;
         itineraryId = newIt.id;
+      } else {
+        // Update existing itinerary's variant
+        await supabase
+          .from("itineraries")
+          .update({ variant_id: plan.variant })
+          .eq("id", itineraryId);
       }
 
-      // Clear old activities
-      await supabase
+      if (!itineraryId) throw new Error("Could not create or find itinerary.");
+
+      // Clear old activities on this itinerary
+      const { error: delErr } = await supabase
         .from("activities")
         .delete()
         .eq("itinerary_id", itineraryId);
+      if (delErr) throw delErr;
 
       // Insert plan activities
       const activitiesToInsert = plan.activities.map((a) => ({
-        itinerary_id: itineraryId!,
+        itinerary_id: itineraryId as string,
         name: a.name,
-        description: a.description,
-        location_name: a.location_name,
+        description: a.description ?? null,
+        location_name: a.location_name ?? null,
         start_time: a.start_time,
         end_time: a.end_time,
-        category: a.category,
-        cost: a.cost,
-        estimated_steps: a.estimated_steps,
-        review_score: a.review_score,
-        priority: a.priority,
-        notes: a.notes,
+        category: a.category ?? "attraction",
+        cost: a.cost ?? 0,
+        estimated_steps: a.estimated_steps ?? null,
+        review_score: a.review_score ?? null,
+        priority: a.priority ?? null,
+        notes: a.notes ?? null,
+        status: "pending",
       }));
 
       if (activitiesToInsert.length > 0) {
@@ -211,20 +225,24 @@ export default function RegretPlanner({
       }
 
       // Update itinerary metadata
-      await supabase
+      const { error: updErr } = await supabase
         .from("itineraries")
         .update({
-          cost_breakdown: { total: plan.total_cost, variant: plan.variant },
+          cost_breakdown: {
+            total: plan.total_cost,
+            variant: plan.variant,
+          } as any,
           regret_score: plan.regret_score,
           variant_id: plan.variant,
         })
         .eq("id", itineraryId);
+      if (updErr) throw updErr;
 
       queryClient.invalidateQueries({ queryKey: ["itineraries", tripId] });
       queryClient.invalidateQueries({ queryKey: ["activities"] });
       toast({
         title: `${plan.label} plan applied! ✅`,
-        description: `${activitiesToInsert.length} activities saved.`,
+        description: `${activitiesToInsert.length} activities saved to your itinerary.`,
       });
       onPlanApplied();
     } catch (error: any) {
@@ -332,7 +350,7 @@ export default function RegretPlanner({
                   {plan.tagline}
                 </p>
                 <p className={`text-lg font-bold mt-1 ${config.color}`}>
-                  ₹{plan.total_cost.toLocaleString("en-IN")}
+                  {formatCurrency(plan.total_cost, country)}
                 </p>
               </button>
             );
@@ -478,8 +496,7 @@ export default function RegretPlanner({
                         </span>
                         {a.cost > 0 && (
                           <span className="flex items-center gap-0.5">
-                            <IndianRupee className="w-2.5 h-2.5" />
-                            {a.cost.toLocaleString("en-IN")}
+                            {formatCurrency(a.cost, country)}
                           </span>
                         )}
                         {a.review_score && (
