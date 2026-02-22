@@ -1,4 +1,5 @@
 @import url("https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap");
+@import "leaflet/dist/leaflet.css";
 
 @tailwind base;
 @tailwind components;
@@ -157,6 +158,27 @@
 
 .animate-slide-up {
     animation: slide-up 0.35s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+/* Bottom-sheet slide-in alias (used by LanguageSwitcher & LiveLocationPanel mobile sheets) */
+.animate-slide-in-from-bottom {
+    animation: slide-up 0.32s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+/* Slide in from left (mobile sidebar drawer) */
+@keyframes slide-in-left {
+    from {
+        transform: translateX(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.animate-slide-in-left {
+    animation: slide-in-left 0.28s cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }
 
 /* Mobile safe-area helpers */

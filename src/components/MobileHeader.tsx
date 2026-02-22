@@ -2,15 +2,16 @@ import { useState } from "react";
 import { Menu, AlertTriangle, Bell, X } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import LanguageSwitcher from "./LanguageSwitcher";
+import { useLanguage } from "@/hooks/useLanguage";
 
-const PAGE_TITLES: Record<string, string> = {
-  "/dashboard": "Dashboard",
-  "/itinerary": "My Itinerary",
-  "/explore": "Explore",
-  "/guide": "Guide",
-  "/friends": "Friends",
-  "/community": "Community",
-  "/profile": "Profile",
+const PAGE_TITLE_KEYS: Record<string, string> = {
+  "/dashboard": "dashboard",
+  "/itinerary": "myTrips",
+  "/explore": "explore",
+  "/guide": "guide",
+  "/friends": "friends",
+  "/community": "community",
+  "/profile": "profile",
 };
 
 interface MobileHeaderProps {
@@ -24,11 +25,13 @@ export default function MobileHeader({
 }: MobileHeaderProps) {
   const location = useLocation();
   const [notifOpen, setNotifOpen] = useState(false);
+  const { t } = useLanguage();
 
   const getTitle = () => {
-    // Match /itinerary/:id
-    if (location.pathname.startsWith("/itinerary/")) return "Itinerary";
-    return PAGE_TITLES[location.pathname] ?? "Radiator Routes";
+    if (location.pathname.startsWith("/itinerary/")) return t("myTrips");
+    const key = PAGE_TITLE_KEYS[location.pathname];
+    if (key) return t(key as any);
+    return "Radiator Routes";
   };
 
   return (
@@ -37,44 +40,52 @@ export default function MobileHeader({
         className="md:hidden fixed top-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-xl border-b border-border"
         style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
       >
-        <div className="flex items-center justify-between px-4 h-14">
+        <div className="flex items-center justify-between px-3 h-14 gap-2">
           {/* Left: hamburger */}
           <button
             onClick={onMenuOpen}
-            className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-secondary transition-colors"
+            className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-secondary transition-colors shrink-0"
             aria-label="Open menu"
           >
             <Menu className="w-5 h-5 text-card-foreground" />
           </button>
 
-          {/* Center: logo + title */}
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
+          {/* Center: logo + page title */}
+          <div className="flex items-center gap-2 flex-1 min-w-0 justify-center">
+            <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
               <span className="text-white font-black text-[10px]">RR</span>
             </div>
-            <span className="font-bold text-card-foreground text-sm">
+            <span className="font-bold text-card-foreground text-sm truncate">
               {getTitle()}
             </span>
           </div>
 
-          {/* Right: Language + notif + SOS */}
-          <div className="flex items-center gap-1.5">
-            <LanguageSwitcher compact />
+          {/* Right: Language switcher + notification + SOS */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Language switcher – full pill with flag + short name */}
+            <LanguageSwitcher compact={false} />
+
+            {/* Notification bell */}
             <button
               onClick={() => setNotifOpen((v) => !v)}
-              className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-secondary transition-colors relative"
+              className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-secondary transition-colors relative shrink-0"
               aria-label="Notifications"
             >
-              <Bell className="w-4.5 h-4.5 text-card-foreground" />
+              <Bell
+                className="w-4.5 h-4.5 text-card-foreground"
+                style={{ width: "1.1rem", height: "1.1rem" }}
+              />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-primary" />
             </button>
+
+            {/* SOS */}
             <button
               onClick={onSOSOpen}
-              className="h-9 px-3 rounded-xl bg-red-600 text-white text-[11px] font-black tracking-widest flex items-center gap-1 hover:bg-red-700 active:scale-95 transition-all"
+              className="h-9 px-2.5 rounded-xl bg-red-600 text-white text-[11px] font-black tracking-widest flex items-center gap-1 hover:bg-red-700 active:scale-95 transition-all shrink-0"
               aria-label="SOS Emergency"
             >
               <AlertTriangle className="w-3.5 h-3.5" />
-              SOS
+              <span className="hidden xs:inline">SOS</span>
             </button>
           </div>
         </div>
@@ -92,7 +103,7 @@ export default function MobileHeader({
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               <span className="text-sm font-semibold text-card-foreground">
-                Notifications
+                {t("notifications" as any) || "Notifications"}
               </span>
               <button
                 onClick={() => setNotifOpen(false)}

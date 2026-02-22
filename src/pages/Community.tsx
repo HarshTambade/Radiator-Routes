@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useLanguage } from "@/hooks/useLanguage";
 import {
   Plus,
   Users,
@@ -27,6 +28,7 @@ const CATEGORIES = [
 ];
 
 export default function Community() {
+  const { t } = useLanguage();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -152,7 +154,7 @@ export default function Community() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 md:mb-6">
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-foreground">
-            Community
+            {t("community")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Join travel communities and plan together
@@ -163,7 +165,7 @@ export default function Community() {
           className="px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 flex items-center gap-2 self-start sm:self-auto"
         >
           <Plus className="w-4 h-4" />
-          Create Community
+          {t("create")} Community
         </button>
       </div>
 
@@ -179,7 +181,7 @@ export default function Community() {
           >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-card-foreground">
-                Create Community
+                {t("create")} Community
               </h3>
               <button
                 onClick={() => setShowCreate(false)}
@@ -242,7 +244,7 @@ export default function Community() {
                 ) : (
                   <Plus className="w-4 h-4" />
                 )}
-                Create
+                {t("create")}
               </button>
             </div>
           </div>
@@ -257,7 +259,7 @@ export default function Community() {
       ) : communities.length === 0 ? (
         <div className="text-center py-20">
           <Users className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-          <h3 className="font-semibold text-foreground">No communities yet</h3>
+          <h3 className="font-semibold text-foreground">{t("noResults")}</h3>
           <p className="text-sm text-muted-foreground mt-1">
             Be the first to create one!
           </p>
@@ -295,13 +297,13 @@ export default function Community() {
                     }}
                     className="flex-1 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90"
                   >
-                    Open
+                    {t("open")}
                   </button>
                   <button
                     onClick={() => handleLeave(c.id)}
                     className="px-4 py-2 rounded-xl bg-secondary text-secondary-foreground text-sm font-medium hover:bg-secondary/80"
                   >
-                    Leave
+                    {t("leave")}
                   </button>
                 </div>
               ) : (
@@ -309,7 +311,7 @@ export default function Community() {
                   onClick={() => handleJoin(c.id)}
                   className="w-full px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90"
                 >
-                  Join Community
+                  {t("join")} Community
                 </button>
               )}
             </div>

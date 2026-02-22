@@ -8,6 +8,7 @@ import MobileHeader from "./MobileHeader";
 import PWAInstallPrompt from "./PWAInstallPrompt";
 import SOSPanel from "./SOSPanel";
 import AccessibilityPanel from "./AccessibilityPanel";
+import LanguageSwitcher from "./LanguageSwitcher";
 import { AlertTriangle, Accessibility, X } from "lucide-react";
 
 export function ProtectedLayout() {
@@ -80,13 +81,16 @@ export function ProtectedLayout() {
                   Radiator Routes
                 </span>
               </div>
-              <button
-                onClick={() => setMobileSidebarOpen(false)}
-                className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center hover:bg-secondary/80 transition-colors"
-                aria-label="Close menu"
-              >
-                <X className="w-4 h-4 text-muted-foreground" />
-              </button>
+              <div className="flex items-center gap-2">
+                <LanguageSwitcher compact={false} />
+                <button
+                  onClick={() => setMobileSidebarOpen(false)}
+                  className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center hover:bg-secondary/80 transition-colors"
+                  aria-label="Close menu"
+                >
+                  <X className="w-4 h-4 text-muted-foreground" />
+                </button>
+              </div>
             </div>
             <AppSidebar
               onSOSOpen={() => {

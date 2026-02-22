@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useLanguage } from "@/hooks/useLanguage";
 import { planItinerary } from "@/services/aiPlanner";
 import AddToTripButton from "@/components/AddToTripButton";
 
@@ -30,6 +31,7 @@ const guideImages = [
 ];
 
 export default function Guide() {
+  const { t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState("");
   const [guides, setGuides] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -85,7 +87,7 @@ export default function Guide() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 md:mb-6">
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-foreground">
-            AI Travel Guide
+            {t("guide")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Get AI-curated travel recommendations for any destination
@@ -192,7 +194,7 @@ export default function Guide() {
         <div className="text-center py-20">
           <Bookmark className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
           <h3 className="font-semibold text-foreground text-lg">
-            Search for AI travel guides
+            {t("search")} {t("guide")}
           </h3>
           <p className="text-sm text-muted-foreground mt-1">
             Our AI will create personalized travel recommendations
@@ -201,9 +203,7 @@ export default function Guide() {
       ) : loading ? (
         <div className="flex flex-col items-center justify-center py-20 gap-3">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
-          <p className="text-sm text-muted-foreground">
-            AI is generating your travel guide...
-          </p>
+          <p className="text-sm text-muted-foreground">{t("loading")}</p>
         </div>
       ) : guides.length === 0 ? (
         <div className="text-center py-20">

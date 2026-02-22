@@ -19,6 +19,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useTrips } from "@/hooks/useTrips";
 import { useLanguage } from "@/hooks/useLanguage";
+import LanguageSwitcher from "./LanguageSwitcher";
 
 const NAV_ITEMS = [
   { key: "dashboard" as const, url: "/dashboard", icon: LayoutDashboard },
@@ -227,6 +228,20 @@ export function AppSidebar({
 
       {/* ── Bottom Actions (fixed, never overflows) ── */}
       <div className="shrink-0 px-3 pb-4 pt-2 border-t border-border space-y-0.5">
+        {/* Language Switcher */}
+        {!effectiveCollapsed ? (
+          <div className="px-1 py-2 border-b border-border mb-1">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-1.5 mb-1.5">
+              {t("language")}
+            </p>
+            <LanguageSwitcher />
+          </div>
+        ) : (
+          <div className="flex justify-center py-1 border-b border-border mb-1">
+            <LanguageSwitcher compact />
+          </div>
+        )}
+
         {/* SOS */}
         <button
           onClick={onSOSOpen}

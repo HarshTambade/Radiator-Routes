@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useLanguage } from "@/hooks/useLanguage";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
@@ -100,6 +101,7 @@ export default function Itinerary() {
   const { tripId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { t } = useLanguage();
   const { data: trips = [] } = useTrips();
   const { data: trip } = useTrip(tripId);
   const { data: itineraries = [] } = useItineraries(tripId);
@@ -569,11 +571,11 @@ export default function Itinerary() {
         <div className="text-center py-20">
           <MapPin className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-foreground mb-2">
-            {trips.length === 0 ? "No Trips Yet" : "Select a Trip"}
+            {trips.length === 0 ? t("noResults") : t("myTrips")}
           </h1>
           <p className="text-muted-foreground mb-6">
             {trips.length === 0
-              ? "Create your first trip from the dashboard to get started."
+              ? t("createTrip") + " from the dashboard to get started."
               : "Choose a trip below or from the sidebar."}
           </p>
           {trips.length > 0 && (
@@ -946,7 +948,7 @@ export default function Itinerary() {
               ) : (
                 <Brain className="w-3.5 h-3.5 md:w-4 md:h-4" />
               )}
-              {activities.length > 0 ? "Regenerate" : "Generate AI Plan"}
+              {activities.length > 0 ? t("tryAgain") : t("createTrip")}
             </button>
           </div>
         </div>
@@ -955,19 +957,21 @@ export default function Itinerary() {
         <div className="bg-card rounded-2xl p-4 md:p-5 shadow-card mb-4 md:mb-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
             <div className="text-center">
-              <p className="text-xs text-muted-foreground">Destination</p>
+              <p className="text-xs text-muted-foreground">
+                {t("destinations")}
+              </p>
               <p className="text-sm font-bold text-card-foreground">
                 {trip.destination}
               </p>
             </div>
             <div className="text-center">
-              <p className="text-xs text-muted-foreground">Budget</p>
+              <p className="text-xs text-muted-foreground">{t("budget")}</p>
               <p className="text-sm font-bold text-card-foreground">
                 {formatCurrency(Number(trip.budget_total), trip.country)}
               </p>
             </div>
             <div className="text-center">
-              <p className="text-xs text-muted-foreground">Start</p>
+              <p className="text-xs text-muted-foreground">{t("upcoming")}</p>
               <p className="text-sm font-bold text-card-foreground">
                 {new Date(trip.start_date).toLocaleDateString("en-IN", {
                   day: "numeric",
@@ -976,7 +980,7 @@ export default function Itinerary() {
               </p>
             </div>
             <div className="text-center">
-              <p className="text-xs text-muted-foreground">End</p>
+              <p className="text-xs text-muted-foreground">{t("duration")}</p>
               <p className="text-sm font-bold text-card-foreground">
                 {new Date(trip.end_date).toLocaleDateString("en-IN", {
                   day: "numeric",

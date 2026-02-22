@@ -19,11 +19,13 @@ import { useTrips } from "@/hooks/useTrips";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/currency";
+import { useLanguage } from "@/hooks/useLanguage";
 
 export default function Profile() {
   const { user } = useAuth();
   const { data: trips = [] } = useTrips();
   const { toast } = useToast();
+  const { t } = useLanguage();
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -81,6 +83,9 @@ export default function Profile() {
     return (
       <div className="flex items-center justify-center h-full">
         <Loader2 className="w-6 h-6 text-primary animate-spin" />
+        <span className="ml-2 text-sm text-muted-foreground">
+          {t("loading")}
+        </span>
       </div>
     );
   }
@@ -109,7 +114,7 @@ export default function Profile() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">
-                  Name
+                  {t("profile")}
                 </label>
                 <input
                   value={editName}
@@ -144,7 +149,7 @@ export default function Profile() {
                 ) : (
                   <Save className="w-3.5 h-3.5" />
                 )}
-                Save
+                {t("save")}
               </button>
             </div>
           </div>
@@ -155,13 +160,13 @@ export default function Profile() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         {[
           {
-            label: "Trips",
+            label: t("trips"),
             value: trips.length,
             icon: MapPin,
             color: "text-primary",
           },
           {
-            label: "Destinations",
+            label: t("destinations"),
             value: destinations.size,
             icon: Globe,
             color: "text-success",
@@ -173,7 +178,7 @@ export default function Profile() {
             color: "text-warning",
           },
           {
-            label: "Budget",
+            label: t("budget"),
             value:
               totalBudget > 0
                 ? formatCurrency(totalBudget, trips[0]?.country)
@@ -245,7 +250,7 @@ export default function Profile() {
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            No preferences set yet. Create a trip to set them!
+            No preferences set yet. {t("createTrip")} to set them!
           </p>
         )}
       </div>
@@ -274,7 +279,7 @@ export default function Profile() {
       {/* Trip History */}
       <div className="bg-card rounded-2xl p-5 shadow-card">
         <h3 className="font-semibold text-card-foreground mb-3 md:mb-4 flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-primary" /> Trip History
+          <Calendar className="w-4 h-4 text-primary" /> {t("trips")} History
         </h3>
         {trips.length > 0 ? (
           <div className="space-y-3">
@@ -310,7 +315,9 @@ export default function Profile() {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No trips yet.</p>
+          <p className="text-sm text-muted-foreground">
+            {t("noResults")} — {t("createTrip")}!
+          </p>
         )}
       </div>
     </div>

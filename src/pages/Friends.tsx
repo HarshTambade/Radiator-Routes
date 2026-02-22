@@ -24,6 +24,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import CollaborativePlanner from "@/components/CollaborativePlanner";
+import { useLanguage } from "@/hooks/useLanguage";
 
 type Tab = "discover" | "friends" | "requests" | "invites" | "collaborate";
 
@@ -59,6 +60,7 @@ export default function Friends() {
   const { data: trips = [] } = useTrips();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { t } = useLanguage();
 
   const [activeTab, setActiveTab] = useState<Tab>("discover");
   const [collaborateTripId, setCollaborateTripId] = useState<string>("");
@@ -523,19 +525,19 @@ export default function Friends() {
     pendingReceived.length + joinRequests.length || undefined;
 
   const tabs: { id: Tab; label: string; badge?: number }[] = [
-    { id: "discover", label: "Discover People" },
+    { id: "discover", label: t("discover") + " People" },
     {
       id: "friends",
-      label: "My Friends",
+      label: t("friends"),
       badge: acceptedFriends.length || undefined,
     },
     {
       id: "requests",
-      label: "Requests",
+      label: t("requests"),
       badge: totalRequestBadge,
     },
-    { id: "invites", label: "Trip Invites" },
-    { id: "collaborate", label: "Collaborate" },
+    { id: "invites", label: t("invites") },
+    { id: "collaborate", label: t("collaborate") },
   ];
 
   // ── Collaborate tab state ─────────────────────────────────────────────────

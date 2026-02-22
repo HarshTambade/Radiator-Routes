@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from "react";
+import { useLanguage } from "@/hooks/useLanguage";
 import {
   Search,
   Star,
@@ -153,6 +154,7 @@ function getCategoryImageKeyword(kinds: string | undefined): string {
 type SearchCache = Record<string, any[]>;
 
 export default function Explore() {
+  const { t } = useLanguage();
   const [searchMode, setSearchMode] = useState<SearchMode>("places");
 
   // ── Places state ──────────────────────────────────────────────────────────
@@ -486,10 +488,10 @@ export default function Explore() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 md:mb-4">
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-foreground">
-            Explore
+            {t("explore")}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Discover places, search flights, hotels &amp; restaurants
+            {t("discover")} · {t("flights")} · {t("hotels")}
           </p>
         </div>
       </div>
@@ -498,12 +500,16 @@ export default function Explore() {
       <div className="flex gap-1 mb-4 bg-secondary/50 p-1 rounded-xl overflow-x-auto shrink-0">
         {(
           [
-            { id: "places" as SearchMode, label: "Places", icon: CompassIcon },
-            { id: "flights" as SearchMode, label: "Flights", icon: Plane },
-            { id: "hotels" as SearchMode, label: "Hotels", icon: Hotel },
+            {
+              id: "places" as SearchMode,
+              label: t("explore"),
+              icon: CompassIcon,
+            },
+            { id: "flights" as SearchMode, label: t("flights"), icon: Plane },
+            { id: "hotels" as SearchMode, label: t("hotels"), icon: Hotel },
             {
               id: "restaurants" as SearchMode,
-              label: "Restaurants",
+              label: t("discover") + " Food",
               icon: Utensils,
             },
           ] as const
@@ -547,7 +553,7 @@ export default function Explore() {
               {loading ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                "Search"
+                t("search")
               )}
             </button>
           </div>
