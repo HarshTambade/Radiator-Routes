@@ -57,7 +57,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import RegretPlanner from "@/components/RegretPlanner";
 import DisruptionReplanner from "@/components/DisruptionReplanner";
-import CollaborativePlanner from "@/components/CollaborativePlanner";
+
 import TripMoneyExpenses from "@/components/TripMoneyExpenses";
 import WorldMap from "@/components/WorldMap";
 import Map3D from "@/components/Map3D";
@@ -65,7 +65,6 @@ import SafetyWarnings from "@/components/SafetyWarnings";
 import ItineraryReasoningPanel, {
   type ItineraryReasoning,
 } from "@/components/ItineraryReasoning";
-import SOSPanel from "@/components/SOSPanel";
 import UPIPayment from "@/components/UPIPayment";
 import OfflineSaveButton from "@/components/OfflineSaveButton";
 import { useOnlineStatus } from "@/hooks/useOfflineTrip";
@@ -1258,12 +1257,6 @@ export default function Itinerary() {
           </div>
         )}
 
-        {/* Regret-Aware Counterfactual Planner */}
-        {/* Safety Warnings */}
-        {trip?.destination && (
-          <SafetyWarnings destination={trip.destination} autoFetch={false} />
-        )}
-
         {/* AI Itinerary Reasoning */}
         {itineraryReasoning && (
           <ItineraryReasoningPanel
@@ -1275,27 +1268,33 @@ export default function Itinerary() {
           />
         )}
 
-        <RegretPlanner
-          tripId={tripId!}
-          destination={trip.destination}
-          country={trip.country ?? undefined}
-          days={Math.max(
-            1,
-            Math.ceil(
-              (new Date(trip.end_date).getTime() -
-                new Date(trip.start_date).getTime()) /
-                86400000,
-            ),
+        {/* Safety Warnings + Regret-Aware Planner — side by side */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-2">
+          {trip?.destination && (
+            <SafetyWarnings destination={trip.destination} autoFetch={false} />
           )}
-          budget={Number(trip.budget_total) || 30000}
-          activeItineraryId={activeItinerary?.id}
-          onPlanApplied={() => {
-            queryClient.invalidateQueries({
-              queryKey: ["itineraries", tripId],
-            });
-            queryClient.invalidateQueries({ queryKey: ["activities"] });
-          }}
-        />
+          <RegretPlanner
+            tripId={tripId!}
+            destination={trip.destination}
+            country={trip.country ?? undefined}
+            days={Math.max(
+              1,
+              Math.ceil(
+                (new Date(trip.end_date).getTime() -
+                  new Date(trip.start_date).getTime()) /
+                  86400000,
+              ),
+            )}
+            budget={Number(trip.budget_total) || 30000}
+            activeItineraryId={activeItinerary?.id}
+            onPlanApplied={() => {
+              queryClient.invalidateQueries({
+                queryKey: ["itineraries", tripId],
+              });
+              queryClient.invalidateQueries({ queryKey: ["activities"] });
+            }}
+          />
+        </div>
 
         {/* Live Dynamic Replanning */}
         <DisruptionReplanner
@@ -1309,32 +1308,22 @@ export default function Itinerary() {
           }}
         />
 
-        {/* Collaborative Planning Space */}
-        <CollaborativePlanner
-          tripId={tripId!}
-          activities={activities as any}
-          onActivityUpdated={() => {
-            queryClient.invalidateQueries({ queryKey: ["activities"] });
-          }}
-        />
-
-        {/* Trip Money & Expense Split */}
-        <TripMoneyExpenses
-          activities={activities as any}
-          tripBudget={Number(trip.budget_total) || 0}
-          country={trip.country ?? undefined}
-          travelers={
-            Number((trip as any).travelers) ||
-            (tripMembers.length > 0 ? tripMembers.length + 1 : 1)
-          }
-          memberNames={tripMembers.length > 0 ? tripMembers : undefined}
-        />
-
-        {/* UPI P2P Payment */}
-        <UPIPayment />
-
-        {/* SOS & Emergency */}
-        <SOSPanel />
+        {/* Trip Money & Expense Split + UPI Payment — side by side */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-2">
+          <TripMoneyExpenses
+            activities={activities as any}
+            tripBudget={Number(trip.budget_total) || 0}
+            country={trip.country ?? undefined}
+            travelers={
+              Number((trip as any).travelers) ||
+              (tripMembers.length > 0 ? tripMembers.length + 1 : 1)
+            }
+            memberNames={tripMembers.length > 0 ? tripMembers : undefined}
+          />
+          <UPIPayment
+            memberNames={tripMembers.length > 0 ? tripMembers : undefined}
+          />
+        </div>
 
         {activities.length === 0 ? (
           <div className="bg-card rounded-2xl p-8 text-center shadow-card">

@@ -997,10 +997,25 @@ export default function AIAssistant() {
     if (!open) window.speechSynthesis?.cancel();
   }, [open]);
 
-  // ── Draggable floating bot button ───────────────────────────────────────
+  // ── Listen for jinny-open event (from MobileNav button) ─────────────────
+  useEffect(() => {
+    const handler = () => {
+      setOpen(true);
+      speakJinny("At your service. I'm listening.");
+      setTimeout(() => {
+        if (!isListeningRef.current) {
+          window.dispatchEvent(new CustomEvent("jinny-start-voice"));
+        }
+      }, 600);
+    };
+    window.addEventListener("jinny-open", handler);
+    return () => window.removeEventListener("jinny-open", handler);
+  }, []);
+
+  // ── Draggable floating bot button (desktop only) ─────────────────────────
   const [pos, setPos] = useState({
-    x: window.innerWidth - 100,
-    y: window.innerHeight - 100,
+    x: typeof window !== "undefined" ? window.innerWidth - 110 : 200,
+    y: typeof window !== "undefined" ? window.innerHeight - 180 : 200,
   });
   const dragRef = useRef<{
     startX: number;
@@ -1053,9 +1068,12 @@ export default function AIAssistant() {
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <>
-      {/* Floating draggable bot – always visible when panel is closed */}
+      {/* Floating draggable bot – desktop only; mobile uses MobileNav Jinny button */}
       {!open && (
-        <div className="fixed z-50" style={{ left: pos.x, top: pos.y }}>
+        <div
+          className="hidden md:block fixed z-50"
+          style={{ left: pos.x, top: pos.y }}
+        >
           <img
             src={orangeBot}
             alt="Jinny - Your Travel Companion"
@@ -1076,11 +1094,16 @@ export default function AIAssistant() {
         </div>
       )}
 
-      {/* Chat panel */}
+      {/* Chat panel – full-screen on mobile, floating on desktop */}
       {open && (
-        <div className="fixed bottom-6 right-6 z-50 w-[400px] h-[600px] bg-card border border-border rounded-2xl shadow-elevated flex flex-col animate-fade-in overflow-hidden">
+        <div className="fixed inset-0 md:inset-auto md:bottom-6 md:right-6 z-[60] w-full h-full md:w-[400px] md:h-[600px] bg-card border-0 md:border border-border md:rounded-2xl shadow-elevated flex flex-col animate-fade-in overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-primary/5">
+          <div
+            className="flex items-center justify-between px-4 py-3 border-b border-border bg-primary/5"
+            style={{
+              paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)",
+            }}
+          >
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center">
                 <img
@@ -1219,7 +1242,12 @@ export default function AIAssistant() {
           </div>
 
           {/* Input bar */}
-          <div className="p-3 border-t border-border">
+          <div
+            className="p-3 border-t border-border"
+            style={{
+              paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)",
+            }}
+          >
             {isListening && (
               <div className="flex items-center gap-1.5 mb-2 px-1">
                 <span className="w-2 h-2 rounded-full bg-destructive animate-pulse" />

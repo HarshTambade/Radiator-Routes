@@ -16,14 +16,16 @@ import {
   Globe,
   UserCheck,
   ChevronLeft,
+  Users2,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { useTrips } from "@/hooks/useTrips";
+import { useTrips, useActivities, useItineraries } from "@/hooks/useTrips";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import CollaborativePlanner from "@/components/CollaborativePlanner";
 
-type Tab = "discover" | "friends" | "requests" | "invites";
+type Tab = "discover" | "friends" | "requests" | "invites" | "collaborate";
 
 interface Profile {
   id: string;
@@ -59,6 +61,7 @@ export default function Friends() {
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<Tab>("discover");
+  const [collaborateTripId, setCollaborateTripId] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [showInvite, setShowInvite] = useState(false);
   const [selectedTripId, setSelectedTripId] = useState("");
@@ -488,7 +491,21 @@ export default function Friends() {
       badge: totalRequestBadge,
     },
     { id: "invites", label: "Trip Invites" },
+    { id: "collaborate", label: "Collaborate" },
   ];
+
+  // ── Collaborate tab state ─────────────────────────────────────────────────
+  const effectiveCollabTripId = collaborateTripId || (trips[0]?.id ?? "");
+  const { data: collabItineraries = [] } = useItineraries(
+    effectiveCollabTripId || undefined,
+  );
+  const activeCollabItinerary =
+    (collabItineraries as any[]).find((it: any) => it.is_active) ??
+    (collabItineraries as any[])[0] ??
+    null;
+  const { data: collabActivities = [] } = useActivities(
+    activeCollabItinerary?.id,
+  );
 
   // ── Chat screen ────────────────────────────────────────────────────────────
   if (chatWithUser) {
@@ -1084,6 +1101,76 @@ export default function Friends() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── COLLABORATE TAB ── */}
+      {activeTab === "collaborate" && (
+        <div className="space-y-4">
+          {/* Trip selector */}
+          <div className="bg-card rounded-2xl p-4 shadow-card">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Users2 className="w-4 h-4 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-card-foreground">
+                  Collaborative Space
+                </h3>
+                <p className="text-[11px] text-muted-foreground">
+                  Vote, edit & manage trip activities with your group
+                </p>
+              </div>
+            </div>
+
+            {trips.length === 0 ? (
+              <div className="text-center py-8">
+                <Users2 className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">
+                  No trips yet. Create a trip first to collaborate.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <label className="text-[11px] text-muted-foreground mb-1.5 block">
+                  Select trip to collaborate on
+                </label>
+                <select
+                  value={effectiveCollabTripId}
+                  onChange={(e) => setCollaborateTripId(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                  {trips.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} — {t.destination}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* CollaborativePlanner */}
+          {effectiveCollabTripId && collabActivities.length > 0 ? (
+            <CollaborativePlanner
+              tripId={effectiveCollabTripId}
+              activities={collabActivities as any}
+              onActivityUpdated={() => {
+                queryClient.invalidateQueries({ queryKey: ["activities"] });
+              }}
+            />
+          ) : effectiveCollabTripId && collabActivities.length === 0 ? (
+            <div className="bg-card rounded-2xl p-8 text-center shadow-card">
+              <Users2 className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+              <p className="font-semibold text-foreground text-sm">
+                No activities yet
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Generate an AI itinerary for this trip first, then come back to
+                collaborate with your group.
+              </p>
+            </div>
+          ) : null}
         </div>
       )}
 

@@ -1,354 +1,162 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Wallet,
-  ArrowRight,
-  ArrowLeftRight,
+  Plus,
+  Trash2,
   ChevronDown,
   ChevronUp,
-  CheckCircle2,
-  Copy,
-  ExternalLink,
-  Smartphone,
   User,
   IndianRupee,
+  CheckCircle2,
   Info,
-  RefreshCw,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-// ── UPI App definitions ───────────────────────────────────────────────────────
-
-interface UPIApp {
+interface Payee {
   id: string;
   name: string;
-  emoji: string;
-  color: string;
-  scheme: string; // deep-link scheme
-  packageAndroid?: string;
+  upiId: string;
 }
 
-const UPI_APPS: UPIApp[] = [
-  {
-    id: "gpay",
-    name: "Google Pay",
-    emoji: "🔵",
-    color: "bg-blue-500/10 text-blue-600 border-blue-500/30",
-    scheme: "gpay://upi/pay",
-    packageAndroid: "com.google.android.apps.nbu.paisa.user",
-  },
-  {
-    id: "phonepe",
-    name: "PhonePe",
-    emoji: "🟣",
-    color: "bg-purple-500/10 text-purple-600 border-purple-500/30",
-    scheme: "phonepe://pay",
-    packageAndroid: "com.phonepe.app",
-  },
-  {
-    id: "paytm",
-    name: "Paytm",
-    emoji: "🔵",
-    color: "bg-sky-500/10 text-sky-600 border-sky-500/30",
-    scheme: "paytmmp://pay",
-    packageAndroid: "net.one97.paytm",
-  },
-  {
-    id: "bhim",
-    name: "BHIM",
-    emoji: "🟠",
-    color: "bg-orange-500/10 text-orange-600 border-orange-500/30",
-    scheme: "bhim://upi/pay",
-    packageAndroid: "in.org.npci.upiapp",
-  },
-  {
-    id: "amazonpay",
-    name: "Amazon Pay",
-    emoji: "🟡",
-    color: "bg-yellow-500/10 text-yellow-700 border-yellow-500/30",
-    scheme: "upi://pay",
-    packageAndroid: "in.amazon.mShop.android.shopping",
-  },
-  {
-    id: "cred",
-    name: "CRED",
-    emoji: "⚫",
-    color: "bg-zinc-500/10 text-zinc-600 border-zinc-500/30",
-    scheme: "upi://pay",
-    packageAndroid: "com.dreamplug.androidapp",
-  },
-  {
-    id: "upi",
-    name: "Any UPI App",
-    emoji: "🇮🇳",
-    color: "bg-green-500/10 text-green-600 border-green-500/30",
-    scheme: "upi://pay",
-  },
-];
+interface Props {
+  memberNames?: string[];
+}
 
-// ── UPI deep-link builder ─────────────────────────────────────────────────────
+const STORAGE_KEY = "rr_upi_payees";
 
 function buildUPILink(
-  app: UPIApp,
-  toUpiId: string,
-  toName: string,
+  upiId: string,
+  name: string,
   amount: string,
   note: string,
-): string {
+) {
   const params = new URLSearchParams({
-    pa: toUpiId,
-    pn: toName || "Payee",
-    am: amount,
+    pa: upiId,
+    pn: name || "Payee",
+    am: parseFloat(amount).toFixed(2),
     cu: "INR",
     tn: note || "Payment via Radiator Routes",
   });
-
-  // For Google Pay, use a specific intent format
-  if (app.id === "gpay") {
-    return `tez://upi/pay?${params.toString()}`;
-  }
-
-  // PhonePe intent
-  if (app.id === "phonepe") {
-    return `phonepe://pay?${params.toString()}`;
-  }
-
-  // Paytm
-  if (app.id === "paytm") {
-    return `paytmmp://pay?${params.toString()}`;
-  }
-
-  // Generic UPI (works for BHIM, Amazon Pay, CRED, any UPI app)
   return `upi://pay?${params.toString()}`;
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-interface PersonCardProps {
-  label: string;
-  role: "sender" | "receiver";
-  upiId: string;
-  name: string;
-  selectedApp: string;
-  onUpiIdChange: (v: string) => void;
-  onNameChange: (v: string) => void;
-  onAppChange: (v: string) => void;
-}
-
-function PersonCard({
-  label,
-  role,
-  upiId,
-  name,
-  selectedApp,
-  onUpiIdChange,
-  onNameChange,
-  onAppChange,
-}: PersonCardProps) {
-  const app = UPI_APPS.find((a) => a.id === selectedApp) ?? UPI_APPS[6];
-
-  return (
-    <div
-      className={`rounded-2xl border p-4 space-y-3 ${
-        role === "sender"
-          ? "bg-blue-500/5 border-blue-500/20"
-          : "bg-green-500/5 border-green-500/20"
-      }`}
-    >
-      {/* Label */}
-      <div className="flex items-center gap-2">
-        <div
-          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-            role === "sender"
-              ? "bg-blue-500 text-white"
-              : "bg-green-500 text-white"
-          }`}
-        >
-          {role === "sender" ? "A" : "B"}
-        </div>
-        <div>
-          <p className="text-xs font-bold text-card-foreground">{label}</p>
-          <p className="text-[10px] text-muted-foreground">
-            {role === "sender" ? "Paying party" : "Receiving party"}
-          </p>
-        </div>
-      </div>
-
-      {/* Name */}
-      <div>
-        <label className="text-[10px] text-muted-foreground mb-1 block">
-          Display Name
-        </label>
-        <div className="relative">
-          <User className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => onNameChange(e.target.value)}
-            placeholder="e.g. Rahul Sharma"
-            className="w-full pl-8 pr-3 py-2 rounded-xl bg-background border border-border text-xs focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-        </div>
-      </div>
-
-      {/* UPI ID */}
-      <div>
-        <label className="text-[10px] text-muted-foreground mb-1 block">
-          UPI ID
-        </label>
-        <div className="relative">
-          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-mono">
-            @
-          </span>
-          <input
-            type="text"
-            value={upiId}
-            onChange={(e) => onUpiIdChange(e.target.value.trim())}
-            placeholder="name@upi or number@bank"
-            className="w-full pl-6 pr-3 py-2 rounded-xl bg-background border border-border text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-        </div>
-        {upiId && !upiId.includes("@") && (
-          <p className="text-[10px] text-orange-500 mt-1 flex items-center gap-1">
-            <Info className="w-3 h-3" /> UPI ID should contain "@"
-          </p>
-        )}
-        {upiId && upiId.includes("@") && (
-          <p className="text-[10px] text-green-600 mt-1 flex items-center gap-1">
-            <CheckCircle2 className="w-3 h-3" /> Valid UPI format
-          </p>
-        )}
-      </div>
-
-      {/* UPI App selector */}
-      <div>
-        <label className="text-[10px] text-muted-foreground mb-1.5 block">
-          Preferred UPI App
-        </label>
-        <div className="grid grid-cols-4 gap-1.5">
-          {UPI_APPS.map((a) => (
-            <button
-              key={a.id}
-              onClick={() => onAppChange(a.id)}
-              className={`flex flex-col items-center gap-0.5 p-1.5 rounded-xl border text-center transition-all ${
-                selectedApp === a.id
-                  ? `${a.color} border-2 scale-105 shadow-sm`
-                  : "border-border bg-secondary/30 hover:bg-secondary/60"
-              }`}
-              title={a.name}
-            >
-              <span className="text-base leading-none">{a.emoji}</span>
-              <span
-                className={`text-[9px] font-medium leading-tight ${
-                  selectedApp === a.id ? "" : "text-muted-foreground"
-                }`}
-              >
-                {a.name.split(" ")[0]}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Main Component ────────────────────────────────────────────────────────────
-
-export default function UPIPayment() {
+export default function UPIPayment({ memberNames = [] }: Props) {
   const { toast } = useToast();
   const [collapsed, setCollapsed] = useState(false);
-
-  // Person A (sender)
-  const [aName, setAName] = useState("");
-  const [aUpi, setAUpi] = useState("");
-  const [aApp, setAApp] = useState("gpay");
-
-  // Person B (receiver)
-  const [bName, setBName] = useState("");
-  const [bUpi, setBUpi] = useState("");
-  const [bApp, setBApp] = useState("gpay");
-
-  // Payment details
+  const [payees, setPayees] = useState<Payee[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
-  const [direction, setDirection] = useState<"AtoB" | "BtoA">("AtoB");
-  const [paymentDone, setPaymentDone] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newUpi, setNewUpi] = useState("");
 
-  // Derived
-  const senderName = direction === "AtoB" ? aName : bName;
-  const senderUpi = direction === "AtoB" ? aUpi : bUpi;
-  const senderApp = direction === "AtoB" ? aApp : bApp;
-  const receiverName = direction === "AtoB" ? bName : aName;
-  const receiverUpi = direction === "AtoB" ? bUpi : aUpi;
+  // Load saved payees from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed: Payee[] = JSON.parse(saved);
+        setPayees(parsed);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
-  const selectedApp = UPI_APPS.find((a) => a.id === senderApp) ?? UPI_APPS[6];
+  // Pre-populate from memberNames if payees list is empty
+  useEffect(() => {
+    if (payees.length === 0 && memberNames.length > 0) {
+      const auto: Payee[] = memberNames.map((n, i) => ({
+        id: `auto-${i}`,
+        name: n,
+        upiId: "",
+      }));
+      setPayees(auto);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberNames]);
 
-  const canPay =
-    senderUpi.includes("@") &&
-    receiverUpi.includes("@") &&
-    Number(amount) > 0;
+  const savePayees = (updated: Payee[]) => {
+    setPayees(updated);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    } catch {
+      /* ignore */
+    }
+  };
 
-  const handlePay = () => {
-    if (!canPay) {
+  const addPayee = () => {
+    if (!newName.trim()) {
+      toast({ title: "Enter a name", variant: "destructive" });
+      return;
+    }
+    if (!newUpi.includes("@")) {
       toast({
-        title: "Missing details",
-        description:
-          "Please fill in both UPI IDs and a valid amount before paying.",
+        title: "Enter a valid UPI ID (must contain @)",
         variant: "destructive",
       });
       return;
     }
+    const payee: Payee = {
+      id: Date.now().toString(),
+      name: newName.trim(),
+      upiId: newUpi.trim(),
+    };
+    savePayees([...payees, payee]);
+    setNewName("");
+    setNewUpi("");
+    setShowAdd(false);
+    setSelectedId(payee.id);
+    toast({ title: `${payee.name} added!` });
+  };
 
+  const removePayee = (id: string) => {
+    savePayees(payees.filter((p) => p.id !== id));
+    if (selectedId === id) setSelectedId(null);
+  };
+
+  const updatePayeeUpi = (id: string, upiId: string) => {
+    const updated = payees.map((p) => (p.id === id ? { ...p, upiId } : p));
+    savePayees(updated);
+  };
+
+  const selectedPayee = payees.find((p) => p.id === selectedId);
+  const canPay =
+    !!selectedPayee &&
+    selectedPayee.upiId.includes("@") &&
+    parseFloat(amount) > 0;
+
+  const handlePay = () => {
+    if (!canPay || !selectedPayee) {
+      toast({
+        title: "Cannot pay",
+        description: !selectedPayee
+          ? "Select a person to pay."
+          : !selectedPayee.upiId.includes("@")
+            ? "Add a valid UPI ID for this person first."
+            : "Enter a valid amount.",
+        variant: "destructive",
+      });
+      return;
+    }
     const link = buildUPILink(
-      selectedApp,
-      receiverUpi,
-      receiverName || "Payee",
-      parseFloat(amount).toFixed(2),
-      note || "Payment via Radiator Routes",
+      selectedPayee.upiId,
+      selectedPayee.name,
+      amount,
+      note || `Payment to ${selectedPayee.name} via Radiator Routes`,
     );
-
-    // Open the UPI deep link
     const anchor = document.createElement("a");
     anchor.href = link;
     anchor.rel = "noopener noreferrer";
     anchor.click();
-
-    setPaymentDone(true);
     toast({
-      title: `Opening ${selectedApp.name}...`,
-      description: `Paying ₹${amount} to ${receiverName || receiverUpi}`,
+      title: `Opening UPI app…`,
+      description: `Paying ₹${amount} to ${selectedPayee.name}`,
     });
   };
 
-  const copyUPILink = async () => {
-    if (!canPay) return;
-    const link = buildUPILink(
-      selectedApp,
-      receiverUpi,
-      receiverName || "Payee",
-      parseFloat(amount).toFixed(2),
-      note,
-    );
-    try {
-      await navigator.clipboard.writeText(link);
-      toast({ title: "UPI link copied!", description: link.slice(0, 60) + "…" });
-    } catch {
-      toast({ title: "Copy failed", variant: "destructive" });
-    }
-  };
-
-  const swapDirection = () => {
-    setDirection((d) => (d === "AtoB" ? "BtoA" : "AtoB"));
-    setPaymentDone(false);
-  };
-
-  const reset = () => {
-    setAmount("");
-    setNote("");
-    setPaymentDone(false);
-  };
-
-  const QUICK_AMOUNTS = [100, 200, 500, 1000, 2000, 5000];
+  const QUICK_AMOUNTS = [50, 100, 200, 500, 1000, 2000];
 
   return (
     <div className="bg-card rounded-2xl shadow-card overflow-hidden">
@@ -369,295 +177,258 @@ export default function UPIPayment() {
               </span>
             </h3>
             <p className="text-[11px] text-muted-foreground">
-              Direct peer-to-peer · No payment gateway
+              Tap a person → enter amount → pay instantly
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="text-muted-foreground">
           {collapsed ? (
-            <ChevronDown className="w-4 h-4 text-muted-foreground" />
+            <ChevronDown className="w-4 h-4" />
           ) : (
-            <ChevronUp className="w-4 h-4 text-muted-foreground" />
+            <ChevronUp className="w-4 h-4" />
           )}
         </div>
       </div>
 
       {!collapsed && (
         <div className="p-4 space-y-4">
-          {/* Info banner */}
+          {/* Info */}
           <div className="flex items-start gap-2 p-3 rounded-xl bg-blue-500/5 border border-blue-500/20">
             <Info className="w-3.5 h-3.5 text-blue-500 mt-0.5 shrink-0" />
             <p className="text-[11px] text-muted-foreground leading-relaxed">
-              This is a{" "}
-              <span className="font-semibold text-card-foreground">
-                direct UPI deep-link payment
-              </span>
-              . No data is stored or transmitted through our servers. Your UPI
-              app handles the transaction end-to-end.
+              Select who you want to pay. Your UPI app opens with their ID
+              prefilled — no data leaves your device.
             </p>
           </div>
 
-          {/* Person A */}
-          <PersonCard
-            label="Person A"
-            role="sender"
-            upiId={aUpi}
-            name={aName}
-            selectedApp={aApp}
-            onUpiIdChange={setAUpi}
-            onNameChange={setAName}
-            onAppChange={setAApp}
-          />
-
-          {/* Direction switcher */}
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-border" />
-            <div className="flex flex-col items-center gap-1">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary border border-border text-xs font-semibold text-muted-foreground">
-                {direction === "AtoB" ? (
-                  <>
-                    <span className="text-blue-600 font-bold">A</span>
-                    <ArrowRight className="w-3.5 h-3.5 text-green-500" />
-                    <span className="text-green-600 font-bold">B</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-green-600 font-bold">B</span>
-                    <ArrowRight className="w-3.5 h-3.5 text-blue-500" />
-                    <span className="text-blue-600 font-bold">A</span>
-                  </>
-                )}
-              </div>
+          {/* Payee list */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs font-semibold text-card-foreground">
+                Who are you paying?
+              </p>
               <button
-                onClick={swapDirection}
-                className="flex items-center gap-1 text-[10px] text-primary hover:underline"
+                onClick={() => setShowAdd((v) => !v)}
+                className="flex items-center gap-1 text-xs text-primary font-medium hover:underline"
               >
-                <ArrowLeftRight className="w-3 h-3" /> Swap direction
+                <Plus className="w-3 h-3" />
+                Add person
               </button>
             </div>
-            <div className="flex-1 h-px bg-border" />
+
+            {payees.length === 0 && !showAdd && (
+              <div className="text-center py-6 border-2 border-dashed border-border rounded-xl">
+                <User className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-xs text-muted-foreground">No payees yet.</p>
+                <button
+                  onClick={() => setShowAdd(true)}
+                  className="mt-2 text-xs text-primary font-medium hover:underline"
+                >
+                  + Add someone
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-2">
+              {payees.map((p) => {
+                const isSelected = selectedId === p.id;
+                const hasUpi = p.upiId.includes("@");
+                return (
+                  <div
+                    key={p.id}
+                    onClick={() => setSelectedId(isSelected ? null : p.id)}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition-all ${
+                      isSelected
+                        ? "border-green-500 bg-green-500/5"
+                        : "border-border bg-secondary/30 hover:border-primary/40 hover:bg-secondary/60"
+                    }`}
+                  >
+                    {/* Avatar */}
+                    <div
+                      className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
+                        isSelected
+                          ? "bg-green-500 text-white"
+                          : "bg-primary/10 text-primary"
+                      }`}
+                    >
+                      {p.name.charAt(0).toUpperCase()}
+                    </div>
+
+                    {/* Name + UPI inline edit */}
+                    <div
+                      className="flex-1 min-w-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <p className="text-sm font-semibold text-card-foreground truncate">
+                        {p.name}
+                      </p>
+                      {isSelected ? (
+                        <input
+                          type="text"
+                          value={p.upiId}
+                          onChange={(e) =>
+                            updatePayeeUpi(p.id, e.target.value.trim())
+                          }
+                          onClick={(e) => e.stopPropagation()}
+                          placeholder="Enter UPI ID (e.g. name@upi)"
+                          className="mt-1 w-full px-2 py-1 rounded-lg bg-background border border-border text-xs font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30"
+                        />
+                      ) : (
+                        <p
+                          className={`text-[11px] font-mono truncate ${hasUpi ? "text-green-600" : "text-muted-foreground"}`}
+                        >
+                          {hasUpi ? p.upiId : "Tap to add UPI ID"}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Right side */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {hasUpi && (
+                        <CheckCircle2 className="w-4 h-4 text-green-500" />
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removePayee(p.id);
+                        }}
+                        className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                        title="Remove"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Add person form */}
+            {showAdd && (
+              <div className="p-3 rounded-xl bg-primary/5 border border-primary/20 space-y-2 mt-1">
+                <p className="text-xs font-semibold text-card-foreground mb-1">
+                  New Payee
+                </p>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <User className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      placeholder="Name"
+                      className="w-full pl-8 pr-3 py-2 rounded-xl bg-background border border-border text-xs focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="relative flex-1">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                      @
+                    </span>
+                    <input
+                      type="text"
+                      value={newUpi}
+                      onChange={(e) => setNewUpi(e.target.value.trim())}
+                      placeholder="UPI ID"
+                      className="w-full pl-5 pr-3 py-2 rounded-xl bg-background border border-border text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={addPayee}
+                    className="flex-1 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity"
+                  >
+                    Add
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowAdd(false);
+                      setNewName("");
+                      setNewUpi("");
+                    }}
+                    className="flex-1 py-2 rounded-xl bg-secondary text-secondary-foreground text-xs font-semibold hover:bg-secondary/80 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Person B */}
-          <PersonCard
-            label="Person B"
-            role="receiver"
-            upiId={bUpi}
-            name={bName}
-            selectedApp={bApp}
-            onUpiIdChange={setBUpi}
-            onNameChange={setBName}
-            onAppChange={setBApp}
-          />
+          {/* Amount section — shown when someone is selected */}
+          {selectedPayee && (
+            <div className="space-y-3 border-t border-border pt-4">
+              <p className="text-xs font-semibold text-card-foreground">
+                Amount to pay{" "}
+                <span className="text-green-600">{selectedPayee.name}</span>
+              </p>
 
-          {/* Payment Details */}
-          <div className="space-y-3 p-4 rounded-2xl bg-secondary/30 border border-border">
-            <p className="text-xs font-semibold text-card-foreground flex items-center gap-1.5">
-              <IndianRupee className="w-3.5 h-3.5 text-green-600" />
-              Payment Details
-            </p>
+              {/* Quick amounts */}
+              <div className="flex flex-wrap gap-1.5">
+                {QUICK_AMOUNTS.map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => setAmount(String(q))}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                      amount === String(q)
+                        ? "bg-green-500 text-white border-green-500"
+                        : "bg-secondary border-border text-muted-foreground hover:border-primary hover:text-primary"
+                    }`}
+                  >
+                    ₹{q}
+                  </button>
+                ))}
+              </div>
 
-            {/* Amount input */}
-            <div>
-              <label className="text-[10px] text-muted-foreground mb-1 block">
-                Amount (₹)
-              </label>
+              {/* Custom amount */}
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground">
-                  ₹
-                </span>
+                <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
                   type="number"
+                  min="1"
                   value={amount}
-                  onChange={(e) => {
-                    setAmount(e.target.value);
-                    setPaymentDone(false);
-                  }}
-                  placeholder="0.00"
-                  min={1}
-                  step={0.01}
-                  className="w-full pl-7 pr-3 py-2.5 rounded-xl bg-background border border-border text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-500/20"
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="Enter amount"
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30"
                 />
               </div>
-            </div>
 
-            {/* Quick amounts */}
-            <div className="flex gap-1.5 flex-wrap">
-              {QUICK_AMOUNTS.map((amt) => (
-                <button
-                  key={amt}
-                  onClick={() => {
-                    setAmount(String(amt));
-                    setPaymentDone(false);
-                  }}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
-                    amount === String(amt)
-                      ? "bg-green-600 text-white"
-                      : "bg-secondary border border-border text-muted-foreground hover:bg-green-500/10 hover:text-green-600"
-                  }`}
-                >
-                  ₹{amt.toLocaleString("en-IN")}
-                </button>
-              ))}
-            </div>
-
-            {/* Note */}
-            <div>
-              <label className="text-[10px] text-muted-foreground mb-1 block">
-                Payment Note (optional)
-              </label>
+              {/* Note */}
               <input
                 type="text"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="e.g. Trip expenses, Hotel split, Dinner..."
-                className="w-full px-3 py-2 rounded-xl bg-background border border-border text-xs focus:outline-none focus:ring-2 focus:ring-green-500/20"
+                placeholder="Note (optional)"
+                className="w-full px-4 py-2.5 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
-            </div>
-          </div>
 
-          {/* Payment Summary */}
-          {canPay && (
-            <div className="p-3 rounded-xl bg-green-500/5 border border-green-500/20 space-y-1.5">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Payment Summary
+              {/* UPI ID warning */}
+              {!selectedPayee.upiId.includes("@") && (
+                <p className="text-xs text-orange-500 flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5 shrink-0" />
+                  Tap on <strong>{selectedPayee.name}</strong> above and enter
+                  their UPI ID first.
+                </p>
+              )}
+
+              {/* Pay button */}
+              <button
+                onClick={handlePay}
+                disabled={!canPay}
+                className="w-full py-3 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <Wallet className="w-4 h-4" />
+                {canPay
+                  ? `Pay ₹${amount} to ${selectedPayee.name}`
+                  : "Select person & enter amount"}
+              </button>
+
+              <p className="text-[10px] text-center text-muted-foreground">
+                Opens your UPI app (GPay, PhonePe, Paytm, etc.) with the details
+                prefilled
               </p>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center text-[9px] font-bold">
-                    {direction === "AtoB" ? "A" : "B"}
-                  </span>
-                  <span className="text-muted-foreground truncate max-w-[80px]">
-                    {senderName || senderUpi}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-green-600">
-                    ₹{Number(amount).toLocaleString("en-IN")}
-                  </span>
-                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" />
-                </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="w-5 h-5 rounded-full bg-green-500 text-white flex items-center justify-center text-[9px] font-bold">
-                    {direction === "AtoB" ? "B" : "A"}
-                  </span>
-                  <span className="text-muted-foreground truncate max-w-[80px]">
-                    {receiverName || receiverUpi}
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                <Smartphone className="w-3 h-3" />
-                <span>
-                  Via{" "}
-                  <span className="font-semibold text-card-foreground">
-                    {selectedApp.name}
-                  </span>{" "}
-                  · To:{" "}
-                  <span className="font-mono text-card-foreground">
-                    {receiverUpi}
-                  </span>
-                </span>
-              </div>
             </div>
           )}
-
-          {/* Action buttons */}
-          <div className="space-y-2">
-            {paymentDone ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-center gap-2 py-3 rounded-xl bg-green-500/10 border border-green-500/20">
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
-                  <p className="text-sm font-semibold text-green-600">
-                    Payment app opened!
-                  </p>
-                </div>
-                <p className="text-[11px] text-muted-foreground text-center">
-                  Complete the payment in your UPI app. The transaction is
-                  handled entirely by your bank.
-                </p>
-                <button
-                  onClick={reset}
-                  className="w-full py-2 rounded-xl bg-secondary text-xs font-semibold text-muted-foreground hover:bg-secondary/80 flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Make another payment
-                </button>
-              </div>
-            ) : (
-              <>
-                <button
-                  onClick={handlePay}
-                  disabled={!canPay}
-                  className="w-full py-3 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors shadow-sm"
-                >
-                  <span className="text-lg">{selectedApp.emoji}</span>
-                  {canPay
-                    ? `Pay ₹${Number(amount).toLocaleString("en-IN")} via ${selectedApp.name}`
-                    : "Fill in details to pay"}
-                </button>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={copyUPILink}
-                    disabled={!canPay}
-                    className="flex-1 py-2 rounded-xl bg-secondary border border-border text-xs font-semibold text-muted-foreground hover:bg-secondary/80 disabled:opacity-40 flex items-center justify-center gap-1.5 transition-colors"
-                    title="Copy UPI deep link"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    Copy UPI Link
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (!canPay) return;
-                      const link = buildUPILink(
-                        selectedApp,
-                        receiverUpi,
-                        receiverName || "Payee",
-                        parseFloat(amount).toFixed(2),
-                        note,
-                      );
-                      window.open(link, "_blank");
-                    }}
-                    disabled={!canPay}
-                    className="flex-1 py-2 rounded-xl bg-secondary border border-border text-xs font-semibold text-muted-foreground hover:bg-secondary/80 disabled:opacity-40 flex items-center justify-center gap-1.5 transition-colors"
-                    title="Open payment link"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    Open Link
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* UPI ID format help */}
-          <div className="p-3 rounded-xl bg-secondary/40 border border-border space-y-1.5">
-            <p className="text-[10px] font-semibold text-muted-foreground">
-              💡 Common UPI ID formats:
-            </p>
-            {[
-              { format: "number@paytm", label: "Paytm" },
-              { format: "number@ybl", label: "PhonePe / Yes Bank" },
-              { format: "name@okaxis", label: "Google Pay / Axis" },
-              { format: "number@okhdfcbank", label: "Google Pay / HDFC" },
-              { format: "number@oksbi", label: "Google Pay / SBI" },
-              { format: "name@upi", label: "BHIM / General" },
-            ].map(({ format, label }) => (
-              <div key={format} className="flex items-center justify-between">
-                <span className="font-mono text-[10px] text-card-foreground">
-                  {format}
-                </span>
-                <span className="text-[9px] text-muted-foreground">{label}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Disclaimer */}
-          <p className="text-[10px] text-muted-foreground text-center leading-relaxed px-2">
-            🔒 Radiator Routes does not process or store payment data. All
-            transactions are handled directly by your UPI app and bank.
-          </p>
         </div>
       )}
     </div>
