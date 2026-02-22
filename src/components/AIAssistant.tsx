@@ -217,8 +217,11 @@ export default function AIAssistant() {
 
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
-      recognition.interimResults = true;
+      // Use interim results so the wake phrase is caught as early as possible,
+      // but we only act on FINAL results to avoid false positives.
+      recognition.interimResults = false;
       recognition.lang = "en-US";
+      recognition.maxAlternatives = 3; // check multiple recognition alternatives
       wakeRecognitionRef.current = recognition;
 
       recognition.onstart = () => setWakeListening(true);
@@ -226,13 +229,14 @@ export default function AIAssistant() {
       recognition.onend = () => {
         setWakeListening(false);
         if (wakeActiveRef.current) {
+          // Small back-off to avoid tight restart loops on error
           setTimeout(() => {
             try {
               startWakeListener();
             } catch {
               /* ignore */
             }
-          }, 300);
+          }, 500);
         }
       };
 
@@ -242,44 +246,77 @@ export default function AIAssistant() {
           wakeActiveRef.current = false;
           return;
         }
-        // Recoverable errors (no-speech, network, audio-capture) – onend will restart
+        // Recoverable errors (no-speech, network, audio-capture) — onend will restart
+      };
+
+      // ── Wake-word patterns (covers common mis-hearings) ──────────────────
+      const WAKE_PATTERNS = [
+        "hey jinny",
+        "hey jenny",
+        "hey ginny",
+        "hey genie",
+        "hey jini",
+        "hey jinniy",
+        "hey jinni",
+        "hey djinny",
+        "ok jinny",
+        "okay jinny",
+        "oi jinny",
+        "hi jinny",
+        "hello jinny",
+        "a jinny",
+        "jinny wake",
+        "jinny open",
+        "jinny activate",
+        "wake up jinny",
+        "yo jinny",
+      ];
+
+      const containsWakePhrase = (text: string): boolean => {
+        const t = text.toLowerCase().trim();
+        return WAKE_PATTERNS.some((p) => t.includes(p));
       };
 
       recognition.onresult = (event: any) => {
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript
-            .toLowerCase()
-            .trim();
-          if (
-            transcript.includes("hey jinny") ||
-            transcript.includes("hey jenny") ||
-            transcript.includes("hey ginny") ||
-            transcript.includes("hey jini") ||
-            transcript.includes("a jinny") ||
-            transcript.includes("ok jinny") ||
-            transcript.includes("okay jinny")
-          ) {
-            wakeActiveRef.current = false;
-            try {
-              recognition.stop();
-            } catch {
-              /* ignore */
+          // Only act on FINAL results to avoid false positives from interim
+          if (!event.results[i].isFinal) continue;
+
+          // Check all alternatives (up to maxAlternatives)
+          let wakeDetected = false;
+          for (let alt = 0; alt < event.results[i].length; alt++) {
+            const transcript = event.results[i][alt].transcript;
+            const confidence = event.results[i][alt].confidence ?? 1;
+            // Skip very low-confidence transcripts
+            if (confidence < 0.25) continue;
+            if (containsWakePhrase(transcript)) {
+              wakeDetected = true;
+              break;
             }
-            setOpen(true);
-            speakJinny("At your service. I'm listening.");
-            toast({
-              title: "🧡 Jinny activated!",
-              description: "At your service — I'm listening.",
-            });
-            // Auto-start voice after a short delay so the panel can open
-            setTimeout(() => {
-              if (!isListeningRef.current) {
-                // Trigger startVoice via a custom event so we don't have circular deps
-                window.dispatchEvent(new CustomEvent("jinny-start-voice"));
-              }
-            }, 800);
-            break;
           }
+
+          if (!wakeDetected) continue;
+
+          // ── Wake phrase confirmed ────────────────────────────────────────
+          wakeActiveRef.current = false;
+          try {
+            recognition.stop();
+          } catch {
+            /* ignore */
+          }
+          setOpen(true);
+          speakJinny("At your service. Tap the mic to speak, or just type.");
+          toast({
+            title: "🧡 Jinny activated!",
+            description: "Tap the mic to speak, or type your request.",
+          });
+          // Auto-start voice input so the user can speak immediately
+          setTimeout(() => {
+            if (!isListeningRef.current) {
+              window.dispatchEvent(new CustomEvent("jinny-start-voice"));
+            }
+          }, 900);
+          break;
         }
       };
 
@@ -997,16 +1034,15 @@ export default function AIAssistant() {
     if (!open) window.speechSynthesis?.cancel();
   }, [open]);
 
-  // ── Listen for jinny-open event (from MobileNav button) ─────────────────
+  // ── Listen for jinny-open event (from MobileNav / Accessibility panel) ───
+  // NOTE: Opening via button does NOT auto-start mic — user must tap it.
+  // Only wake-word activation auto-starts the mic (like Alexa/Siri).
   useEffect(() => {
     const handler = () => {
       setOpen(true);
-      speakJinny("At your service. I'm listening.");
-      setTimeout(() => {
-        if (!isListeningRef.current) {
-          window.dispatchEvent(new CustomEvent("jinny-start-voice"));
-        }
-      }, 600);
+      speakJinny("At your service. How can I help?");
+      // Do NOT auto-dispatch jinny-start-voice here — manual open requires
+      // the user to consciously tap the mic button.
     };
     window.addEventListener("jinny-open", handler);
     return () => window.removeEventListener("jinny-open", handler);
@@ -1083,14 +1119,21 @@ export default function AIAssistant() {
             className="w-20 h-20 cursor-grab active:cursor-grabbing select-none hover:scale-110 transition-transform drop-shadow-lg animate-fade-in touch-none"
             draggable={false}
           />
-          {wakeListening && (
-            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-card/90 backdrop-blur-sm px-2 py-0.5 rounded-full border border-border shadow-sm">
-              <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-              <span className="text-[9px] text-muted-foreground font-medium whitespace-nowrap">
-                Say "Hey Jinny"
-              </span>
-            </div>
-          )}
+          {/* Wake-word indicator — always visible so user knows it's listening */}
+          <div
+            className={`absolute -bottom-1 left-1/2 -translate-x-1/2 flex items-center gap-1 px-2 py-0.5 rounded-full border shadow-sm transition-all ${
+              wakeListening
+                ? "bg-card/95 backdrop-blur-sm border-green-500/40"
+                : "bg-card/70 backdrop-blur-sm border-border/60"
+            }`}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${wakeListening ? "bg-green-500 animate-pulse" : "bg-muted-foreground/40"}`}
+            />
+            <span className="text-[9px] text-muted-foreground font-medium whitespace-nowrap">
+              {wakeListening ? 'Listening… say "Hey Jinny"' : 'Say "Hey Jinny"'}
+            </span>
+          </div>
         </div>
       )}
 

@@ -249,6 +249,8 @@ function createSR(lang = "en-IN") {
 type CmdResult =
   | { type: "navigate"; path: string; label: string }
   | { type: "read_page" }
+  | { type: "read_headings" }
+  | { type: "read_buttons" }
   | { type: "repeat" }
   | { type: "stop" }
   | { type: "time" }
@@ -257,57 +259,185 @@ type CmdResult =
   | { type: "open_jinny" }
   | { type: "open_camera" }
   | { type: "help" }
+  | { type: "emergency_numbers" }
+  | { type: "battery" }
   | { type: "unknown"; raw: string };
 
-function parseCommand(raw: string): CmdResult {
-  const t = raw.toLowerCase().trim();
+// ─── Normalise common speech-to-text quirks ───────────────────────────────
+function normaliseSpeech(raw: string): string {
+  return (
+    raw
+      .toLowerCase()
+      .trim()
+      // numbers as words
+      .replace(/\bone\b/g, "1")
+      .replace(/\btwo\b/g, "2")
+      .replace(/\bthree\b/g, "3")
+      // common mis-hearings
+      .replace(/\bjinney\b/g, "jinny")
+      .replace(/\bjenny\b/g, "jinny")
+      .replace(/\bginny\b/g, "jinny")
+      .replace(/\bgenie\b/g, "jinny")
+      .replace(/\bexplore\b/g, "explore")
+      // punctuation noise
+      .replace(/[.,!?;:'"]/g, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim()
+  );
+}
 
-  if (/(stop|quiet|silence|shut up|mute|cancel)/.test(t))
-    return { type: "stop" };
-  if (/(repeat|say again|again|what did you say)/.test(t))
-    return { type: "repeat" };
-  if (/(time|what time|current time)/.test(t)) return { type: "time" };
-  if (/(date|what day|today|day is)/.test(t)) return { type: "date" };
-  if (/(sos|emergency|help me|i need help|call for help|danger)/.test(t))
-    return { type: "sos" };
-  if (/(jinny|jenny|ginny|assistant|open ai|open bot)/.test(t))
-    return { type: "open_jinny" };
-  if (/(camera|see|identify|what is in front|scan|look)/.test(t))
-    return { type: "open_camera" };
+function parseCommand(raw: string): CmdResult {
+  const t = normaliseSpeech(raw);
+
+  // ── Stop / mute ───────────────────────────────────────────────────────────
   if (
-    /(read|read page|what.*screen|describe page|read content|read out)/.test(t)
+    /(^|\s)(stop|quiet|silence|shut\s*up|mute|cancel|pause|enough|be\s*quiet|stop\s*talking|stop\s*speaking)(\s|$)/.test(
+      t,
+    )
+  )
+    return { type: "stop" };
+
+  // ── SOS / emergency — check BEFORE other patterns ────────────────────────
+  if (
+    /(^|\s)(sos|emergency|mayday|help\s*me|i\s*(need|am)\s*(help|in\s*danger|hurt|injured|lost|stranded)|call\s*(for\s*)?help|danger|unsafe|in\s*trouble|accident|ambulance\s*now|police\s*now|save\s*me)(\s|$)/.test(
+      t,
+    )
+  )
+    return { type: "sos" };
+
+  // ── Emergency numbers ─────────────────────────────────────────────────────
+  if (
+    /(emergency\s*(number|contact|helpline)|helpline|what.*emergency\s*number|call\s*(police|ambulance|fire))/.test(
+      t,
+    )
+  )
+    return { type: "emergency_numbers" };
+
+  // ── Repeat ────────────────────────────────────────────────────────────────
+  if (
+    /(repeat|say\s*again|again|what\s*did\s*you\s*say|say\s*that\s*again|once\s*more|replay)/.test(
+      t,
+    )
+  )
+    return { type: "repeat" };
+
+  // ── Time ──────────────────────────────────────────────────────────────────
+  if (
+    /(what(\s*is|\s*'?s)?\s*the\s*time|current\s*time|time\s*now|tell\s*me\s*the\s*time|what\s*time\s*is\s*it|clock)/.test(
+      t,
+    )
+  )
+    return { type: "time" };
+
+  // ── Date ──────────────────────────────────────────────────────────────────
+  if (
+    /(what(\s*is|\s*'?s)?\s*(the\s*)?(date|day)|today'?s?\s*(date|day)|what\s*day\s*is\s*(it|today)|current\s*date|day\s*of\s*(the\s*)?week)/.test(
+      t,
+    )
+  )
+    return { type: "date" };
+
+  // ── Open Jinny AI ─────────────────────────────────────────────────────────
+  if (
+    /(open\s*(jinny|assistant|ai|bot|chat)|launch\s*(jinny|ai|assistant)|jinny\s*(open|start|wake|activate)|talk\s*to\s*jinny|hey\s*jinny|start\s*jinny)/.test(
+      t,
+    )
+  )
+    return { type: "open_jinny" };
+
+  // ── Camera / Object ID ────────────────────────────────────────────────────
+  if (
+    /(camera|open\s*camera|start\s*camera|identify|what\s*(is\s*)?(in\s*front|around|here|this)|scan|look\s*(around|at\s*this)|describe\s*(scene|surroundings|what|this)|what\s*do\s*you\s*see|see\s*for\s*me|object\s*id)/.test(
+      t,
+    )
+  )
+    return { type: "open_camera" };
+
+  // ── Read page ─────────────────────────────────────────────────────────────
+  if (
+    /(read\s*(page|screen|content|aloud|out|everything)|what('?s|\s*is)\s*(on\s*)?(the\s*)?(screen|page)|describe\s*(page|screen)|read\s*it\s*out|tell\s*me\s*what'?s\s*(here|on\s*screen))/.test(
+      t,
+    )
   )
     return { type: "read_page" };
-  if (/(help|what can|commands|how to use|tutorial)/.test(t))
+
+  // ── Read headings ─────────────────────────────────────────────────────────
+  if (
+    /(read\s*(head(ing|er)s?|title|section)|list\s*(head(ing|er)s?|section))/.test(
+      t,
+    )
+  )
+    return { type: "read_headings" };
+
+  // ── Read buttons ──────────────────────────────────────────────────────────
+  if (
+    /(read\s*(button|action|link)s?|list\s*(button|action|link)s?|what\s*(button|action)s?\s*(are|can|do))/.test(
+      t,
+    )
+  )
+    return { type: "read_buttons" };
+
+  // ── Help ──────────────────────────────────────────────────────────────────
+  if (
+    /(help|what\s*can\s*(you|i)\s*(do|say)|commands?|how\s*to\s*(use|voice)|tutorial|voice\s*commands?)/.test(
+      t,
+    )
+  )
     return { type: "help" };
 
-  // Navigation
-  if (/(dashboard|home|main page|overview)/.test(t))
-    return {
-      type: "navigate",
-      path: "/dashboard",
-      label: "Dashboard",
-    };
-  if (/(itinerary|my trip|my trips|plan|trip plan|schedule)/.test(t))
-    return {
-      type: "navigate",
-      path: "/itinerary",
-      label: "Itinerary",
-    };
-  if (/(explore|discover|places|search places)/.test(t))
+  // ── Battery ───────────────────────────────────────────────────────────────
+  if (/(battery|charge|power\s*level|how\s*much\s*(charge|battery))/.test(t))
+    return { type: "battery" };
+
+  // ─── Navigation ───────────────────────────────────────────────────────────
+  if (
+    /(go\s*to\s*(dashboard|home)|open\s*(dashboard|home)|dashboard|main\s*(page|screen)|home\s*page|go\s*home)/.test(
+      t,
+    )
+  )
+    return { type: "navigate", path: "/dashboard", label: "Dashboard" };
+
+  if (
+    /(go\s*to\s*(itinerary|trips?|plan)|open\s*(itinerary|trips?)|itinerary|my\s*trips?|trip\s*plan(ner)?|schedule|planner)/.test(
+      t,
+    )
+  )
+    return { type: "navigate", path: "/itinerary", label: "Itinerary" };
+
+  if (
+    /(go\s*to\s*explore|open\s*explore|explore|discover|find\s*places?|search\s*places?|places?\s*near)/.test(
+      t,
+    )
+  )
     return { type: "navigate", path: "/explore", label: "Explore" };
-  if (/(friends|companion|travel buddy|people)/.test(t))
+
+  if (
+    /(go\s*to\s*friends?|open\s*friends?|friends?|companion|travel\s*buddy|travel\s*group|people)/.test(
+      t,
+    )
+  )
     return { type: "navigate", path: "/friends", label: "Friends" };
-  if (/(profile|my account|account|settings)/.test(t))
+
+  if (
+    /(go\s*to\s*(profile|account|settings)|open\s*(profile|account|settings)|profile|my\s*account|account\s*settings?)/.test(
+      t,
+    )
+  )
     return { type: "navigate", path: "/profile", label: "Profile" };
-  if (/(guide|travel guide|destination guide)/.test(t))
-    return { type: "navigate", path: "/guide", label: "Guide" };
-  if (/(community|social|community tab)/.test(t))
-    return {
-      type: "navigate",
-      path: "/community",
-      label: "Community",
-    };
+
+  if (
+    /(go\s*to\s*(guide|travel\s*guide)|open\s*(guide|travel\s*guide)|travel\s*guide|destination\s*guide|guide)/.test(
+      t,
+    )
+  )
+    return { type: "navigate", path: "/guide", label: "Travel Guide" };
+
+  if (
+    /(go\s*to\s*community|open\s*community|community|social\s*tab|forum)/.test(
+      t,
+    )
+  )
+    return { type: "navigate", path: "/community", label: "Community" };
 
   return { type: "unknown", raw };
 }
@@ -491,12 +621,14 @@ export default function AccessibilityPanel() {
       vibrate(40);
 
       switch (cmd.type) {
+        // ── Stop TTS ─────────────────────────────────────────────────────────
         case "stop":
           stopSpeaking();
           setIsSpeaking(false);
           setCmdFeedback("Stopped.");
           break;
 
+        // ── Repeat last ──────────────────────────────────────────────────────
         case "repeat": {
           let last = "";
           try {
@@ -508,12 +640,13 @@ export default function AccessibilityPanel() {
             ttsSpeak(last);
             setCmdFeedback("Repeating last speech.");
           } else {
-            ttsSpeak("Nothing to repeat.");
+            ttsSpeak("Nothing to repeat yet.");
             setCmdFeedback("Nothing to repeat.");
           }
           break;
         }
 
+        // ── Current time ─────────────────────────────────────────────────────
         case "time": {
           const t = new Date().toLocaleTimeString("en-IN", {
             hour: "2-digit",
@@ -525,6 +658,7 @@ export default function AccessibilityPanel() {
           break;
         }
 
+        // ── Current date ─────────────────────────────────────────────────────
         case "date": {
           const d = new Date().toLocaleDateString("en-IN", {
             weekday: "long",
@@ -537,44 +671,126 @@ export default function AccessibilityPanel() {
           break;
         }
 
+        // ── Read full page ────────────────────────────────────────────────────
         case "read_page":
           handleReadPage();
           setCmdFeedback("Reading page content…");
           break;
 
+        // ── Read only headings ────────────────────────────────────────────────
+        case "read_headings": {
+          const hs = Array.from(document.querySelectorAll("h1,h2,h3"))
+            .map((e) => e.textContent?.trim())
+            .filter(Boolean)
+            .join(". ");
+          const msg = hs || "No headings found on this page.";
+          ttsSpeak(msg);
+          setCmdFeedback("Reading page headings.");
+          break;
+        }
+
+        // ── Read all buttons / links ──────────────────────────────────────────
+        case "read_buttons": {
+          const bs = Array.from(document.querySelectorAll("button,a"))
+            .map((e) => e.textContent?.trim())
+            .filter((t) => t && t.length > 1 && t.length < 60)
+            .slice(0, 12)
+            .join(", ");
+          const msg = bs
+            ? `Available actions: ${bs}.`
+            : "No buttons found on this page.";
+          ttsSpeak(msg);
+          setCmdFeedback("Reading buttons and links.");
+          break;
+        }
+
+        // ── Navigate ──────────────────────────────────────────────────────────
         case "navigate":
           ttsSpeak(`Navigating to ${cmd.label}.`, () => navigate(cmd.path));
           setCmdFeedback(`Going to ${cmd.label}…`);
           break;
 
+        // ── SOS ───────────────────────────────────────────────────────────────
         case "sos":
-          ttsSpeak("Activating SOS emergency panel.");
+          ttsSpeak(
+            "Activating SOS emergency panel. Stay calm. Police 100. Ambulance 108.",
+          );
+          vibrate(200);
           window.dispatchEvent(new CustomEvent("open-sos"));
           setCmdFeedback("SOS panel opening…");
           break;
 
+        // ── Emergency numbers ─────────────────────────────────────────────────
+        case "emergency_numbers":
+          ttsSpeak(
+            "Emergency numbers in India. Police: 100. Ambulance: 108. Women helpline: 1091. Fire brigade: 101. National disaster: 1078. Child helpline: 1098.",
+          );
+          setCmdFeedback("Emergency numbers spoken.");
+          break;
+
+        // ── Open Jinny ────────────────────────────────────────────────────────
         case "open_jinny":
-          ttsSpeak("Opening Jinny your AI travel assistant.");
+          ttsSpeak("Opening Jinny, your AI travel assistant.");
           window.dispatchEvent(new CustomEvent("jinny-open"));
           setCmdFeedback("Opening Jinny AI…");
           break;
 
+        // ── Open camera ───────────────────────────────────────────────────────
         case "open_camera":
-          ttsSpeak("Opening camera for object identification.");
+          ttsSpeak(
+            "Opening camera for object identification. Press Identify to describe what the camera sees.",
+          );
           setTab("camera");
           setCmdFeedback("Opening camera…");
           break;
 
+        // ── Battery ───────────────────────────────────────────────────────────
+        case "battery": {
+          const nav = navigator as any;
+          if (nav.getBattery) {
+            nav.getBattery().then((bat: any) => {
+              const pct = Math.round(bat.level * 100);
+              const charging = bat.charging ? " and charging" : "";
+              ttsSpeak(`Battery is at ${pct} percent${charging}.`);
+              setCmdFeedback(`Battery: ${pct}%${charging}`);
+            });
+          } else {
+            ttsSpeak("Battery information is not available in this browser.");
+            setCmdFeedback("Battery info unavailable.");
+          }
+          break;
+        }
+
+        // ── Help ──────────────────────────────────────────────────────────────
         case "help":
           ttsSpeak(
-            "Available voice commands: say go to dashboard, go to trips, go to friends, go to explore, go to profile, read page, what time is it, what day is it, open camera, open Jinny, SOS or emergency, stop, or repeat.",
+            "Available voice commands: " +
+              "go to dashboard. " +
+              "go to trips. " +
+              "go to friends. " +
+              "go to explore. " +
+              "go to profile. " +
+              "go to guide. " +
+              "read page. " +
+              "read headings. " +
+              "read buttons. " +
+              "what time is it. " +
+              "what day is it. " +
+              "open camera. " +
+              "open Jinny. " +
+              "emergency numbers. " +
+              "SOS or emergency. " +
+              "battery level. " +
+              "stop. " +
+              "repeat.",
           );
           setCmdFeedback("Help spoken aloud.");
           break;
 
+        // ── Unknown ───────────────────────────────────────────────────────────
         default:
           ttsSpeak(
-            `I didn't understand: ${cmd.raw}. Say help to hear available commands.`,
+            `Sorry, I didn't understand: "${cmd.raw}". Say help to hear all available commands.`,
           );
           setCmdFeedback(`Unknown command: "${cmd.raw}"`);
       }
@@ -585,7 +801,7 @@ export default function AccessibilityPanel() {
   // ── Voice command listener ─────────────────────────────────────────────────
 
   const startVoiceCommand = useCallback(() => {
-    const rec = createSR();
+    const rec = createSR("en-IN");
     if (!rec) {
       toast({
         title: "Voice not supported",
@@ -594,36 +810,99 @@ export default function AccessibilityPanel() {
       });
       return;
     }
+
+    // Stop any existing recognition
+    try {
+      recRef.current?.abort();
+    } catch {
+      /* ignore */
+    }
+
     recRef.current = rec;
     setTranscript("");
     setCmdFeedback("");
     setIsListening(true);
-    ttsSpeak("Listening. Say a command.");
+
+    // Short vibration feedback + gentle prompt
+    vibrate(60);
+    ttsSpeak("Listening.");
+
+    let finalText = "";
 
     rec.onresult = (e: any) => {
-      let text = "";
+      finalText = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) text += e.results[i][0].transcript;
+        if (e.results[i].isFinal) {
+          // Pick the highest-confidence alternative
+          let best = e.results[i][0].transcript;
+          let bestConf = e.results[i][0].confidence ?? 0;
+          for (let a = 1; a < e.results[i].length; a++) {
+            if ((e.results[i][a].confidence ?? 0) > bestConf) {
+              bestConf = e.results[i][a].confidence;
+              best = e.results[i][a].transcript;
+            }
+          }
+          finalText += best + " ";
+        }
       }
-      if (text) {
-        setTranscript(text);
-        executeCommand(text);
+      if (finalText.trim()) {
+        setTranscript(finalText.trim());
+        executeCommand(finalText.trim());
       }
     };
+
     rec.onerror = (e: any) => {
       setIsListening(false);
-      if (e.error !== "no-speech" && e.error !== "aborted") {
-        ttsSpeak("Voice recognition error. Please try again.");
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        toast({
+          title: "Microphone blocked",
+          description: "Allow microphone access in browser settings.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (e.error === "no-speech") {
+        setCmdFeedback("No speech detected. Tap again to retry.");
+        ttsSpeak("No speech detected.");
+        return;
+      }
+      if (e.error !== "aborted") {
+        toast({
+          title: "Voice error",
+          description: `Recognition error: ${e.error}. Please try again.`,
+          variant: "destructive",
+        });
       }
     };
-    rec.onend = () => setIsListening(false);
-    rec.start();
+
+    rec.onend = () => {
+      setIsListening(false);
+      // If nothing was heard, give feedback
+      if (!finalText.trim()) {
+        setCmdFeedback("Tap the mic button and speak clearly.");
+      }
+    };
+
+    try {
+      rec.start();
+    } catch {
+      setIsListening(false);
+      toast({
+        title: "Could not start microphone",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
   }, [ttsSpeak, executeCommand, toast]);
 
-  const stopVoiceCommand = () => {
-    recRef.current?.stop();
+  const stopVoiceCommand = useCallback(() => {
+    try {
+      recRef.current?.stop();
+    } catch {
+      /* ignore */
+    }
     setIsListening(false);
-  };
+  }, []);
 
   // ── Camera ─────────────────────────────────────────────────────────────────
 
@@ -668,7 +947,7 @@ export default function AccessibilityPanel() {
       const desc = await identifyFromVideo(videoRef.current, canvasRef.current);
       setIdentified(desc);
       ttsSpeak(desc);
-      vibrate([80, 40, 80]);
+      vibrate(200);
     } catch (err: any) {
       const msg = "Could not identify the scene. Please try again.";
       ttsSpeak(msg);
