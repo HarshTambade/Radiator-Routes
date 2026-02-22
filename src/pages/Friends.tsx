@@ -136,6 +136,12 @@ export default function Friends() {
   const acceptedFriends = (friendRequests as any[]).filter(
     (r) => r.status === "accepted",
   );
+
+  // Build a map of friendId → list of trip names they've been added to
+  const friendTripMap = new Map<string, string[]>();
+  for (const trip of trips) {
+    // We'll populate this below after trip-memberships query
+  }
   const pendingReceived = (friendRequests as any[]).filter(
     (r) => r.status === "pending" && r.receiver_id === user?.id,
   );
@@ -375,8 +381,19 @@ export default function Friends() {
         return;
       }
       if (error) throw error;
+      // Invalidate all relevant queries so the UI refreshes immediately
       queryClient.invalidateQueries({ queryKey: ["trip-members"] });
-      toast({ title: "Added to travel group! ✅" });
+      queryClient.invalidateQueries({ queryKey: ["trip-memberships"] });
+      queryClient.invalidateQueries({
+        queryKey: ["friend-requests", user?.id],
+      });
+      queryClient.invalidateQueries({ queryKey: ["all-profiles"] });
+      queryClient.invalidateQueries({ queryKey: ["trips"] });
+      const tripName = trips.find((t) => t.id === tripId)?.name ?? "your trip";
+      toast({
+        title: `Added to ${tripName}! ✅`,
+        description: "They can now view and collaborate on this trip.",
+      });
     } catch (err: any) {
       toast({
         title: "Error",
@@ -474,6 +491,33 @@ export default function Friends() {
     },
     enabled: !!user,
   });
+
+  // Fetch trip memberships for friends so we can show which trip they're in
+  const { data: tripMemberships = [] } = useQuery({
+    queryKey: ["trip-memberships", user?.id],
+    queryFn: async () => {
+      if (!trips.length) return [];
+      const tripIds = trips.map((t) => t.id);
+      const { data, error } = await supabase
+        .from("trip_memberships")
+        .select("trip_id, user_id, role")
+        .in("trip_id", tripIds);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!user && trips.length > 0,
+  });
+
+  // Build friendId → trip names map
+  const friendInTripsMap = new Map<string, string[]>();
+  for (const mem of tripMemberships as any[]) {
+    const trip = trips.find((t) => t.id === mem.trip_id);
+    if (!trip) continue;
+    if (!friendInTripsMap.has(mem.user_id)) {
+      friendInTripsMap.set(mem.user_id, []);
+    }
+    friendInTripsMap.get(mem.user_id)!.push(trip.name);
+  }
 
   const totalRequestBadge =
     pendingReceived.length + joinRequests.length || undefined;
@@ -833,6 +877,7 @@ export default function Friends() {
               {acceptedFriends.map((r: any) => {
                 const friend = r.sender_id === user?.id ? r.receiver : r.sender;
                 if (!friend) return null;
+                const friendTrips = friendInTripsMap.get(friend.id) || [];
                 return (
                   <div
                     key={r.id}
@@ -849,6 +894,14 @@ export default function Friends() {
                         <UserCheck className="w-3 h-3 text-success" />
                         Friend
                       </p>
+                      {friendTrips.length > 0 && (
+                        <p className="text-[10px] text-primary font-medium mt-0.5 truncate">
+                          ✈️ In: {friendTrips.slice(0, 2).join(", ")}
+                          {friendTrips.length > 2
+                            ? ` +${friendTrips.length - 2}`
+                            : ""}
+                        </p>
+                      )}
                     </div>
                     <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
                       <button

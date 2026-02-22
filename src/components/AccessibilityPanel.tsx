@@ -818,16 +818,33 @@ export default function AccessibilityPanel() {
       /* ignore */
     }
 
+    // ── CRITICAL: Stop TTS FIRST so the mic doesn't pick up our own voice ──
+    // This is the main cause of "stops without command" — TTS plays "Listening"
+    // which the mic captures, triggering an immediate (wrong) recognition result.
+    stopSpeaking();
+
     recRef.current = rec;
     setTranscript("");
-    setCmdFeedback("");
+    setCmdFeedback("Tap to speak a command…");
     setIsListening(true);
-
-    // Short vibration feedback + gentle prompt
     vibrate(60);
-    ttsSpeak("Listening.");
 
     let finalText = "";
+    let started = false;
+
+    const doStart = () => {
+      try {
+        rec.start();
+        started = true;
+      } catch {
+        setIsListening(false);
+        toast({
+          title: "Could not start microphone",
+          description: "Please try again.",
+          variant: "destructive",
+        });
+      }
+    };
 
     rec.onresult = (e: any) => {
       finalText = "";
@@ -862,38 +879,30 @@ export default function AccessibilityPanel() {
         return;
       }
       if (e.error === "no-speech") {
-        setCmdFeedback("No speech detected. Tap again to retry.");
-        ttsSpeak("No speech detected.");
+        // Don't speak "no speech" — that creates another feedback loop!
+        setCmdFeedback("No speech detected. Tap the mic and speak clearly.");
         return;
       }
-      if (e.error !== "aborted") {
-        toast({
-          title: "Voice error",
-          description: `Recognition error: ${e.error}. Please try again.`,
-          variant: "destructive",
-        });
-      }
+      if (e.error === "aborted") return;
+      toast({
+        title: "Voice error",
+        description: `Recognition error: ${e.error}. Please try again.`,
+        variant: "destructive",
+      });
     };
 
     rec.onend = () => {
       setIsListening(false);
-      // If nothing was heard, give feedback
-      if (!finalText.trim()) {
-        setCmdFeedback("Tap the mic button and speak clearly.");
+      if (!finalText.trim() && started) {
+        setCmdFeedback("Nothing heard — tap mic and speak clearly.");
       }
     };
 
-    try {
-      rec.start();
-    } catch {
-      setIsListening(false);
-      toast({
-        title: "Could not start microphone",
-        description: "Please try again.",
-        variant: "destructive",
-      });
-    }
-  }, [ttsSpeak, executeCommand, toast]);
+    // ── Delay start by 600ms so any TTS audio fully clears before mic opens ──
+    // Without this delay the microphone captures the tail of "Listening" TTS
+    // and immediately fires an onresult with garbage, causing auto-stop.
+    setTimeout(doStart, 600);
+  }, [executeCommand, toast]);
 
   const stopVoiceCommand = useCallback(() => {
     try {

@@ -73,14 +73,12 @@ export default function Community() {
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      const { error } = await supabase
-        .from("communities")
-        .insert({
-          name: newName,
-          description: newDesc,
-          category: newCategory,
-          created_by: user!.id,
-        });
+      const { error } = await supabase.from("communities").insert({
+        name: newName,
+        description: newDesc,
+        category: newCategory,
+        created_by: user!.id,
+      });
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ["communities"] });
       queryClient.invalidateQueries({ queryKey: ["my-community-memberships"] });
@@ -450,13 +448,11 @@ function CommunityChat({ communityId }: { communityId: string }) {
     if (!input.trim() || !user) return;
     setSending(true);
     try {
-      const { error } = await supabase
-        .from("community_messages")
-        .insert({
-          community_id: communityId,
-          sender_id: user.id,
-          content: input,
-        });
+      const { error } = await supabase.from("community_messages").insert({
+        community_id: communityId,
+        sender_id: user.id,
+        content: input,
+      });
       if (error) throw error;
       setInput("");
     } catch (error: any) {
@@ -563,16 +559,14 @@ function CommunityEvents({ communityId }: { communityId: string }) {
     if (!title.trim() || !eventDate) return;
     setCreating(true);
     try {
-      const { error } = await supabase
-        .from("community_events")
-        .insert({
-          community_id: communityId,
-          title,
-          description: desc,
-          destination: dest,
-          event_date: eventDate,
-          created_by: user!.id,
-        });
+      const { error } = await supabase.from("community_events").insert({
+        community_id: communityId,
+        title,
+        description: desc,
+        destination: dest,
+        event_date: eventDate,
+        created_by: user!.id,
+      });
       if (error) throw error;
       queryClient.invalidateQueries({
         queryKey: ["community-events", communityId],
@@ -751,41 +745,124 @@ function CommunityEvents({ communityId }: { communityId: string }) {
 
 // Members Tab
 function CommunityMembers({ communityId }: { communityId: string }) {
-  const { data: members = [] } = useQuery({
+  const queryClient = useQueryClient();
+
+  const { data: members = [], isLoading } = useQuery({
     queryKey: ["community-members", communityId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Step 1: fetch memberships (no FK join — avoids RLS/schema issues)
+      const { data: memberships, error } = await supabase
         .from("community_memberships")
-        .select("*, profiles:user_id(name, avatar_url)")
+        .select("id, user_id, role, created_at")
         .eq("community_id", communityId)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return data;
+      if (!memberships || memberships.length === 0) return [];
+
+      // Step 2: collect unique user IDs
+      const userIds = Array.from(
+        new Set(memberships.map((m: any) => m.user_id)),
+      );
+
+      // Step 3: fetch profiles for those IDs
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, name, avatar_url")
+        .in("id", userIds);
+
+      const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
+
+      // Step 4: merge profile data onto each membership
+      return memberships.map((m: any) => ({
+        ...m,
+        profile: profileMap.get(m.user_id) ?? {
+          id: m.user_id,
+          name: "Unknown",
+          avatar_url: null,
+        },
+      }));
     },
+    staleTime: 30_000,
   });
 
+  const getInitials = (name: string) =>
+    (name || "?")
+      .split(" ")
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      {members.map((m: any) => (
-        <div
-          key={m.id}
-          className="bg-card rounded-2xl p-4 shadow-card flex items-center gap-3"
+    <div className="space-y-4">
+      {/* Header row */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-muted-foreground">
+          {members.length} member{members.length !== 1 ? "s" : ""}
+        </p>
+        <button
+          onClick={() =>
+            queryClient.invalidateQueries({
+              queryKey: ["community-members", communityId],
+            })
+          }
+          className="text-xs text-primary hover:underline font-medium"
         >
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary">
-            {((m as any).profiles?.name || "?")[0].toUpperCase()}
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-card-foreground">
-              {(m as any).profiles?.name || "Unknown"}
-            </p>
-            <p className="text-xs text-muted-foreground capitalize">{m.role}</p>
-          </div>
+          Refresh
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-10">
+          <Loader2 className="w-6 h-6 text-primary animate-spin" />
         </div>
-      ))}
-      {members.length === 0 && (
-        <p className="text-sm text-muted-foreground col-span-2 text-center py-8">
+      ) : members.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">
           No members yet.
         </p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {members.map((m: any) => {
+            const profile = m.profile;
+            const initials = getInitials(profile?.name || "?");
+            return (
+              <div
+                key={m.id}
+                className="bg-card rounded-2xl p-4 shadow-card flex items-center gap-3"
+              >
+                {profile?.avatar_url ? (
+                  <img
+                    src={profile.avatar_url}
+                    alt={profile.name}
+                    className="w-10 h-10 rounded-full object-cover shrink-0"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary shrink-0">
+                    {initials}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-card-foreground truncate">
+                    {profile?.name || "Unknown User"}
+                  </p>
+                  <p className="text-xs text-muted-foreground capitalize flex items-center gap-1">
+                    {m.role === "admin" ? (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-semibold">
+                        ⭐ Admin
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Member</span>
+                    )}
+                  </p>
+                </div>
+                <div
+                  className="w-2 h-2 rounded-full bg-green-500 shrink-0"
+                  title="Active"
+                />
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { getSavedLanguage } from "@/services/translate";
 import {
   X,
   Send,
@@ -158,6 +159,9 @@ export default function AIAssistant() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  // Read the user's chosen UI language so Jinny can reply in it
+  const userLang = getSavedLanguage();
 
   const userName =
     user?.user_metadata?.name || user?.email?.split("@")[0] || "Traveler";
@@ -802,24 +806,28 @@ export default function AIAssistant() {
       let assistantSoFar = "";
 
       try {
-        await streamChatMessage(allMessages, (chunk: string) => {
-          assistantSoFar += chunk;
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (
-              last?.role === "assistant" &&
-              prev.length > allMessages.length
-            ) {
-              return prev.map((m, i) =>
-                i === prev.length - 1 ? { ...m, content: assistantSoFar } : m,
-              );
-            }
-            return [
-              ...prev.slice(0, allMessages.length),
-              { role: "assistant", content: assistantSoFar },
-            ];
-          });
-        });
+        await streamChatMessage(
+          allMessages,
+          (chunk: string) => {
+            assistantSoFar += chunk;
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (
+                last?.role === "assistant" &&
+                prev.length > allMessages.length
+              ) {
+                return prev.map((m, i) =>
+                  i === prev.length - 1 ? { ...m, content: assistantSoFar } : m,
+                );
+              }
+              return [
+                ...prev.slice(0, allMessages.length),
+                { role: "assistant", content: assistantSoFar },
+              ];
+            });
+          },
+          userLang,
+        );
 
         // Speak Jinny's response via TTS (strip JSON blocks first)
         if (ttsEnabledRef.current && assistantSoFar) {

@@ -4,6 +4,7 @@ import { AppSidebar } from "./AppSidebar";
 import { Accessibility } from "lucide-react";
 import SOSPanel from "./SOSPanel";
 import AccessibilityPanel from "./AccessibilityPanel";
+import LanguageSwitcher from "./LanguageSwitcher";
 
 export function Layout() {
   const [showSOS, setShowSOS] = useState(false);
@@ -32,6 +33,10 @@ export function Layout() {
         }}
       />
       <main className="flex-1 overflow-auto">
+        {/* Top bar with language switcher — visible on desktop */}
+        <div className="hidden md:flex items-center justify-end px-6 py-2 border-b border-border/50 bg-background/80 backdrop-blur-sm sticky top-0 z-30">
+          <LanguageSwitcher />
+        </div>
         <Outlet />
       </main>
 
@@ -49,6 +54,11 @@ export function Layout() {
       >
         <Accessibility className="w-5 h-5" />
       </button>
+
+      {/* Mobile language switcher — bottom left corner */}
+      <div className="md:hidden fixed bottom-20 left-4 z-40">
+        <LanguageSwitcher compact />
+      </div>
 
       {/* SOS Modal */}
       {showSOS && (

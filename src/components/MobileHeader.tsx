@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Menu, AlertTriangle, Bell, X } from "lucide-react";
 import { useLocation } from "react-router-dom";
+import LanguageSwitcher from "./LanguageSwitcher";
 
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard": "Dashboard",
@@ -17,7 +18,10 @@ interface MobileHeaderProps {
   onSOSOpen: () => void;
 }
 
-export default function MobileHeader({ onMenuOpen, onSOSOpen }: MobileHeaderProps) {
+export default function MobileHeader({
+  onMenuOpen,
+  onSOSOpen,
+}: MobileHeaderProps) {
   const location = useLocation();
   const [notifOpen, setNotifOpen] = useState(false);
 
@@ -53,8 +57,9 @@ export default function MobileHeader({ onMenuOpen, onSOSOpen }: MobileHeaderProp
             </span>
           </div>
 
-          {/* Right: SOS + notif */}
+          {/* Right: Language + notif + SOS */}
           <div className="flex items-center gap-1.5">
+            <LanguageSwitcher compact />
             <button
               onClick={() => setNotifOpen((v) => !v)}
               className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-secondary transition-colors relative"
@@ -124,7 +129,9 @@ export default function MobileHeader({ onMenuOpen, onSOSOpen }: MobileHeaderProp
                   key={i}
                   className={`flex items-start gap-3 px-4 py-3 hover:bg-secondary/40 transition-colors cursor-pointer ${n.color}`}
                 >
-                  <span className="text-xl leading-none mt-0.5 shrink-0">{n.emoji}</span>
+                  <span className="text-xl leading-none mt-0.5 shrink-0">
+                    {n.emoji}
+                  </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold text-card-foreground">
                       {n.title}

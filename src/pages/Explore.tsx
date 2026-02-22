@@ -62,9 +62,92 @@ const categories = [
 type SearchMode = "places" | "flights" | "hotels" | "restaurants";
 
 // Convert OpenTripMap rate (1‑7) to 5‑star scale
+// OTM rates: 1=low interest, 2=some interest, 3=good, 4-5=notable, 6=worth a trip, 7=world class
+// Only show rating if >= 2 (avoids displaying 0.5★ for uninteresting places)
 function toFiveStars(rate: number | undefined): number | null {
-  if (!rate || rate <= 0) return null;
-  return Math.round((rate / 7) * 5 * 10) / 10;
+  if (!rate || rate < 2) return null;
+  // Map 2-7 → 2.5-5 stars (more realistic for travellers)
+  const stars = 2.5 + ((rate - 2) / 5) * 2.5;
+  return Math.round(stars * 10) / 10;
+}
+
+// Fetch an accurate image for a place using Wikipedia/Wikimedia Commons API
+// Priority: OTM image → OTM preview → Wikimedia via wikidata → Wikipedia by name → category fallback
+async function fetchPlaceImage(place: any): Promise<string | null> {
+  // 1. Use OTM-provided image directly
+  if (
+    place.image &&
+    typeof place.image === "string" &&
+    place.image.startsWith("http")
+  ) {
+    return place.image;
+  }
+  if (
+    place.preview?.source &&
+    typeof place.preview.source === "string" &&
+    place.preview.source.startsWith("http")
+  ) {
+    return place.preview.source;
+  }
+
+  // 2. Try Wikimedia Commons via wikidata ID (most accurate)
+  if (place.wikidata) {
+    try {
+      const wd = place.wikidata;
+      const url = `https://commons.wikimedia.org/w/api.php?action=wbgetentities&ids=${wd}&props=claims&format=json&origin=*`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const entity = data?.entities?.[wd];
+        // P18 = image claim in Wikidata
+        const imageClaim = entity?.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
+        if (imageClaim) {
+          // Convert file name to Commons URL
+          const fileName = imageClaim.replace(/ /g, "_");
+          const encoded = encodeURIComponent(fileName);
+          return `https://commons.wikimedia.org/wiki/Special:FilePath/${encoded}?width=600`;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // 3. Try Wikipedia page image by place name
+  if (place.name && place.name.trim().length > 2) {
+    try {
+      const encoded = encodeURIComponent(place.name.trim());
+      const url = `https://en.wikipedia.org/w/api.php?action=query&titles=${encoded}&prop=pageimages&pithumbsize=600&format=json&origin=*`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const pages = data?.query?.pages || {};
+        const page = Object.values(pages)[0] as any;
+        if (page?.thumbnail?.source) return page.thumbnail.source;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return null;
+}
+
+// Category-based Unsplash keyword fallback for when no image found
+function getCategoryImageKeyword(kinds: string | undefined): string {
+  if (!kinds) return "travel,landmark";
+  if (kinds.includes("temple") || kinds.includes("religion"))
+    return "temple,india";
+  if (kinds.includes("historic") || kinds.includes("fort"))
+    return "historic,fort,india";
+  if (kinds.includes("natural") || kinds.includes("park"))
+    return "nature,landscape,india";
+  if (kinds.includes("museum")) return "museum,art,heritage";
+  if (kinds.includes("beach")) return "beach,coastal";
+  if (kinds.includes("mountain")) return "mountain,himalaya";
+  if (kinds.includes("architecture")) return "architecture,india";
+  if (kinds.includes("amusement")) return "amusement,park";
+  return "travel,india,destination";
 }
 
 type SearchCache = Record<string, any[]>;
@@ -165,7 +248,11 @@ export default function Explore() {
           if (!p.xid) continue;
           try {
             const detail = await otmDetails(p.xid);
-            if (detail) detailed.push(detail);
+            if (detail) {
+              // Fetch accurate image asynchronously (non-blocking, fills in later)
+              const enriched = { ...detail };
+              detailed.push(enriched);
+            }
             await new Promise((r) => setTimeout(r, 200));
           } catch {
             detailed.push({ ...p, name: p.name || "Unknown Place" });
@@ -174,9 +261,18 @@ export default function Explore() {
         const results = detailed.filter(
           (p: any) => p.name && p.name.trim() !== "",
         );
-        cacheRef.current[cacheKey] = results;
-        setPlaces(results);
-        if (results.length === 0)
+
+        // Enrich images in background — fetch Wikipedia/Wikidata images
+        const enriched = await Promise.all(
+          results.map(async (place: any) => {
+            const img = await fetchPlaceImage(place).catch(() => null);
+            return img ? { ...place, _resolvedImage: img } : place;
+          }),
+        );
+
+        cacheRef.current[cacheKey] = enriched;
+        setPlaces(enriched);
+        if (enriched.length === 0)
           toast({
             title: "No named places found",
             description: "Try a broader search or different category.",
@@ -350,16 +446,24 @@ export default function Explore() {
         try {
           const detail = await otmDetails(p.xid);
           if (detail) detailed.push(detail);
-          await new Promise((r) => setTimeout(r, 150));
+          await new Promise((r) => setTimeout(r, 200));
         } catch {
-          detailed.push({ ...p, name: p.name || "Restaurant" });
+          detailed.push({ ...p, name: p.name || "Unknown Place" });
         }
       }
       const results = detailed.filter(
         (p: any) => p.name && p.name.trim() !== "",
       );
-      setRestaurantResults(results);
-      if (results.length === 0)
+
+      // Enrich with accurate images
+      const enriched = await Promise.all(
+        results.map(async (place: any) => {
+          const img = await fetchPlaceImage(place).catch(() => null);
+          return img ? { ...place, _resolvedImage: img } : place;
+        }),
+      );
+      setRestaurantResults(enriched);
+      if (enriched.length === 0)
         toast({
           title: "No restaurants found",
           description: "Try a broader area.",
@@ -706,6 +810,12 @@ export default function Explore() {
                   const coords = getPlaceCoords(place);
                   const hasCoords = !isNaN(coords.lat) && !isNaN(coords.lng);
                   const starRating = toFiveStars(place.rate);
+                  // Image priority: resolved Wikipedia/Wikidata → OTM preview → OTM image → fallback
+                  const placeImage =
+                    place._resolvedImage ||
+                    place.preview?.source ||
+                    place.image ||
+                    null;
                   return (
                     <div
                       key={place.xid || i}
@@ -716,10 +826,14 @@ export default function Explore() {
                       <div className="relative h-44 overflow-hidden bg-primary/5">
                         <img
                           src={
-                            place.preview?.source ||
+                            placeImage ||
                             fallbackImages[i % fallbackImages.length]
                           }
                           alt={place.name}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src =
+                              fallbackImages[i % fallbackImages.length];
+                          }}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         />
                         <div className="absolute top-3 right-3 flex gap-1.5">
@@ -767,9 +881,20 @@ export default function Explore() {
                         )}
                         {starRating && (
                           <div className="flex items-center gap-1 mt-2">
-                            <Star className="w-3 h-3 text-warning fill-warning" />
-                            <span className="text-xs font-semibold text-card-foreground">
-                              {starRating}/5
+                            {[1, 2, 3, 4, 5].map((s) => (
+                              <Star
+                                key={s}
+                                className={`w-3 h-3 ${
+                                  s <= Math.floor(starRating)
+                                    ? "text-warning fill-warning"
+                                    : s - starRating < 1
+                                      ? "text-warning fill-warning/40"
+                                      : "text-muted-foreground"
+                                }`}
+                              />
+                            ))}
+                            <span className="text-xs font-semibold text-card-foreground ml-0.5">
+                              {starRating}
                             </span>
                           </div>
                         )}
@@ -960,11 +1085,15 @@ export default function Explore() {
                       </div>
                       <div className="text-right">
                         <p className="text-lg font-bold text-primary">
-                          {price?.currency}{" "}
-                          {Number(price?.total || 0).toLocaleString()}
+                          {price?.currency === "INR" || !price?.currency
+                            ? "₹"
+                            : price?.currency === "USD"
+                              ? "₹"
+                              : price?.currency}{" "}
+                          {Number(price?.total || 0).toLocaleString("en-IN")}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          per traveler
+                          per traveller
                         </p>
                       </div>
                     </div>
@@ -1038,10 +1167,10 @@ export default function Explore() {
                           ?.cabin || "Economy"}
                       </span>
                       <span className="text-xs font-semibold text-card-foreground">
-                        {flightAdults} pax · Total: {price?.currency}{" "}
+                        {flightAdults} pax · Total: ₹
                         {Number(
                           price?.grandTotal || price?.total || 0,
-                        ).toLocaleString()}
+                        ).toLocaleString("en-IN")}
                       </span>
                     </div>
                   </div>
@@ -1288,6 +1417,11 @@ export default function Explore() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5 overflow-y-auto">
                 {restaurantResults.map((place: any, i: number) => {
                   const starRating = toFiveStars(place.rate);
+                  const placeImage =
+                    place._resolvedImage ||
+                    place.preview?.source ||
+                    place.image ||
+                    null;
                   return (
                     <div
                       key={place.xid || i}
@@ -1297,11 +1431,15 @@ export default function Explore() {
                       <div className="relative h-36 overflow-hidden bg-warning/5">
                         <img
                           src={
-                            place.preview?.source ||
+                            placeImage ||
                             fallbackImages[i % fallbackImages.length]
                           }
                           alt={place.name}
-                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src =
+                              fallbackImages[i % fallbackImages.length];
+                          }}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
                         <div className="absolute bottom-2 left-3">
@@ -1323,10 +1461,21 @@ export default function Explore() {
                           </p>
                         )}
                         {starRating && (
-                          <div className="flex items-center gap-1 mt-1.5">
-                            <Star className="w-3 h-3 text-warning fill-warning" />
-                            <span className="text-xs font-semibold text-card-foreground">
-                              {starRating}/5
+                          <div className="flex items-center gap-1 mt-2">
+                            {[1, 2, 3, 4, 5].map((s) => (
+                              <Star
+                                key={s}
+                                className={`w-3 h-3 ${
+                                  s <= Math.floor(starRating)
+                                    ? "text-warning fill-warning"
+                                    : s - starRating < 1
+                                      ? "text-warning fill-warning/40"
+                                      : "text-muted-foreground"
+                                }`}
+                              />
+                            ))}
+                            <span className="text-xs font-semibold text-card-foreground ml-0.5">
+                              {starRating}
                             </span>
                           </div>
                         )}

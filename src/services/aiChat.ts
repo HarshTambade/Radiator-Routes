@@ -1057,11 +1057,21 @@ async function groqFetch(
 // Build the full system prompt with intent hint + user context
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function buildSystemPrompt(lastUserMessage: string): Promise<string> {
+async function buildSystemPrompt(
+  lastUserMessage: string,
+  userLang = "en",
+): Promise<string> {
   const personalCtx = await loadPersonalContext();
   const intent = classifyIntent(lastUserMessage);
   const intentHint = buildIntentHint(intent, lastUserMessage);
-  return `${BASE_SYSTEM_PROMPT}\n\n## DETECTED INTENT\n${intentHint}${personalCtx}`;
+
+  // Inject language instruction so Jinny replies in the user's chosen language
+  const langNote =
+    userLang && userLang !== "en"
+      ? `\n\n## LANGUAGE INSTRUCTION\nThe user's interface language is set to "${userLang}". You MUST respond entirely in that language (use its native script where applicable). Keep all JSON action blocks in English — only translate your conversational text.`
+      : "";
+
+  return `${BASE_SYSTEM_PROMPT}${langNote}\n\n## DETECTED INTENT\n${intentHint}${personalCtx}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1070,9 +1080,13 @@ async function buildSystemPrompt(lastUserMessage: string): Promise<string> {
 
 export async function sendChatMessage(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
+  userLang = "en",
 ): Promise<string> {
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
-  const systemPrompt = await buildSystemPrompt(lastUser?.content ?? "");
+  const systemPrompt = await buildSystemPrompt(
+    lastUser?.content ?? "",
+    userLang,
+  );
   const res = await groqFetch(buildMessages(systemPrompt, messages), false);
   const data = await res.json();
   return data.choices?.[0]?.message?.content ?? "";
@@ -1085,9 +1099,13 @@ export async function sendChatMessage(
 export async function streamChatMessage(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
   onChunk: (chunk: string) => void,
+  userLang = "en",
 ): Promise<string> {
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
-  const systemPrompt = await buildSystemPrompt(lastUser?.content ?? "");
+  const systemPrompt = await buildSystemPrompt(
+    lastUser?.content ?? "",
+    userLang,
+  );
 
   let res: Response;
   try {
