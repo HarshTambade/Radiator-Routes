@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Outlet } from "react-router-dom";
 import { AppSidebar } from "./AppSidebar";
 import { Accessibility } from "lucide-react";
@@ -8,6 +8,16 @@ import AccessibilityPanel from "./AccessibilityPanel";
 export function Layout() {
   const [showSOS, setShowSOS] = useState(false);
   const [showA11y, setShowA11y] = useState(false);
+
+  // Allow accessibility panel voice commands to trigger SOS
+  useEffect(() => {
+    const handler = () => {
+      setShowSOS(true);
+      setShowA11y(false);
+    };
+    window.addEventListener("open-sos", handler);
+    return () => window.removeEventListener("open-sos", handler);
+  }, []);
 
   return (
     <div className="flex min-h-screen w-full bg-background">
