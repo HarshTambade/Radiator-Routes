@@ -12,6 +12,7 @@ import {
   WifiOff,
   Radio,
   Map as MapIcon,
+  RefreshCw,
 } from "lucide-react";
 import {
   MapContainer,
@@ -101,22 +102,23 @@ function formatAgo(timestamp: number): string {
   return `${Math.floor(secs / 3600)}h ago`;
 }
 
-/* ── Auto-fit map bounds whenever points change ─────────────────────────── */
+/* ── Auto-fit bounds ─────────────────────────────────────────────────────── */
 function FitBounds({ points }: { points: [number, number][] }) {
   const map = useMap();
   useEffect(() => {
     if (points.length === 0) return;
     if (points.length === 1) {
-      map.setView(points[0], 14, { animate: true });
+      map.setView(points[0], 15, { animate: true });
       return;
     }
     const bounds: LatLngBoundsExpression = points as [number, number][];
-    map.fitBounds(bounds, { padding: [32, 32], animate: true, maxZoom: 15 });
-  }, [map, JSON.stringify(points)]); // eslint-disable-line react-hooks/exhaustive-deps
+    map.fitBounds(bounds, { padding: [28, 28], animate: true, maxZoom: 15 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, JSON.stringify(points)]);
   return null;
 }
 
-/* ── Mini map component ─────────────────────────────────────────────────── */
+/* ── Mini live map ───────────────────────────────────────────────────────── */
 function LiveMap({
   members,
   myLocation,
@@ -124,14 +126,13 @@ function LiveMap({
   members: MemberLocation[];
   myLocation: { lat: number; lng: number } | null;
 }) {
+  const active = members.filter((m) => Date.now() - m.timestamp < 5 * 60_000);
   const allPoints: [number, number][] = [];
   if (myLocation) allPoints.push([myLocation.lat, myLocation.lng]);
-  members
-    .filter((m) => Date.now() - m.timestamp < 5 * 60_000)
-    .forEach((m) => allPoints.push([m.lat, m.lng]));
+  active.forEach((m) => allPoints.push([m.lat, m.lng]));
 
   const center: [number, number] =
-    allPoints.length > 0 ? allPoints[0] : [20.5937, 78.9629]; // India center fallback
+    allPoints.length > 0 ? allPoints[0] : [20.5937, 78.9629];
 
   return (
     <MapContainer
@@ -142,12 +143,9 @@ function LiveMap({
       attributionControl={false}
       scrollWheelZoom={false}
     >
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution='&copy; <a href="https://openstreetmap.org">OSM</a>'
-      />
+      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-      {/* My location – blue pulsing dot */}
+      {/* Self — blue */}
       {myLocation && (
         <CircleMarker
           center={[myLocation.lat, myLocation.lng]}
@@ -160,42 +158,47 @@ function LiveMap({
           }}
         >
           <Popup>
-            <div className="text-xs font-semibold">📍 You</div>
+            <span className="text-xs font-semibold">📍 You</span>
           </Popup>
         </CircleMarker>
       )}
 
-      {/* Member locations */}
-      {members
-        .filter((m) => Date.now() - m.timestamp < 5 * 60_000)
-        .map((m) => (
-          <CircleMarker
-            key={m.userId}
-            center={[m.lat, m.lng]}
-            radius={8}
-            pathOptions={{
-              fillColor: m.color,
-              fillOpacity: 0.92,
-              color: "#fff",
-              weight: 2,
-            }}
-          >
-            <Popup>
-              <div className="text-xs">
-                <span className="font-bold">{m.userName}</span>
-                <br />
-                <span className="text-gray-500">{formatAgo(m.timestamp)}</span>
-              </div>
-            </Popup>
-          </CircleMarker>
-        ))}
+      {/* Members */}
+      {active.map((m) => (
+        <CircleMarker
+          key={m.userId}
+          center={[m.lat, m.lng]}
+          radius={8}
+          pathOptions={{
+            fillColor: m.color,
+            fillOpacity: 0.92,
+            color: "#fff",
+            weight: 2,
+          }}
+        >
+          <Popup>
+            <div className="text-xs">
+              <span className="font-bold">{m.userName}</span>
+              <br />
+              <span className="text-gray-500">{formatAgo(m.timestamp)}</span>
+            </div>
+          </Popup>
+        </CircleMarker>
+      ))}
 
       <FitBounds points={allPoints} />
     </MapContainer>
   );
 }
 
-/* ── Main panel ─────────────────────────────────────────────────────────── */
+/* ── Panel style (smart fixed positioning) ───────────────────────────────── */
+interface PanelPos {
+  top: number;
+  left?: number;
+  right?: number;
+}
+
+/* ── Main component ──────────────────────────────────────────────────────── */
 export default function LiveLocationPanel({ tripId, tripName }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -208,11 +211,12 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
     lng: number;
   } | null>(null);
   const [showMap, setShowMap] = useState(true);
-  const [tick, setTick] = useState(0);
   const [channelStatus, setChannelStatus] = useState<
     "connecting" | "connected" | "disconnected"
   >("disconnected");
+  const [panelPos, setPanelPos] = useState<PanelPos>({ top: 0, left: 0 });
 
+  const btnRef = useRef<HTMLButtonElement>(null);
   const watchIdRef = useRef<number | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const sharingRef = useRef(false);
@@ -220,24 +224,58 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
   const userName =
     user?.user_metadata?.name || user?.email?.split("@")[0] || "Traveler";
 
-  // Tick every 10 s to refresh "X ago" labels
+  /* ── Tick for "X ago" refresh ──────────────────────────────────────────── */
+  const [, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 10_000);
     return () => clearInterval(id);
   }, []);
 
-  // Lock scroll when mobile sheet is open
+  /* ── Lock scroll when panel open on mobile ─────────────────────────────── */
   useEffect(() => {
-    if (open) document.body.style.overflow = "hidden";
+    const isMobile = window.innerWidth < 768;
+    if (open && isMobile) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
     return () => {
       document.body.style.overflow = "";
     };
   }, [open]);
 
-  // ── Subscribe to presence channel ─────────────────────────────────────────
+  /* ── Smart panel position ───────────────────────────────────────────────── */
+  const calcPanelPos = useCallback(() => {
+    if (!btnRef.current) return;
+    const rect = btnRef.current.getBoundingClientRect();
+    const PANEL_W = 400;
+    const top = rect.bottom + 8;
+
+    // prefer right-aligned (right edge of panel = right edge of button)
+    const rightVal = window.innerWidth - rect.right;
+    const leftVal = rect.left;
+
+    let pos: PanelPos;
+    if (rightVal + rect.width >= PANEL_W) {
+      // enough space to open leftward from button's right edge
+      pos = { top, right: Math.max(8, rightVal) };
+    } else if (leftVal + rect.width >= PANEL_W) {
+      // open rightward from button's left edge
+      pos = { top, left: Math.max(8, leftVal) };
+    } else {
+      // centre in viewport
+      pos = { top, left: Math.max(8, (window.innerWidth - PANEL_W) / 2) };
+    }
+    setPanelPos(pos);
+  }, []);
+
+  const handleToggle = useCallback(() => {
+    if (!open) calcPanelPos();
+    setOpen((v) => !v);
+  }, [open, calcPanelPos]);
+
+  /* ── Supabase Presence channel ─────────────────────────────────────────── */
   useEffect(() => {
     if (!user || !tripId) return;
+
+    setChannelStatus("connecting");
 
     const channel = supabase.channel(`live-location-${tripId}`, {
       config: { presence: { key: user.id } },
@@ -274,14 +312,13 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
           });
         }
         setMembers(locs);
-        setChannelStatus("connected");
       })
       .on("presence", { event: "join" }, ({ newPresences }) => {
         if (!newPresences?.length) return;
         const p = newPresences[0] as any;
         if (p.userId === user.id) return;
         toast({
-          title: `📍 ${p.userName ?? "Someone"} started sharing location`,
+          title: `📍 ${p.userName ?? "Someone"} started sharing`,
           description: tripName,
         });
       })
@@ -290,15 +327,23 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
         const p = leftPresences[0] as any;
         if (p.userId === user.id) return;
         toast({
-          title: `${p.userName ?? "Someone"} stopped sharing location`,
+          title: `${p.userName ?? "Someone"} stopped sharing`,
           description: tripName,
         });
       })
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") setChannelStatus("connected");
-        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT")
+        if (status === "SUBSCRIBED") {
+          setChannelStatus("connected");
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           setChannelStatus("disconnected");
-        else setChannelStatus("connecting");
+          toast({
+            title: "Live location disconnected",
+            description: "Check your connection and try again.",
+            variant: "destructive",
+          });
+        } else {
+          setChannelStatus("connecting");
+        }
       });
 
     return () => {
@@ -309,7 +354,60 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId, user?.id]);
 
-  // ── Track my location ──────────────────────────────────────────────────────
+  /* ── Reconnect helper ───────────────────────────────────────────────────── */
+  const reconnect = useCallback(() => {
+    if (!user || !tripId) return;
+    // Cleanup old channel
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+    setChannelStatus("connecting");
+
+    const channel = supabase.channel(`live-location-${tripId}`, {
+      config: { presence: { key: user.id } },
+    });
+    channelRef.current = channel;
+
+    channel
+      .on("presence", { event: "sync" }, () => {
+        const state = channel.presenceState<{
+          userId: string;
+          userName: string;
+          lat: number;
+          lng: number;
+          accuracy?: number;
+          timestamp: number;
+        }>();
+        const locs: MemberLocation[] = [];
+        for (const [uid, presences] of Object.entries(state)) {
+          if (uid === user.id) continue;
+          const latest = (presences as any[]).sort(
+            (a, b) => b.timestamp - a.timestamp,
+          )[0];
+          if (!latest?.lat) continue;
+          locs.push({
+            userId: uid,
+            userName: latest.userName ?? "Traveler",
+            lat: latest.lat,
+            lng: latest.lng,
+            accuracy: latest.accuracy,
+            timestamp: latest.timestamp,
+            initials: getInitials(latest.userName ?? "T"),
+            color: getColor(uid),
+          });
+        }
+        setMembers(locs);
+      })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") setChannelStatus("connected");
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT")
+          setChannelStatus("disconnected");
+        else setChannelStatus("connecting");
+      });
+  }, [user, tripId]);
+
+  /* ── Start sharing ──────────────────────────────────────────────────────── */
   const startSharing = useCallback(() => {
     if (!navigator.geolocation) {
       toast({
@@ -320,13 +418,24 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
       return;
     }
 
+    if (channelStatus !== "connected") {
+      toast({
+        title: "Not connected to live channel",
+        description: "Reconnecting… please try again in a moment.",
+        variant: "destructive",
+      });
+      reconnect();
+      return;
+    }
+
     sharingRef.current = true;
     setSharing(true);
 
     const publish = (lat: number, lng: number, accuracy?: number) => {
       setMyLocation({ lat, lng });
+      if (!channelRef.current) return;
       channelRef.current
-        ?.track({
+        .track({
           userId: user!.id,
           userName,
           lat,
@@ -334,16 +443,45 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
           accuracy,
           timestamp: Date.now(),
         })
-        .catch(() => {});
+        .then((resp) => {
+          // "ok" means success; anything else is a soft error
+          if (resp !== "ok") {
+            console.warn("Presence track returned:", resp);
+          }
+        })
+        .catch((err) => {
+          console.error("Presence track error:", err);
+          sharingRef.current = false;
+          setSharing(false);
+          toast({
+            title: "Failed to share location",
+            description:
+              "Could not broadcast your position. Check your connection.",
+            variant: "destructive",
+          });
+        });
     };
 
+    // Immediate position
     navigator.geolocation.getCurrentPosition(
       (pos) =>
         publish(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
-      () => {},
-      { enableHighAccuracy: true, timeout: 5000 },
+      (err) => {
+        sharingRef.current = false;
+        setSharing(false);
+        toast({
+          title: "Location error",
+          description:
+            err.code === 1
+              ? "Location access denied — allow it in browser settings."
+              : "Could not get your position.",
+          variant: "destructive",
+        });
+      },
+      { enableHighAccuracy: true, timeout: 8000 },
     );
 
+    // Continuous watch
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
         if (!sharingRef.current) return;
@@ -362,10 +500,11 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
           });
         }
       },
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 },
+      { enableHighAccuracy: true, maximumAge: 5_000, timeout: 12_000 },
     );
-  }, [user, userName, toast]);
+  }, [user, userName, toast, channelStatus, reconnect]);
 
+  /* ── Stop sharing ───────────────────────────────────────────────────────── */
   const stopSharing = useCallback(async () => {
     sharingRef.current = false;
     setSharing(false);
@@ -373,11 +512,16 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
-    await channelRef.current?.untrack().catch(() => {});
+    try {
+      await channelRef.current?.untrack();
+    } catch (_) {
+      /* ignore */
+    }
     setMyLocation(null);
     toast({ title: "📍 Location sharing stopped" });
   }, [toast]);
 
+  /* ── Cleanup on unmount ─────────────────────────────────────────────────── */
   useEffect(() => {
     return () => {
       sharingRef.current = false;
@@ -397,64 +541,84 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
   const activeMembersCount = members.filter(
     (m) => Date.now() - m.timestamp < 5 * 60_000,
   ).length;
-  const hasMapData = myLocation || activeMembersCount > 0;
+  const hasMapData = !!(myLocation || activeMembersCount > 0);
 
-  // ── Shared panel content ───────────────────────────────────────────────────
-  const PanelContent = (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
+  /* ── Panel content (shared desktop + mobile) ────────────────────────────── */
+  const panelContent = (
+    <div
+      className="flex flex-col overflow-hidden"
+      style={{ maxHeight: "inherit" }}
+    >
+      {/* ── Header ── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/30 shrink-0">
-        <div className="flex items-center gap-2">
-          <MapPin className="w-4 h-4 text-primary" />
-          <p className="text-sm font-bold text-card-foreground">
+        <div className="flex items-center gap-2 min-w-0">
+          <MapPin className="w-4 h-4 text-primary shrink-0" />
+          <p className="text-sm font-bold text-card-foreground truncate">
             Live Locations
           </p>
+          {/* Status badge */}
           <span
-            className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+            className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0 ${
               channelStatus === "connected"
                 ? "bg-success/10 text-success"
                 : channelStatus === "connecting"
                   ? "bg-warning/10 text-warning"
-                  : "bg-muted text-muted-foreground"
+                  : "bg-destructive/10 text-destructive"
             }`}
           >
             {channelStatus === "connected" ? (
               <Wifi className="w-2.5 h-2.5" />
+            ) : channelStatus === "connecting" ? (
+              <RefreshCw className="w-2.5 h-2.5 animate-spin" />
             ) : (
               <WifiOff className="w-2.5 h-2.5" />
             )}
             {channelStatus}
           </span>
         </div>
-        <button
-          onClick={() => setOpen(false)}
-          className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors"
-          aria-label="Close"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          {channelStatus === "disconnected" && (
+            <button
+              onClick={reconnect}
+              title="Reconnect"
+              className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button
+            onClick={() => setOpen(false)}
+            className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
-      {/* Scrollable body */}
+      {/* ── Scrollable body ── */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {/* My sharing toggle */}
+        {/* Share toggle */}
         <div className="px-4 py-3 border-b border-border">
-          <div className="flex items-center justify-between mb-1">
-            <div>
+          <div className="flex items-center justify-between">
+            <div className="min-w-0 mr-3">
               <p className="text-xs font-semibold text-card-foreground">
                 Share My Location
               </p>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
                 {sharing
                   ? myLocation
-                    ? `Sharing · ${myLocation.lat.toFixed(5)}, ${myLocation.lng.toFixed(5)}`
-                    : "Getting your location…"
-                  : "Only visible to trip members"}
+                    ? `${myLocation.lat.toFixed(4)}, ${myLocation.lng.toFixed(4)}`
+                    : "Getting position…"
+                  : channelStatus !== "connected"
+                    ? "Connect first to start sharing"
+                    : "Visible only to trip members"}
               </p>
             </div>
             <button
               onClick={sharing ? stopSharing : startSharing}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+              disabled={!sharing && channelStatus !== "connected"}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${
                 sharing
                   ? "bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive/20"
                   : "bg-primary text-primary-foreground hover:opacity-90"
@@ -462,13 +626,11 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
             >
               {sharing ? (
                 <>
-                  <LocateOff className="w-3.5 h-3.5" />
-                  Stop
+                  <LocateOff className="w-3.5 h-3.5" /> Stop
                 </>
               ) : (
                 <>
-                  <Locate className="w-3.5 h-3.5" />
-                  Start
+                  <Locate className="w-3.5 h-3.5" /> Start
                 </>
               )}
             </button>
@@ -477,13 +639,13 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
             <div className="flex items-center gap-1.5 mt-2">
               <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
               <span className="text-[10px] text-success font-semibold">
-                Broadcasting live · updates every 5 sec
+                Broadcasting live · every 5 s
               </span>
             </div>
           )}
         </div>
 
-        {/* ── Live Map Preview ── */}
+        {/* Live Map */}
         {hasMapData && (
           <div className="px-4 py-3 border-b border-border">
             <div className="flex items-center justify-between mb-2">
@@ -492,11 +654,9 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
                 <span className="text-xs font-semibold text-card-foreground">
                   Live Map
                 </span>
-                {activeMembersCount > 0 && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold">
-                    {activeMembersCount + (myLocation ? 1 : 0)} on map
-                  </span>
-                )}
+                <span className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold">
+                  {activeMembersCount + (myLocation ? 1 : 0)} on map
+                </span>
               </div>
               <button
                 onClick={() => setShowMap((v) => !v)}
@@ -517,41 +677,35 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
         )}
 
         {/* Members list */}
-        <div>
-          {members.length === 0 ? (
-            <div className="px-4 py-8 text-center">
-              <Users className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-xs font-semibold text-card-foreground">
-                No one else is sharing yet
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-1">
-                Ask your trip members to enable Live Location
-              </p>
-            </div>
-          ) : (
-            members.map((m) => {
+        {members.length === 0 ? (
+          <div className="px-4 py-8 text-center">
+            <Users className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+            <p className="text-xs font-semibold text-card-foreground">
+              No one else is sharing yet
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Ask trip members to enable Live Location
+            </p>
+          </div>
+        ) : (
+          <div>
+            {members.map((m) => {
               const isStale = Date.now() - m.timestamp > 5 * 60_000;
               const distFromMe =
                 myLocation && !isStale
                   ? distanceKm(myLocation.lat, myLocation.lng, m.lat, m.lng)
                   : null;
-
               return (
                 <div
                   key={m.userId}
-                  className={`px-4 py-3 flex items-center gap-3 border-b border-border/50 last:border-0 ${
-                    isStale ? "opacity-50" : ""
-                  }`}
+                  className={`px-4 py-3 flex items-center gap-3 border-b border-border/50 last:border-0 ${isStale ? "opacity-50" : ""}`}
                 >
-                  {/* Avatar */}
                   <div
                     className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
                     style={{ backgroundColor: m.color }}
                   >
                     {m.initials}
                   </div>
-
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <p className="text-xs font-semibold text-card-foreground truncate">
@@ -579,8 +733,6 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
                       )}
                     </div>
                   </div>
-
-                  {/* Navigate button */}
                   <button
                     onClick={() => openInMaps(m)}
                     title={`Navigate to ${m.userName}`}
@@ -590,11 +742,11 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
                   </button>
                 </div>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
+        )}
 
-        {/* Map link */}
+        {/* Google Maps link */}
         {members.length > 0 && myLocation && (
           <div className="px-4 py-3 border-t border-border bg-secondary/20">
             <a
@@ -604,16 +756,17 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
               className="flex items-center justify-center gap-2 text-xs font-semibold text-primary hover:underline"
             >
               <ExternalLink className="w-3.5 h-3.5" />
-              View all members on Google Maps
+              View all on Google Maps
             </a>
           </div>
         )}
       </div>
 
-      {/* Footer */}
+      {/* ── Footer ── */}
       <div className="px-4 py-2.5 border-t border-border bg-secondary/10 shrink-0">
         <p className="text-[10px] text-muted-foreground text-center">
-          🔒 Location visible only to {tripName} members · Clears when you leave
+          🔒 Visible only to <strong>{tripName}</strong> members · Clears on
+          leave
         </p>
       </div>
     </div>
@@ -623,7 +776,8 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
     <>
       {/* ── Trigger button ── */}
       <button
-        onClick={() => setOpen((v) => !v)}
+        ref={btnRef}
+        onClick={handleToggle}
         className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
           sharing
             ? "border-success bg-success/10 text-success"
@@ -634,7 +788,7 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
         title="Live Location Sharing"
       >
         <Radio className={`w-4 h-4 ${sharing ? "animate-pulse" : ""}`} />
-        <span className="hidden sm:inline">Live</span>
+        <span>Live</span>
         {activeMembersCount > 0 && (
           <span className="w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center shrink-0">
             {activeMembersCount}
@@ -642,41 +796,56 @@ export default function LiveLocationPanel({ tripId, tripName }: Props) {
         )}
       </button>
 
-      {/* ── Desktop dropdown (md+) ── */}
       {open && (
-        <div
-          className="hidden md:flex absolute right-0 top-full mt-2 w-[380px] bg-card border border-border rounded-2xl shadow-elevated z-[100] animate-fade-in overflow-hidden flex-col"
-          style={{ maxHeight: "min(600px, 80vh)" }}
-        >
-          {PanelContent}
-        </div>
-      )}
-
-      {/* ── Mobile bottom-sheet (< md) ── */}
-      {open && (
-        <div className="md:hidden fixed inset-0 z-[200] flex flex-col justify-end">
-          {/* Backdrop */}
+        <>
+          {/* ── Invisible backdrop ── */}
           <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-[98]"
             onClick={() => setOpen(false)}
+            aria-hidden
           />
-          {/* Sheet */}
+
+          {/* ── Desktop panel — smart fixed position ── */}
           <div
-            className="relative bg-card rounded-t-3xl shadow-2xl w-full flex flex-col"
-            style={{ maxHeight: "85vh" }}
+            className="hidden md:flex fixed flex-col bg-card border border-border rounded-2xl shadow-2xl z-[99] animate-fade-in overflow-hidden"
+            style={{
+              top: panelPos.top,
+              ...(panelPos.left !== undefined
+                ? { left: panelPos.left }
+                : { right: panelPos.right }),
+              width: 400,
+              maxHeight: "min(620px, 80vh)",
+            }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-0 shrink-0">
-              <div className="w-10 h-1 rounded-full bg-border" />
-            </div>
-            {PanelContent}
-            <div
-              style={{ height: "env(safe-area-inset-bottom, 0px)" }}
-              className="shrink-0"
-            />
+            {panelContent}
           </div>
-        </div>
+
+          {/* ── Mobile bottom-sheet ── */}
+          <div
+            className="md:hidden fixed inset-0 z-[99] flex flex-col justify-end"
+            onClick={() => setOpen(false)}
+          >
+            {/* Backdrop tint */}
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+            {/* Sheet */}
+            <div
+              className="relative bg-card rounded-t-3xl shadow-2xl w-full flex flex-col animate-slide-in-from-bottom"
+              style={{ maxHeight: "85vh" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Handle */}
+              <div className="flex justify-center pt-3 pb-0 shrink-0">
+                <div className="w-10 h-1 rounded-full bg-border" />
+              </div>
+              {panelContent}
+              <div
+                style={{ height: "env(safe-area-inset-bottom, 0px)" }}
+                className="shrink-0"
+              />
+            </div>
+          </div>
+        </>
       )}
     </>
   );
