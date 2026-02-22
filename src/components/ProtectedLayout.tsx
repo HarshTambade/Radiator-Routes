@@ -114,10 +114,8 @@ export function ProtectedLayout() {
         <Outlet />
       </main>
 
-      {/* ── AI Assistant (desktop only) ── */}
-      <div className="hidden md:block">
-        <AIAssistant />
-      </div>
+      {/* ── AI Assistant (all devices — opens full-screen on mobile) ── */}
+      <AIAssistant />
 
       {/* ── Mobile Bottom Nav ── */}
       <MobileNav />

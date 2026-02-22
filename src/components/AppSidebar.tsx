@@ -18,18 +18,19 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useTrips } from "@/hooks/useTrips";
+import { useLanguage } from "@/hooks/useLanguage";
 
-const navItems = [
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Itinerary", url: "/itinerary", icon: CalendarDays },
+const NAV_ITEMS = [
+  { key: "dashboard" as const, url: "/dashboard", icon: LayoutDashboard },
+  { key: "myTrips" as const, url: "/itinerary", icon: CalendarDays },
 ];
 
-const discoverItems = [
-  { title: "Explore", url: "/explore", icon: Compass },
-  { title: "Guide", url: "/guide", icon: BookOpen },
-  { title: "Friends", url: "/friends", icon: Users },
-  { title: "Community", url: "/community", icon: Globe },
-  { title: "Profile", url: "/profile", icon: UserCircle },
+const DISCOVER_ITEMS = [
+  { key: "explore" as const, url: "/explore", icon: Compass },
+  { key: "guide" as const, url: "/guide", icon: BookOpen },
+  { key: "friends" as const, url: "/friends", icon: Users },
+  { key: "community" as const, url: "/community", icon: Globe },
+  { key: "profile" as const, url: "/profile", icon: UserCircle },
 ];
 
 interface AppSidebarProps {
@@ -48,6 +49,7 @@ export function AppSidebar({
   const [collapsed, setCollapsed] = useState(false);
   const { user, signOut } = useAuth();
   const { data: trips = [] } = useTrips();
+  const { t } = useLanguage();
 
   const isActive = (url: string) => {
     if (url === "/itinerary") return location.pathname.startsWith("/itinerary");
@@ -168,23 +170,26 @@ export function AppSidebar({
             </p>
           )}
           <div className="space-y-0.5">
-            {navItems.map((item) => (
-              <Link
-                key={item.title}
-                to={item.url}
-                className={`flex items-center gap-3 px-2.5 py-2 rounded-xl text-sm font-medium transition-colors ${
-                  isActive(item.url)
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-secondary/60 hover:text-card-foreground"
-                } ${effectiveCollapsed ? "justify-center px-0" : ""}`}
-                title={effectiveCollapsed ? item.title : undefined}
-              >
-                <item.icon className="w-[18px] h-[18px] shrink-0" />
-                {!effectiveCollapsed && (
-                  <span className="flex-1 truncate">{item.title}</span>
-                )}
-              </Link>
-            ))}
+            {NAV_ITEMS.map((item) => {
+              const label = t(item.key);
+              return (
+                <Link
+                  key={item.key}
+                  to={item.url}
+                  className={`flex items-center gap-3 px-2.5 py-2 rounded-xl text-sm font-medium transition-colors ${
+                    isActive(item.url)
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-secondary/60 hover:text-card-foreground"
+                  } ${effectiveCollapsed ? "justify-center px-0" : ""}`}
+                  title={effectiveCollapsed ? label : undefined}
+                >
+                  <item.icon className="w-[18px] h-[18px] shrink-0" />
+                  {!effectiveCollapsed && (
+                    <span className="flex-1 truncate">{label}</span>
+                  )}
+                </Link>
+              );
+            })}
           </div>
         </div>
 
@@ -192,27 +197,30 @@ export function AppSidebar({
         <div className="px-3 pt-2">
           {!effectiveCollapsed && (
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1.5">
-              Discover
+              {t("discover")}
             </p>
           )}
           <div className="space-y-0.5">
-            {discoverItems.map((item) => (
-              <Link
-                key={item.title}
-                to={item.url}
-                className={`flex items-center gap-3 px-2.5 py-2 rounded-xl text-sm font-medium transition-colors ${
-                  isActive(item.url)
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-secondary/60 hover:text-card-foreground"
-                } ${effectiveCollapsed ? "justify-center px-0" : ""}`}
-                title={effectiveCollapsed ? item.title : undefined}
-              >
-                <item.icon className="w-[18px] h-[18px] shrink-0" />
-                {!effectiveCollapsed && (
-                  <span className="flex-1 truncate">{item.title}</span>
-                )}
-              </Link>
-            ))}
+            {DISCOVER_ITEMS.map((item) => {
+              const label = t(item.key);
+              return (
+                <Link
+                  key={item.key}
+                  to={item.url}
+                  className={`flex items-center gap-3 px-2.5 py-2 rounded-xl text-sm font-medium transition-colors ${
+                    isActive(item.url)
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-secondary/60 hover:text-card-foreground"
+                  } ${effectiveCollapsed ? "justify-center px-0" : ""}`}
+                  title={effectiveCollapsed ? label : undefined}
+                >
+                  <item.icon className="w-[18px] h-[18px] shrink-0" />
+                  {!effectiveCollapsed && (
+                    <span className="flex-1 truncate">{label}</span>
+                  )}
+                </Link>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -225,12 +233,12 @@ export function AppSidebar({
           className={`flex items-center gap-3 px-2.5 py-2 rounded-xl text-sm font-medium text-red-600 hover:bg-red-500/10 transition-colors w-full ${
             effectiveCollapsed ? "justify-center px-0" : ""
           }`}
-          title="SOS & Emergency"
+          title={t("emergency")}
           aria-label="SOS Emergency"
         >
           <AlertTriangle className="w-[18px] h-[18px] shrink-0" />
           {!effectiveCollapsed && (
-            <span className="flex-1 text-left">SOS &amp; Emergency</span>
+            <span className="flex-1 text-left">SOS &amp; {t("emergency")}</span>
           )}
         </button>
 

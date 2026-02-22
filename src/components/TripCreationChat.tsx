@@ -26,6 +26,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { getCurrencySymbol } from "@/lib/currency";
 import ReactMarkdown from "react-markdown";
+import {
+  startGroqRecording,
+  transcribeWithGroq,
+  type RecordingHandle,
+} from "@/services/groqVoice";
+import { getSavedLanguage } from "@/services/translate";
 
 type Step =
   | "destination"
@@ -122,10 +128,10 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
   const [input, setInput] = useState("");
   const [creating, setCreating] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const recognitionRef = useRef<any>(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const recordingRef = useRef<RecordingHandle | null>(null);
   const isListeningRef = useRef(false);
-  // Ref so the recognition onend closure always calls the latest handleInput
-  // instead of a stale version captured at the time startVoice() was invoked.
+  // Ref so the latest handleInput is always accessible in async callbacks
   const handleInputRef = useRef<(text: string) => void>(() => {});
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
 
@@ -153,15 +159,12 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
     });
   }, [messages]);
 
-  // ── Cleanup voice recognition on unmount ──────────────────────────────
+  // ── Cleanup recording on unmount ──────────────────────────────────────
   useEffect(() => {
     return () => {
       isListeningRef.current = false;
-      try {
-        recognitionRef.current?.stop();
-      } catch {
-        /* ignore */
-      }
+      recordingRef.current?.abort();
+      recordingRef.current = null;
     };
   }, []);
 
@@ -544,15 +547,73 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
   };
 
   // ── Voice input ──────────────────────────────────────────────────────────
-  const startVoice = () => {
-    const SR =
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
+  const stopVoice = useCallback(async () => {
+    if (!isListeningRef.current) return;
+    isListeningRef.current = false;
+    setIsListening(false);
 
-    if (!SR) {
+    const handle = recordingRef.current;
+    recordingRef.current = null;
+
+    if (!handle) {
+      setInput("");
+      return;
+    }
+
+    setIsTranscribing(true);
+    setInput("🎙️ Transcribing…");
+
+    try {
+      const audioBlob = await handle.stop();
+      const userLang = getSavedLanguage();
+      const transcript = await transcribeWithGroq(audioBlob, userLang);
+      if (transcript) {
+        setInput(transcript);
+        handleInputRef.current(transcript);
+      } else {
+        setInput("");
+        toast({
+          title: "No speech detected",
+          description: "Please try again.",
+        });
+      }
+    } catch (err: any) {
+      setInput("");
+      const msg = err?.message ?? "";
+      if (msg === "EMPTY_AUDIO") {
+        toast({
+          title: "No speech detected",
+          description: "Please try again.",
+        });
+      } else if (msg === "RATE_LIMIT") {
+        toast({
+          title: "Rate limited",
+          description: "Please wait a moment.",
+          variant: "destructive",
+        });
+      } else if (msg === "INVALID_API_KEY") {
+        toast({
+          title: "API key error",
+          description: "Groq API key is invalid.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Transcription failed",
+          description: "Could not understand audio. Please type instead.",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [toast]);
+
+  const startVoice = useCallback(async () => {
+    if (!navigator.mediaDevices) {
       toast({
         title: "Voice not supported",
-        description: "Speech recognition isn't available in this browser.",
+        description: "Audio recording isn't available in this browser.",
         variant: "destructive",
       });
       return;
@@ -560,106 +621,41 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
 
     // Toggle off if already listening
     if (isListeningRef.current) {
-      isListeningRef.current = false;
-      try {
-        recognitionRef.current?.stop();
-      } catch {
-        /* ignore */
-      }
-      setIsListening(false);
+      await stopVoice();
       return;
     }
 
-    const rec = new SR();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = "en-US";
-
-    recognitionRef.current = rec;
-    isListeningRef.current = true;
-
-    // Accumulates confirmed (final) words across multiple result events
-    let finalT = "";
-
-    rec.onstart = () => {
+    try {
+      const handle = await startGroqRecording();
+      recordingRef.current = handle;
+      isListeningRef.current = true;
       setIsListening(true);
-      setInput("");
-      finalT = "";
-    };
-
-    rec.onend = () => {
-      if (isListeningRef.current) {
-        // Still listening – restart to keep recording
-        try {
-          rec.start();
-        } catch {
-          /* ignore */
-        }
-      } else {
-        setIsListening(false);
-        const text = finalT.trim();
-        if (text) {
-          finalT = "";
-          // Use the ref so we always call the latest handleInput,
-          // not a stale version captured when startVoice() was first called.
-          handleInputRef.current(text);
-        }
-        setInput("");
-      }
-    };
-
-    rec.onerror = (e: any) => {
-      const { error } = e;
-
-      if (error === "not-allowed" || error === "service-not-allowed") {
-        isListeningRef.current = false;
-        setIsListening(false);
+      setInput("🎙️ Listening…");
+    } catch (err: any) {
+      isListeningRef.current = false;
+      setIsListening(false);
+      recordingRef.current = null;
+      const msg = (err?.message ?? "").toLowerCase();
+      if (
+        msg.includes("not-allowed") ||
+        msg.includes("permission") ||
+        msg.includes("denied")
+      ) {
         toast({
           title: "Mic blocked",
           description:
             "Please allow microphone access in your browser settings.",
           variant: "destructive",
         });
-        return;
+      } else {
+        toast({
+          title: "Microphone error",
+          description: "Could not start microphone. Please try again.",
+          variant: "destructive",
+        });
       }
-
-      if (error === "aborted") {
-        // We stopped recognition ourselves – onend will handle state cleanup.
-        return;
-      }
-
-      // no-speech, network, audio-capture → onend will auto-restart
-    };
-
-    rec.onresult = (event: any) => {
-      // Only process NEW results (from resultIndex onward) to avoid
-      // double-counting segments finalized in previous events.
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          finalT += event.results[i][0].transcript;
-        }
-      }
-
-      // Collect all current interim (in-progress) words for live preview
-      let interim = "";
-      for (let i = 0; i < event.results.length; i++) {
-        if (!event.results[i].isFinal) {
-          interim += event.results[i][0].transcript;
-        }
-      }
-
-      // Show confirmed text + in-flight text as a live preview
-      setInput(finalT + interim);
-    };
-
-    try {
-      rec.start();
-    } catch (err) {
-      console.error("Recognition start failed:", err);
-      isListeningRef.current = false;
-      setIsListening(false);
     }
-  };
+  }, [stopVoice, toast]);
 
   const stepIcons: Record<Step, any> = {
     destination: MapPin,
@@ -706,6 +702,9 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
         <div className="flex items-center gap-0.5">
           {steps.map((s, i) => {
             const Icon = stepIcons[s];
+            // ── Determine mic button label / state ───────────────────────────────────
+            const micBusy = isTranscribing;
+
             return (
               <div key={s} className="flex items-center gap-0.5 flex-1">
                 <div
@@ -802,30 +801,69 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
       <div className="p-3 border-t border-border">
         <div className="flex items-center gap-2">
           <button
-            onClick={startVoice}
-            className={`p-2 rounded-lg transition-colors ${isListening ? "bg-destructive text-destructive-foreground animate-pulse" : "hover:bg-secondary text-muted-foreground"}`}
+            onClick={isListening ? stopVoice : startVoice}
+            disabled={isTranscribing}
+            title={
+              isTranscribing
+                ? "Transcribing…"
+                : isListening
+                  ? "Stop recording & send"
+                  : "Start voice input (Groq Whisper)"
+            }
+            className={`p-2 rounded-lg transition-colors ${
+              isTranscribing
+                ? "opacity-40 cursor-not-allowed text-muted-foreground"
+                : isListening
+                  ? "bg-destructive text-destructive-foreground animate-pulse"
+                  : "hover:bg-secondary text-muted-foreground"
+            }`}
           >
-            {isListening ? (
+            {isTranscribing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : isListening ? (
               <MicOff className="w-4 h-4" />
             ) : (
               <Mic className="w-4 h-4" />
             )}
           </button>
+          {(isListening || isTranscribing) && (
+            <div className="flex items-center gap-1 px-2">
+              <span
+                className={`w-2 h-2 rounded-full animate-pulse ${isTranscribing ? "bg-warning" : "bg-destructive"}`}
+              />
+              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                {isTranscribing ? "Transcribing…" : "Recording…"}
+              </span>
+            </div>
+          )}
           <input
             type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleInput(input)}
+            onChange={(e) => {
+              if (!isListening && !isTranscribing) setInput(e.target.value);
+            }}
+            readOnly={isListening || isTranscribing}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !isListening && !isTranscribing) {
+                handleInput(input);
+              }
+            }}
             placeholder={
-              step === "interests"
-                ? "Or type your interests..."
-                : "Type your answer..."
+              isTranscribing
+                ? "Transcribing with Groq Whisper…"
+                : isListening
+                  ? "Recording… tap mic to stop"
+                  : step === "interests"
+                    ? "Or type your interests..."
+                    : "Type your answer..."
             }
             className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
           <button
-            onClick={() => handleInput(input)}
-            disabled={!input.trim()}
+            onClick={() => {
+              if (!isListening && !isTranscribing) handleInput(input);
+            }}
+            disabled={!input.trim() || isListening || isTranscribing}
             className="p-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             <Send className="w-4 h-4" />

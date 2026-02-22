@@ -39,7 +39,12 @@ export const SUPPORTED_LANGUAGES: Language[] = [
   { code: "tr", name: "Turkish", nativeName: "Türkçe", flag: "🇹🇷" },
   { code: "th", name: "Thai", nativeName: "ภาษาไทย", flag: "🇹🇭" },
   { code: "vi", name: "Vietnamese", nativeName: "Tiếng Việt", flag: "🇻🇳" },
-  { code: "id", name: "Indonesian", nativeName: "Bahasa Indonesia", flag: "🇮🇩" },
+  {
+    code: "id",
+    name: "Indonesian",
+    nativeName: "Bahasa Indonesia",
+    flag: "🇮🇩",
+  },
   { code: "nl", name: "Dutch", nativeName: "Nederlands", flag: "🇳🇱" },
   { code: "pl", name: "Polish", nativeName: "Polski", flag: "🇵🇱" },
   { code: "sv", name: "Swedish", nativeName: "Svenska", flag: "🇸🇪" },
@@ -81,8 +86,7 @@ export async function translateText(
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    const translated: string =
-      data?.responseData?.translatedText || truncated;
+    const translated: string = data?.responseData?.translatedText || truncated;
     // MyMemory returns "QUERY LENGTH LIMIT..." on overload — treat as failure
     if (
       translated.toUpperCase().includes("QUERY LENGTH") ||
@@ -220,7 +224,14 @@ export type UIStringKey =
   | "noResults"
   | "tryAgain"
   | "emergency"
-  | "totalCost";
+  | "totalCost"
+  | "upcoming"
+  | "destinations"
+  | "nextTrip"
+  | "quickStats"
+  | "daysLeft"
+  | "duration"
+  | "createTrip";
 
 type UIBundle = Record<UIStringKey, string>;
 
@@ -277,10 +288,17 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
     stopReading: "Stop Reading",
     voiceCommand: "Voice Command",
     perPerson: "per person",
-    noResults: "No results found",
+    noResults: "No trips yet",
     tryAgain: "Try again",
     emergency: "Emergency",
     totalCost: "Total Cost",
+    upcoming: "Upcoming",
+    destinations: "Destinations",
+    nextTrip: "Next Trip",
+    quickStats: "Quick Stats",
+    daysLeft: "Days Left",
+    duration: "Duration",
+    createTrip: "Create New Trip",
   },
   hi: {
     dashboard: "डैशबोर्ड",
@@ -298,6 +316,13 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
     cancel: "रद्द करें",
     delete: "हटाएं",
     edit: "संपादित करें",
+    upcoming: "आगामी",
+    destinations: "गंतव्य",
+    nextTrip: "अगली यात्रा",
+    quickStats: "त्वरित आँकड़े",
+    daysLeft: "बाकी दिन",
+    duration: "अवधि",
+    createTrip: "नई यात्रा बनाएं",
     create: "बनाएं",
     join: "जुड़ें",
     leave: "छोड़ें",
@@ -341,6 +366,13 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
   },
   bn: {
     dashboard: "ড্যাশবোর্ড",
+    upcoming: "আসন্ন",
+    destinations: "গন্তব্য",
+    nextTrip: "পরবর্তী যাত্রা",
+    quickStats: "দ্রুত পরিসংখ্যান",
+    daysLeft: "বাকি দিন",
+    duration: "সময়কাল",
+    createTrip: "নতুন ট্রিপ তৈরি করুন",
     myTrips: "আমার ভ্রমণ",
     explore: "অন্বেষণ করুন",
     friends: "বন্ধু",
@@ -365,6 +397,13 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
   },
   ta: {
     dashboard: "டாஷ்போர்டு",
+    upcoming: "வரவிருக்கும்",
+    destinations: "இடங்கள்",
+    nextTrip: "அடுத்த பயணம்",
+    quickStats: "விரைவு புள்ளிவிவரம்",
+    daysLeft: "மீதமுள்ள நாட்கள்",
+    duration: "கால அளவு",
+    createTrip: "புதிய பயணம் உருவாக்கு",
     myTrips: "என் பயணங்கள்",
     explore: "ஆராயுங்கள்",
     friends: "நண்பர்கள்",
@@ -387,6 +426,13 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
   },
   te: {
     dashboard: "డాష్‌బోర్డ్",
+    upcoming: "రాబోయే",
+    destinations: "గమ్యస్థానాలు",
+    nextTrip: "తదుపరి పర్యటన",
+    quickStats: "త్వరిత గణాంకాలు",
+    daysLeft: "మిగిలిన రోజులు",
+    duration: "వ్యవధి",
+    createTrip: "కొత్త పర్యటన సృష్టించు",
     myTrips: "నా ప్రయాణాలు",
     explore: "అన్వేషించండి",
     friends: "స్నేహితులు",
@@ -409,6 +455,13 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
   },
   mr: {
     dashboard: "डॅशबोर्ड",
+    upcoming: "येणारी",
+    destinations: "गंतव्ये",
+    nextTrip: "पुढची सहल",
+    quickStats: "जलद आकडेवारी",
+    daysLeft: "उरलेले दिवस",
+    duration: "कालावधी",
+    createTrip: "नवीन सहल तयार करा",
     myTrips: "माझ्या सहली",
     explore: "एक्सप्लोर करा",
     friends: "मित्र",
@@ -430,7 +483,14 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
     emergency: "आणीबाणी",
   },
   gu: {
-    dashboard: "ડૅશબૉર્ડ",
+    dashboard: "ડેશબોર્ડ",
+    upcoming: "આગામી",
+    destinations: "મંઝિલો",
+    nextTrip: "આગળની સફર",
+    quickStats: "ઝડપી આંકડા",
+    daysLeft: "બાકી દિવસો",
+    duration: "સમયગાળો",
+    createTrip: "નવી સફર બનાવો",
     myTrips: "મારી સફર",
     explore: "શોધ કરો",
     friends: "મિત્રો",
@@ -453,6 +513,13 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
   },
   kn: {
     dashboard: "ಡ್ಯಾಶ್‌ಬೋರ್ಡ್",
+    upcoming: "ಮುಂಬರುವ",
+    destinations: "ಗಮ್ಯಸ್ಥಾನಗಳು",
+    nextTrip: "ಮುಂದಿನ ಪ್ರಯಾಣ",
+    quickStats: "ತ್ವರಿತ ಅಂಕಿಅಂಶಗಳು",
+    daysLeft: "ಉಳಿದ ದಿನಗಳು",
+    duration: "ಅವಧಿ",
+    createTrip: "ಹೊಸ ಪ್ರಯಾಣ ರಚಿಸಿ",
     myTrips: "ನನ್ನ ಪ್ರಯಾಣಗಳು",
     explore: "ಅನ್ವೇಷಿಸಿ",
     friends: "ಸ್ನೇಹಿತರು",
@@ -475,6 +542,13 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
   },
   ml: {
     dashboard: "ഡാഷ്‌ബോർഡ്",
+    upcoming: "വരാനിരിക്കുന്ന",
+    destinations: "ലക്ഷ്യസ്ഥാനങ്ങൾ",
+    nextTrip: "അടുത്ത യാത്ര",
+    quickStats: "ദ്രുത സ്ഥിതിവിവരക്കണക്കുകൾ",
+    daysLeft: "ബാക്കി ദിവസങ്ങൾ",
+    duration: "ദൈർഘ്യം",
+    createTrip: "പുതിയ യാത്ര ഉണ്ടാക്കുക",
     myTrips: "എൻ്റെ യാത്രകൾ",
     explore: "പര്യവേക്ഷണം ചെയ്യുക",
     friends: "സുഹൃത്തുക്കൾ",
@@ -497,6 +571,13 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
   },
   fr: {
     dashboard: "Tableau de bord",
+    upcoming: "À venir",
+    destinations: "Destinations",
+    nextTrip: "Prochain voyage",
+    quickStats: "Statistiques rapides",
+    daysLeft: "Jours restants",
+    duration: "Durée",
+    createTrip: "Créer un voyage",
     myTrips: "Mes voyages",
     explore: "Explorer",
     friends: "Amis",
@@ -549,6 +630,13 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
   },
   de: {
     dashboard: "Dashboard",
+    upcoming: "Bevorstehend",
+    destinations: "Reiseziele",
+    nextTrip: "Nächste Reise",
+    quickStats: "Schnellstatistiken",
+    daysLeft: "Verbleibende Tage",
+    duration: "Dauer",
+    createTrip: "Neue Reise erstellen",
     myTrips: "Meine Reisen",
     explore: "Entdecken",
     friends: "Freunde",
@@ -574,7 +662,14 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
     totalCost: "Gesamtkosten",
   },
   ar: {
-    dashboard: "لوحة التحكم",
+    dashboard: "لوحة القيادة",
+    upcoming: "القادمة",
+    destinations: "الوجهات",
+    nextTrip: "الرحلة القادمة",
+    quickStats: "إحصائيات سريعة",
+    daysLeft: "الأيام المتبقية",
+    duration: "المدة",
+    createTrip: "إنشاء رحلة",
     myTrips: "رحلاتي",
     explore: "استكشاف",
     friends: "أصدقاء",
@@ -599,6 +694,13 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
   },
   ja: {
     dashboard: "ダッシュボード",
+    upcoming: "予定",
+    destinations: "目的地",
+    nextTrip: "次の旅行",
+    quickStats: "クイック統計",
+    daysLeft: "残り日数",
+    duration: "期間",
+    createTrip: "新しい旅行を作成",
     myTrips: "マイトリップ",
     explore: "探索",
     friends: "友達",
@@ -624,7 +726,14 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
     totalCost: "合計費用",
   },
   zh: {
-    dashboard: "仪表盘",
+    dashboard: "仪表板",
+    upcoming: "即将到来",
+    destinations: "目的地",
+    nextTrip: "下次旅行",
+    quickStats: "快速统计",
+    daysLeft: "剩余天数",
+    duration: "持续时间",
+    createTrip: "创建新旅行",
     myTrips: "我的行程",
     explore: "探索",
     friends: "朋友",
@@ -651,6 +760,13 @@ const UI_STRINGS: Record<string, Partial<UIBundle>> = {
   },
   pt: {
     dashboard: "Painel",
+    upcoming: "Próximas",
+    destinations: "Destinos",
+    nextTrip: "Próxima viagem",
+    quickStats: "Estatísticas rápidas",
+    daysLeft: "Dias restantes",
+    duration: "Duração",
+    createTrip: "Criar viagem",
     myTrips: "Minhas viagens",
     explore: "Explorar",
     friends: "Amigos",

@@ -24,6 +24,7 @@ import TravelMemory from "@/components/TravelMemory";
 import TripCreationChat from "@/components/TripCreationChat";
 import { useOnlineStatus } from "@/hooks/useOfflineTrip";
 import { getAllOfflineTrips } from "@/services/offlineTrip";
+import { useLanguage } from "@/hooks/useLanguage";
 
 import destinationAgra from "@/assets/destination-agra.jpg";
 import destinationGoa from "@/assets/destination-goa.jpg";
@@ -80,6 +81,7 @@ export default function Dashboard() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { t } = useLanguage();
   const [showNewTrip, setShowNewTrip] = useState(false);
   const [selectedTripType, setSelectedTripType] = useState("solo");
   const isOnline = useOnlineStatus();
@@ -162,7 +164,7 @@ export default function Dashboard() {
             </div>
             <p className="text-muted-foreground text-sm mt-0.5">
               {isOnline
-                ? "Plan your itinerary with us"
+                ? `${t("myTrips")} · ${t("explore")} · ${t("guide")}`
                 : "Viewing cached data — some features unavailable offline"}
             </p>
           </div>
@@ -171,7 +173,7 @@ export default function Dashboard() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Search destinations..."
+                placeholder={`${t("search")} destinations...`}
                 className="pl-10 pr-4 py-2.5 rounded-xl bg-card border border-border text-sm w-full sm:w-56 lg:w-64 focus:outline-none focus:ring-2 focus:ring-primary/20 shadow-card"
               />
             </div>
@@ -185,7 +187,7 @@ export default function Dashboard() {
             className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 transition-opacity shadow-card"
           >
             <Plus className="w-4 h-4" />
-            Create New Trip
+            {t("createTrip")}
           </button>
         )}
 
@@ -241,12 +243,12 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-3 lg:mb-4">
             <div>
               <h2 className="text-lg font-semibold text-foreground">
-                My Trips
+                {t("myTrips")}
               </h2>
               <p className="text-sm text-muted-foreground">
                 {trips.length === 0
-                  ? "Create your first trip to get started!"
-                  : `${trips.length} trip${trips.length !== 1 ? "s" : ""} planned`}
+                  ? `${t("create")} your first ${t("trip")} to get started!`
+                  : `${trips.length} ${trips.length !== 1 ? t("trips") : t("trip")} planned`}
               </p>
             </div>
           </div>
@@ -259,10 +261,10 @@ export default function Dashboard() {
             <div className="bg-card rounded-2xl p-8 text-center shadow-card">
               <MapPin className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
               <h3 className="font-semibold text-card-foreground">
-                No trips yet
+                {t("noResults")}
               </h3>
               <p className="text-sm text-muted-foreground mt-1">
-                Create your first trip to start planning!
+                {t("create")} your first {t("trip")} to start planning!
               </p>
             </div>
           ) : (
@@ -344,7 +346,7 @@ export default function Dashboard() {
                           <span className="text-sm font-bold text-card-foreground">
                             {formatCurrency(
                               Number(trip.budget_total),
-                              trip.country,
+                              trip.country ?? "India",
                             )}
                           </span>
                         </div>
@@ -375,7 +377,7 @@ export default function Dashboard() {
         {/* Quick Stats */}
         <div className="bg-card rounded-2xl p-4 lg:p-5 shadow-card">
           <h3 className="font-semibold text-card-foreground mb-3 lg:mb-4">
-            Quick Stats
+            {t("quickStats")}
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-3 lg:gap-4">
             <div className="text-center p-3 rounded-xl bg-primary/5">
@@ -383,37 +385,39 @@ export default function Dashboard() {
                 {trips.length}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Total Trips
+                {t("trips")}
               </p>
             </div>
             <div className="text-center p-3 rounded-xl bg-success/10">
               <p className="text-xl lg:text-2xl font-bold text-foreground">
                 {upcomingTrips.length}
               </p>
-              <p className="text-xs text-muted-foreground mt-0.5">Upcoming</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {t("upcoming")}
+              </p>
             </div>
             <div className="text-center p-3 rounded-xl bg-warning/10">
               <p className="text-base lg:text-lg font-bold text-foreground">
                 {trips.length > 0
                   ? formatCurrency(
                       trips.reduce(
-                        (sum, t) => sum + Number(t.budget_total || 0),
+                        (sum, trip) => sum + Number(trip.budget_total || 0),
                         0,
                       ),
-                      trips[0].country,
+                      trips[0].country ?? "India",
                     )
                   : "₹0"}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Total Budget
+                {t("budget")}
               </p>
             </div>
             <div className="text-center p-3 rounded-xl bg-accent/10">
               <p className="text-xl lg:text-2xl font-bold text-foreground">
-                {new Set(trips.map((t) => t.destination)).size}
+                {new Set(trips.map((trip) => trip.destination)).size}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Destinations
+                {t("destinations")}
               </p>
             </div>
           </div>
@@ -423,7 +427,7 @@ export default function Dashboard() {
         {upcomingTrips.length > 0 && (
           <div className="bg-card rounded-2xl p-4 lg:p-5 shadow-card">
             <h3 className="font-semibold text-card-foreground mb-3">
-              Next Trip
+              {t("nextTrip")}
             </h3>
             <div className="space-y-3">
               <div>
@@ -436,16 +440,18 @@ export default function Dashboard() {
               </div>
               <div className="grid grid-cols-3 gap-2 lg:gap-3">
                 <div className="text-center">
-                  <p className="text-xs text-muted-foreground">Budget</p>
+                  <p className="text-xs text-muted-foreground">{t("budget")}</p>
                   <p className="text-sm font-bold text-card-foreground">
                     {formatCurrency(
                       Number(upcomingTrips[0].budget_total),
-                      upcomingTrips[0].country,
+                      upcomingTrips[0].country ?? "India",
                     )}
                   </p>
                 </div>
                 <div className="text-center">
-                  <p className="text-xs text-muted-foreground">Duration</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t("duration")}
+                  </p>
                   <p className="text-sm font-bold text-card-foreground">
                     {getTripDuration(
                       upcomingTrips[0].start_date,
@@ -455,7 +461,9 @@ export default function Dashboard() {
                   </p>
                 </div>
                 <div className="text-center">
-                  <p className="text-xs text-muted-foreground">Days Left</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t("daysLeft")}
+                  </p>
                   <p className="text-sm font-bold text-card-foreground">
                     {getDaysLeft(upcomingTrips[0].start_date)}
                   </p>

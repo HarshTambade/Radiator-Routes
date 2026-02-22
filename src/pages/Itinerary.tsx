@@ -68,6 +68,8 @@ import ItineraryReasoningPanel, {
 import UPIPayment from "@/components/UPIPayment";
 import OfflineSaveButton from "@/components/OfflineSaveButton";
 import { useOnlineStatus } from "@/hooks/useOfflineTrip";
+import ItineraryNotifications from "@/components/ItineraryNotifications";
+import LiveLocationPanel from "@/components/LiveLocationPanel";
 
 const typeIcons: Record<string, React.ReactNode> = {
   food: <Utensils className="w-4 h-4" />,
@@ -677,6 +679,13 @@ export default function Itinerary() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
+            {/* Live Location Sharing */}
+            <LiveLocationPanel tripId={trip.id} tripName={trip.name} />
+            {/* Timeline Notifications */}
+            <ItineraryNotifications
+              activities={activities}
+              tripName={trip.name}
+            />
             {/* Save Offline button */}
             <OfflineSaveButton trip={trip as Record<string, unknown>} />
             <button

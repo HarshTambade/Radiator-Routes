@@ -1,6 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { getSavedLanguage } from "@/services/translate";
 import {
+  startGroqRecording,
+  transcribeWithGroq,
+  speakText,
+  stopSpeaking,
+  preloadVoices,
+  type RecordingHandle,
+} from "@/services/groqVoice";
+import {
   X,
   Send,
   Mic,
@@ -97,40 +105,10 @@ const PROXY_CAPABILITIES = [
   { icon: Hotel, label: "Hotels", prompt: "Find hotels for my upcoming trip." },
 ];
 
-// ── Text-to-Speech helper ─────────────────────────────────────────────────────
+// ── Text-to-Speech helper (delegates to groqVoice for language-aware TTS) ───
+let _ttsLang = "en";
 function speakJinny(text: string) {
-  if (typeof window === "undefined" || !window.speechSynthesis) return;
-  // Strip markdown / JSON blocks for clean speech
-  const plain = text
-    .replace(/```[\s\S]*?```/g, "")
-    .replace(/\*\*/g, "")
-    .replace(/\*/g, "")
-    .replace(/#{1,6}\s/g, "")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/\n{2,}/g, ". ")
-    .replace(/\n/g, " ")
-    .trim()
-    .slice(0, 400);
-  if (!plain) return;
-  window.speechSynthesis.cancel();
-  const utter = new SpeechSynthesisUtterance(plain);
-  utter.rate = 1.0;
-  utter.pitch = 0.95;
-  utter.volume = 1;
-  // Prefer a natural English voice
-  const voices = window.speechSynthesis.getVoices();
-  const preferred =
-    voices.find((v) => v.name.includes("Daniel") && v.lang === "en-GB") ||
-    voices.find((v) => v.name.includes("Google UK English")) ||
-    voices.find((v) => v.lang === "en-GB") ||
-    voices.find(
-      (v) =>
-        v.lang.startsWith("en-") &&
-        !v.name.includes("zira") &&
-        !v.name.includes("Zira"),
-    );
-  if (preferred) utter.voice = preferred;
-  window.speechSynthesis.speak(utter);
+  speakText(text, _ttsLang);
 }
 
 export default function AIAssistant() {
@@ -139,15 +117,18 @@ export default function AIAssistant() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [wakeListening, setWakeListening] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
-  const [voiceSupported, setVoiceSupported] = useState(true);
+  // Voice is always supported — we use MediaRecorder + Groq Whisper
+  const voiceSupported =
+    typeof navigator !== "undefined" && !!navigator.mediaDevices;
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
+  const recordingRef = useRef<RecordingHandle | null>(null);
   const wakeRecognitionRef = useRef<any>(null);
 
-  // Refs so closures (recognition callbacks) always see the latest value
+  // Refs so closures always see latest value
   const isListeningRef = useRef(false);
   const wakeActiveRef = useRef(false);
   const isLoadingRef = useRef(false);
@@ -162,6 +143,11 @@ export default function AIAssistant() {
 
   // Read the user's chosen UI language so Jinny can reply in it
   const userLang = getSavedLanguage();
+
+  // Keep TTS language module-level var in sync
+  useEffect(() => {
+    _ttsLang = userLang;
+  }, [userLang]);
 
   const userName =
     user?.user_metadata?.name || user?.email?.split("@")[0] || "Traveler";
@@ -181,18 +167,9 @@ export default function AIAssistant() {
     ttsEnabledRef.current = ttsEnabled;
   }, [ttsEnabled]);
 
-  // Check voice support on mount + pre-load voices
+  // Pre-load TTS voices on mount
   useEffect(() => {
-    const SR =
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
-    setVoiceSupported(!!SR);
-    // Pre-load TTS voices (Chrome requires this)
-    if (window.speechSynthesis) {
-      window.speechSynthesis.getVoices();
-      window.speechSynthesis.onvoiceschanged = () =>
-        window.speechSynthesis.getVoices();
-    }
+    preloadVoices();
   }, []);
 
   // ── Wake-word listener ("hey jinny") ─────────────────────────────────────
@@ -209,6 +186,7 @@ export default function AIAssistant() {
       return;
     }
 
+    // Wake-word listener uses browser SpeechRecognition (lightweight)
     const SpeechRecognition =
       (window as any).SpeechRecognition ||
       (window as any).webkitSpeechRecognition;
@@ -348,17 +326,15 @@ export default function AIAssistant() {
   useEffect(() => {
     if (!open && isListeningRef.current) {
       isListeningRef.current = false;
-      try {
-        recognitionRef.current?.stop();
-      } catch {
-        /* ignore */
-      }
+      recordingRef.current?.abort();
+      recordingRef.current = null;
       setIsListening(false);
+      setIsTranscribing(false);
       setInput("");
     }
   }, [open]);
 
-  // ── Cleanup recognition on unmount ──────────────────────────────────────
+  // ── Cleanup recording on unmount ──────────────────────────────────────
   useEffect(() => {
     return () => {
       wakeActiveRef.current = false;
@@ -368,11 +344,8 @@ export default function AIAssistant() {
       } catch {
         /* ignore */
       }
-      try {
-        recognitionRef.current?.stop();
-      } catch {
-        /* ignore */
-      }
+      recordingRef.current?.abort();
+      recordingRef.current = null;
     };
   }, []);
 
@@ -829,9 +802,9 @@ export default function AIAssistant() {
           userLang,
         );
 
-        // Speak Jinny's response via TTS (strip JSON blocks first)
+        // Speak Jinny's response via TTS (language-aware)
         if (ttsEnabledRef.current && assistantSoFar) {
-          speakJinny(assistantSoFar);
+          speakText(assistantSoFar, _ttsLang);
         }
 
         handleAction(assistantSoFar);
@@ -868,154 +841,120 @@ export default function AIAssistant() {
   );
 
   // ── Stop voice recording ─────────────────────────────────────────────────
-  const stopVoice = useCallback(() => {
+  // ── Stop Groq recording ──────────────────────────────────────────────────
+  const stopVoice = useCallback(async () => {
+    if (!isListeningRef.current) return;
     isListeningRef.current = false;
-    try {
-      recognitionRef.current?.abort();
-    } catch {
-      /* ignore */
-    }
     setIsListening(false);
-    setInput("");
-  }, []);
 
-  // ── Start continuous voice input ─────────────────────────────────────────
-  // FIX 3: uses event.resultIndex so we only append NEW speech results
-  // FIX 4: handles "aborted" error so onend doesn't restart after manual stop
-  // FIX 5: cleanup effect (see above) stops recognition when panel closes
-  const startVoice = useCallback(() => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
+    const handle = recordingRef.current;
+    recordingRef.current = null;
 
-    if (!SpeechRecognition) {
-      toast({
-        title: "Voice not supported",
-        description:
-          "Speech recognition requires Chrome or Edge. Please type your message instead.",
-        variant: "destructive",
-      });
-      setVoiceSupported(false);
+    if (!handle) {
+      setInput("");
       return;
     }
 
-    // Toggle off if already running
+    setIsTranscribing(true);
+    setInput("🎙️ Transcribing…");
+
+    try {
+      const audioBlob = await handle.stop();
+      const transcript = await transcribeWithGroq(audioBlob, userLang);
+      if (transcript) {
+        setInput(transcript);
+        sendMessage(transcript);
+      } else {
+        setInput("");
+        toast({
+          title: "No speech detected",
+          description: "Please try again.",
+        });
+      }
+    } catch (err: any) {
+      setInput("");
+      const msg = err?.message ?? "";
+      if (msg === "EMPTY_AUDIO") {
+        toast({
+          title: "No speech detected",
+          description: "Please try again.",
+        });
+      } else if (msg === "RATE_LIMIT") {
+        toast({
+          title: "Rate limited",
+          description: "Please wait a moment.",
+          variant: "destructive",
+        });
+      } else if (msg === "INVALID_API_KEY") {
+        toast({
+          title: "API key error",
+          description: "Groq API key is invalid.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Transcription failed",
+          description: "Could not understand audio. Please type instead.",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [sendMessage, toast, userLang]);
+
+  // ── Start Groq Whisper voice input ───────────────────────────────────────
+  const startVoice = useCallback(async () => {
+    if (!voiceSupported) {
+      toast({
+        title: "Voice not supported",
+        description: "Your browser does not support audio recording.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Toggle off if already recording
     if (isListeningRef.current) {
-      stopVoice();
+      await stopVoice();
       return;
     }
 
     // Stop TTS while user is speaking
-    window.speechSynthesis?.cancel();
+    stopSpeaking();
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false; // single utterance → more reliable on mobile
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-    recognition.maxAlternatives = 1;
-
-    // Save reference so stopVoice() and the close-effect can cancel it
-    recognitionRef.current = recognition;
-    isListeningRef.current = true;
-
-    // Accumulates confirmed (final) words across multiple result events
-    let finalTranscript = "";
-    let autoSubmitTimer: ReturnType<typeof setTimeout> | null = null;
-
-    recognition.onstart = () => {
+    try {
+      const handle = await startGroqRecording();
+      recordingRef.current = handle;
+      isListeningRef.current = true;
       setIsListening(true);
-      setInput("");
-      finalTranscript = "";
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-      isListeningRef.current = false;
-      const text = finalTranscript.trim();
-      if (text) {
-        sendMessage(text);
-      }
-      setInput("");
-    };
-
-    recognition.onerror = (e: any) => {
-      const { error } = e;
+      setInput("🎙️ Listening…");
+    } catch (err: any) {
       isListeningRef.current = false;
       setIsListening(false);
+      recordingRef.current = null;
 
-      if (error === "not-allowed" || error === "service-not-allowed") {
+      const msg = (err?.message ?? "").toLowerCase();
+      if (
+        msg.includes("not-allowed") ||
+        msg.includes("permission") ||
+        msg.includes("denied")
+      ) {
         toast({
           title: "Microphone blocked",
           description:
-            "Please allow microphone access in your browser settings, then try again.",
+            "Please allow microphone access in your browser settings.",
           variant: "destructive",
         });
-        setVoiceSupported(false);
-        return;
-      }
-      if (error === "aborted") return;
-      if (error === "no-speech") {
+      } else {
         toast({
-          title: "No speech detected",
-          description: "Tap the mic and speak clearly.",
-        });
-        return;
-      }
-      if (error === "network") {
-        toast({
-          title: "Network error",
-          description: "Check your internet connection and try again.",
+          title: "Microphone error",
+          description: "Could not start microphone. Please try again.",
           variant: "destructive",
         });
       }
-    };
-
-    recognition.onresult = (event: any) => {
-      // Clear pending auto-submit timer
-      if (autoSubmitTimer) clearTimeout(autoSubmitTimer);
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript + " ";
-        }
-      }
-
-      // Build live interim preview
-      let interim = "";
-      for (let i = 0; i < event.results.length; i++) {
-        if (!event.results[i].isFinal) {
-          interim += event.results[i][0].transcript;
-        }
-      }
-      setInput((finalTranscript + interim).trim());
-
-      // Auto-submit after 1.5s of silence if we have final text
-      if (finalTranscript.trim()) {
-        autoSubmitTimer = setTimeout(() => {
-          if (isListeningRef.current) {
-            try {
-              recognition.stop();
-            } catch {
-              /* ignore */
-            }
-          }
-        }, 1500);
-      }
-    };
-
-    try {
-      recognition.start();
-    } catch (err) {
-      console.error("Recognition start failed:", err);
-      isListeningRef.current = false;
-      setIsListening(false);
-      toast({
-        title: "Microphone error",
-        description: "Could not start microphone. Please try again.",
-        variant: "destructive",
-      });
     }
-  }, [sendMessage, stopVoice, toast]);
+  }, [stopVoice, toast, voiceSupported]);
 
   // ── Listen for auto-start voice event (from wake word) ───────────────────
   useEffect(() => {
@@ -1028,6 +967,18 @@ export default function AIAssistant() {
     return () => window.removeEventListener("jinny-start-voice", handler);
   }, [open, startVoice]);
 
+  // ── Auto-stop recording when panel closes ────────────────────────────────
+  useEffect(() => {
+    if (!open && isListeningRef.current) {
+      isListeningRef.current = false;
+      recordingRef.current?.abort();
+      recordingRef.current = null;
+      setIsListening(false);
+      setIsTranscribing(false);
+      setInput("");
+    }
+  }, [open]);
+
   // ── Quick-action capability pills ───────────────────────────────────────
   const handleQuickAction = useCallback(
     (prompt: string) => sendMessage(prompt),
@@ -1039,18 +990,16 @@ export default function AIAssistant() {
 
   // ── Stop TTS when panel closes ────────────────────────────────────────────
   useEffect(() => {
-    if (!open) window.speechSynthesis?.cancel();
+    if (!open) stopSpeaking();
   }, [open]);
 
   // ── Listen for jinny-open event (from MobileNav / Accessibility panel) ───
-  // NOTE: Opening via button does NOT auto-start mic — user must tap it.
-  // Only wake-word activation auto-starts the mic (like Alexa/Siri).
   useEffect(() => {
     const handler = () => {
       setOpen(true);
-      speakJinny("At your service. How can I help?");
-      // Do NOT auto-dispatch jinny-start-voice here — manual open requires
-      // the user to consciously tap the mic button.
+      if (ttsEnabledRef.current) {
+        speakJinny("At your service. How can I help?");
+      }
     };
     window.addEventListener("jinny-open", handler);
     return () => window.removeEventListener("jinny-open", handler);
@@ -1299,28 +1248,34 @@ export default function AIAssistant() {
               paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)",
             }}
           >
-            {isListening && (
+            {(isListening || isTranscribing) && (
               <div className="flex items-center gap-1.5 mb-2 px-1">
-                <span className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
+                <span
+                  className={`w-2 h-2 rounded-full animate-pulse ${isTranscribing ? "bg-warning" : "bg-destructive"}`}
+                />
                 <span className="text-[10px] text-muted-foreground">
-                  Listening… tap mic or press Enter to send
+                  {isTranscribing
+                    ? "Transcribing with Groq Whisper…"
+                    : "Recording… tap mic again to send"}
                 </span>
               </div>
             )}
             <div className="flex items-center gap-2">
               <button
                 onClick={isListening ? stopVoice : startVoice}
-                disabled={!voiceSupported}
+                disabled={!voiceSupported || isTranscribing}
                 title={
                   !voiceSupported
-                    ? "Voice not supported in this browser"
-                    : isListening
-                      ? "Stop recording (or press Enter)"
-                      : 'Start voice input (or say "Hey Jinny")'
+                    ? "Microphone not available"
+                    : isTranscribing
+                      ? "Transcribing…"
+                      : isListening
+                        ? "Stop recording & send"
+                        : 'Start voice input (or say "Hey Jinny")'
                 }
                 className={`p-2 rounded-lg transition-colors ${
-                  !voiceSupported
-                    ? "opacity-30 cursor-not-allowed text-muted-foreground"
+                  !voiceSupported || isTranscribing
+                    ? "opacity-40 cursor-not-allowed text-muted-foreground"
                     : isListening
                       ? "bg-destructive text-destructive-foreground animate-pulse"
                       : "hover:bg-secondary text-muted-foreground"
@@ -1329,7 +1284,9 @@ export default function AIAssistant() {
                   isListening ? "Stop recording" : "Start voice input"
                 }
               >
-                {isListening ? (
+                {isTranscribing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : isListening ? (
                   <MicOff className="w-4 h-4" />
                 ) : (
                   <Mic className="w-4 h-4" />
@@ -1338,17 +1295,23 @@ export default function AIAssistant() {
               <input
                 type="text"
                 placeholder={
-                  isListening ? "Speak now…" : "Ask Jinny anything..."
+                  isTranscribing
+                    ? "Transcribing…"
+                    : isListening
+                      ? "Recording… tap mic to stop"
+                      : "Ask Jinny anything…"
                 }
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
+                value={isListening || isTranscribing ? input : input}
+                onChange={(e) => {
+                  if (!isListening && !isTranscribing) setInput(e.target.value);
+                }}
+                readOnly={isListening || isTranscribing}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     if (isListening) {
-                      // Pressing Enter while recording stops mic and submits
                       stopVoice();
-                    } else {
+                    } else if (!isTranscribing) {
                       sendMessage(input);
                     }
                   }
@@ -1358,12 +1321,14 @@ export default function AIAssistant() {
               <button
                 onClick={() => {
                   if (isListening) {
-                    stopVoice(); // stop mic → onend will submit finalTranscript
-                  } else {
+                    stopVoice();
+                  } else if (!isTranscribing) {
                     sendMessage(input);
                   }
                 }}
-                disabled={(!input.trim() && !isListening) || isLoading}
+                disabled={
+                  (!input.trim() && !isListening) || isLoading || isTranscribing
+                }
                 className="p-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-colors"
                 aria-label="Send message"
               >

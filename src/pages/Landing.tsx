@@ -34,6 +34,10 @@ import {
   Volume2,
   CheckCircle,
   Lock,
+  Radio,
+  CalendarClock,
+  Timer,
+  Locate,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -58,6 +62,8 @@ const stats = [
   { value: "24/7", label: "AI Planning Engine" },
   { value: "100%", label: "Voice-First UX" },
   { value: "0 Forms", label: "Required to Plan" },
+  { value: "Live", label: "Location Sharing" },
+  { value: "Smart", label: "Timeline Alerts" },
 ];
 
 const reasons = [
@@ -105,9 +111,23 @@ const reasons = [
 
 const allFeatures = [
   {
+    icon: Radio,
+    title: "Live Location Sharing",
+    desc: "Trip members share real-time GPS location with each other — just like WhatsApp. Split up and regroup effortlessly with one-tap navigation to any member.",
+    color: "text-emerald-500 bg-emerald-500/10",
+    tag: "Collaboration",
+  },
+  {
+    icon: CalendarClock,
+    title: "Smart Timeline Notifications",
+    desc: "Get push alerts 15 min and 5 min before each activity. Running late? Delay your entire upcoming schedule with one tap — +10m, +15m, +30m, and more.",
+    color: "text-warning bg-warning/10",
+    tag: "Real-Time",
+  },
+  {
     icon: Mic,
     title: "Voice-First Planning",
-    desc: "Speak naturally to plan your trip. Whisper STT + GPT NLU extracts all trip details from voice.",
+    desc: "Speak naturally to plan your trip. Groq Whisper STT extracts all trip details from voice — works on every browser, no Chrome required.",
     color: "text-primary bg-primary/10",
     tag: "AI Core",
   },
@@ -443,6 +463,7 @@ export default function Landing() {
     "Real-Time",
     "Navigation",
     "Finance",
+    "Collaboration",
     "Social",
     "Safety",
     "Explore",
@@ -687,15 +708,24 @@ export default function Landing() {
                 Radiator Routes is an AI-powered intelligent travel planning
                 system designed specifically for group travel optimization. We
                 combine voice-first interaction, regret-aware counterfactual
-                planning, multi-agent AI orchestration, and real-time dynamic
-                replanning to deliver the perfect trip — every time.
+                planning, multi-agent AI orchestration, real-time dynamic
+                replanning,{" "}
+                <strong className="text-foreground">
+                  live location sharing
+                </strong>
+                , and{" "}
+                <strong className="text-foreground">
+                  smart timeline notifications
+                </strong>{" "}
+                to deliver the perfect trip — every time.
               </p>
               <p className="text-muted-foreground leading-relaxed text-base mb-6">
-                All budgets are tracked in ₹ INR, powered by LangGraph agent
-                workflows, Supabase real-time infrastructure, and a suite of
-                live travel APIs. Whether you're planning a weekend getaway or a
-                multi-week adventure, Radiator Routes eliminates the chaos of
-                group travel planning.
+                All budgets are tracked in ₹ INR, powered by Groq AI, Supabase
+                real-time infrastructure, and a suite of live travel APIs.
+                Whether you're planning a weekend getaway or a multi-week
+                adventure, Radiator Routes eliminates the chaos of group travel
+                planning — from the first voice command to the final group
+                selfie.
               </p>
               <div className="flex flex-wrap gap-3">
                 {[
@@ -704,6 +734,8 @@ export default function Landing() {
                   "Group AI",
                   "Live Replanning",
                   "INR-Native",
+                  "Live Location",
+                  "Smart Alerts",
                 ].map((tag) => (
                   <span
                     key={tag}
@@ -726,7 +758,7 @@ export default function Landing() {
                 {
                   icon: Zap,
                   title: "Supabase Realtime",
-                  desc: "WebSocket-powered live updates across all trip members",
+                  desc: "Live location sharing & group chat over WebSocket presence channels",
                   color: "text-orange-500",
                   bg: "bg-orange-500/5",
                 },
@@ -759,6 +791,177 @@ export default function Landing() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── New Features Spotlight ─── */}
+      <section className="py-20 px-6 bg-gradient-to-b from-card to-background">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-14">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold mb-5">
+              <Sparkles className="w-3.5 h-3.5" />
+              Just Shipped — New Features
+            </div>
+            <h2
+              className="text-4xl md:text-5xl font-bold text-foreground mb-4"
+              style={{ fontFamily: "'Playfair Display', serif" }}
+            >
+              Travel Together,{" "}
+              <span className="text-primary italic">Smarter</span>
+            </h2>
+            <p className="text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+              Two powerful new features that keep your group in sync — whether
+              you're on-schedule or running fashionably late.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Live Location Card */}
+            <div className="relative rounded-3xl border border-border bg-card overflow-hidden group hover:shadow-elevated transition-shadow">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-400 to-teal-500" />
+              <div className="p-8">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center mb-5">
+                  <Radio className="w-7 h-7 text-emerald-500" />
+                </div>
+                <div className="flex items-center gap-2 mb-3">
+                  <h3
+                    className="text-2xl font-bold text-foreground"
+                    style={{ fontFamily: "'Playfair Display', serif" }}
+                  >
+                    Live Location Sharing
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 text-[10px] font-bold border border-emerald-500/20">
+                    LIVE
+                  </span>
+                </div>
+                <p className="text-muted-foreground leading-relaxed mb-6">
+                  Split up at a market, explore different trails, or wander a
+                  city — then regroup effortlessly. Every trip member can share
+                  their real-time GPS with the group, just like WhatsApp Live
+                  Location. See distances, timestamps, and navigate to any
+                  friend with one tap.
+                </p>
+                <div className="space-y-3">
+                  {[
+                    {
+                      icon: Locate,
+                      text: "Real-time GPS broadcast via Supabase Presence",
+                    },
+                    {
+                      icon: Navigation,
+                      text: "One-tap Google Maps navigation to any member",
+                    },
+                    {
+                      icon: Users,
+                      text: "See distance to each group member live",
+                    },
+                    {
+                      icon: Lock,
+                      text: "Visible only to your trip members — private & secure",
+                    },
+                  ].map((item) => (
+                    <div key={item.text} className="flex items-start gap-3">
+                      <div className="w-6 h-6 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                        <item.icon className="w-3.5 h-3.5 text-emerald-500" />
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {item.text}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-6 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-xs text-emerald-600 font-semibold">
+                    Updates every 5 seconds · Auto-clears on disconnect
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Timeline Notifications Card */}
+            <div className="relative rounded-3xl border border-border bg-card overflow-hidden group hover:shadow-elevated transition-shadow">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 to-orange-500" />
+              <div className="p-8">
+                <div className="w-14 h-14 rounded-2xl bg-warning/10 flex items-center justify-center mb-5">
+                  <CalendarClock className="w-7 h-7 text-warning" />
+                </div>
+                <div className="flex items-center gap-2 mb-3">
+                  <h3
+                    className="text-2xl font-bold text-foreground"
+                    style={{ fontFamily: "'Playfair Display', serif" }}
+                  >
+                    Smart Timeline Alerts
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full bg-warning/10 text-warning text-[10px] font-bold border border-warning/20">
+                    NEW
+                  </span>
+                </div>
+                <p className="text-muted-foreground leading-relaxed mb-6">
+                  Never miss an activity again. Get push notifications 15 and 5
+                  minutes before each item on your itinerary. Running late?
+                  Delay your entire upcoming schedule with a single tap — no
+                  manual rescheduling needed.
+                </p>
+                <div className="space-y-3">
+                  {[
+                    {
+                      icon: Bell,
+                      text: "Browser push alerts 15 min & 5 min before activities",
+                    },
+                    {
+                      icon: Timer,
+                      text: 'Running late? Tap "+15m" to shift all upcoming events',
+                    },
+                    {
+                      icon: CheckCircle,
+                      text: "Visual status: Upcoming · Starting Soon · Active · Late",
+                    },
+                    {
+                      icon: RefreshCw,
+                      text: "Reset to original schedule anytime with one tap",
+                    },
+                  ].map((item) => (
+                    <div key={item.text} className="flex items-start gap-3">
+                      <div className="w-6 h-6 rounded-lg bg-warning/10 flex items-center justify-center shrink-0 mt-0.5">
+                        <item.icon className="w-3.5 h-3.5 text-warning" />
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {item.text}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-6 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-warning animate-pulse" />
+                  <span className="text-xs text-warning font-semibold">
+                    Delay options: +10m, +15m, +20m, +30m, +45m, +60m
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom CTA strip */}
+          <div className="mt-10 rounded-2xl bg-primary/5 border border-primary/20 px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-bold text-foreground">
+                🚀 Both features are live right now
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Open any trip → look for the{" "}
+                <span className="font-semibold text-emerald-600">Live</span> and{" "}
+                <span className="font-semibold text-warning">Timeline</span>{" "}
+                buttons in the itinerary header
+              </p>
+            </div>
+            <Link
+              to="/auth?mode=signup"
+              className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity"
+            >
+              Try It Free <ArrowRight className="w-4 h-4" />
+            </Link>
           </div>
         </div>
       </section>
