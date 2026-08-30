@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { errorMessage } from "@/lib/errors";
 
 const CATEGORIES = [
   "general",
@@ -88,10 +89,10 @@ export default function Community() {
       setShowCreate(false);
       setNewName("");
       setNewDesc("");
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -108,10 +109,10 @@ export default function Community() {
       queryClient.invalidateQueries({ queryKey: ["communities"] });
       queryClient.invalidateQueries({ queryKey: ["my-community-memberships"] });
       toast({ title: "Joined community! 🤝" });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     }
@@ -129,10 +130,10 @@ export default function Community() {
       queryClient.invalidateQueries({ queryKey: ["my-community-memberships"] });
       toast({ title: "Left community" });
       if (selectedCommunity?.id === communityId) setSelectedCommunity(null);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     }
@@ -337,10 +338,6 @@ function CommunityDetail({
   activeTab: "chat" | "events" | "members";
   setActiveTab: (t: "chat" | "events" | "members") => void;
 }) {
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto">
       {/* Header */}
@@ -457,10 +454,10 @@ function CommunityChat({ communityId }: { communityId: string }) {
       });
       if (error) throw error;
       setInput("");
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -579,10 +576,10 @@ function CommunityEvents({ communityId }: { communityId: string }) {
       setDesc("");
       setDest("");
       setEventDate("");
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -606,10 +603,10 @@ function CommunityEvents({ communityId }: { communityId: string }) {
       toast({
         title: status === "going" ? "You're going! 🎉" : "Maybe next time",
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     }

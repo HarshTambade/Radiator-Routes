@@ -12,7 +12,7 @@ import {
   Loader2,
   Save,
   Mail,
-  Phone,
+  
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useTrips } from "@/hooks/useTrips";
@@ -20,6 +20,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/currency";
 import { useLanguage } from "@/hooks/useLanguage";
+import { errorMessage } from "@/lib/errors";
 
 export default function Profile() {
   const { user } = useAuth();
@@ -68,10 +69,10 @@ export default function Profile() {
         phone_number: editPhone,
       }));
       toast({ title: "Profile updated! ✅" });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -92,7 +93,6 @@ export default function Profile() {
 
   const prefs = profile?.preferences || {};
   const personality = profile?.travel_personality || {};
-  const history = profile?.travel_history || [];
   const totalBudget = trips.reduce(
     (sum, t) => sum + Number(t.budget_total || 0),
     0,

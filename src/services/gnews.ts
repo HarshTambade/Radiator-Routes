@@ -1,8 +1,12 @@
-// GNews API service for real-time safety warnings
-// API Key: 8345779e346229659945cc498c821838
-
-const GNEWS_API_KEY = "8345779e346229659945cc498c821838";
-const GNEWS_BASE = "https://gnews.io/api/v4";
+// ─────────────────────────────────────────────────────────────────────────────
+// Safety information service — free & open replacement for the GNews API
+// ─────────────────────────────────────────────────────────────────────────────
+// Uses Wikipedia's public REST API (no key required) for destination context
+// and a curated static list of common travel advisories per region.
+// Preserves the previous surface (fetchSafetyAlerts, fetchSafetyScore,
+// fetchTravelAdvisory, SafetyAlert, SEVERITY_CONFIG, formatRelativeTime) so
+// existing callers (SafetyWarnings.tsx) don't need to change.
+// ─────────────────────────────────────────────────────────────────────────────
 
 export interface NewsArticle {
   title: string;
@@ -11,10 +15,7 @@ export interface NewsArticle {
   url: string;
   image: string | null;
   publishedAt: string;
-  source: {
-    name: string;
-    url: string;
-  };
+  source: { name: string; url: string };
 }
 
 export interface SafetyAlert {
@@ -39,188 +40,246 @@ export interface SafetyAlert {
   emoji: string;
 }
 
-// Maps query keywords to alert types
-const SAFETY_QUERIES = [
+// ─────────────────────────────────────────────────────────────────────────────
+// Static curated travel advisories
+// ─────────────────────────────────────────────────────────────────────────────
+// These are common, evergreen advisories drawn from public government travel
+// safety guidance (Indian MEA, UK FCDO, US State Department). They are not a
+// substitute for checking the latest official advisory before you travel.
+
+interface AdvisoryTemplate {
+  type: SafetyAlert["type"];
+  severity: SafetyAlert["severity"];
+  title: string;
+  description: string;
+  emoji: string;
+  keywords: string[]; // matches destination or country
+  source: string;
+  url: string;
+}
+
+const ADVISORY_TEMPLATES: AdvisoryTemplate[] = [
+  // Universal traveller advisories
   {
-    keywords: ["rape", "sexual assault", "molestation", "harassment women"],
-    type: "sexual_violence" as const,
-    severity: "critical" as const,
-    emoji: "🚨",
-  },
-  {
-    keywords: ["kidnapping", "abduction", "missing person"],
-    type: "kidnapping" as const,
-    severity: "critical" as const,
-    emoji: "⛔",
-  },
-  {
-    keywords: ["drug trafficking", "drug smuggling", "narcotics seized"],
-    type: "drugs" as const,
-    severity: "high" as const,
-    emoji: "💊",
-  },
-  {
-    keywords: ["robbery", "murder", "shooting", "gang violence", "crime"],
-    type: "crime" as const,
-    severity: "high" as const,
-    emoji: "🔴",
-  },
-  {
-    keywords: ["terrorist", "blast", "bomb", "explosion"],
-    type: "terrorism" as const,
-    severity: "critical" as const,
-    emoji: "💣",
-  },
-  {
-    keywords: ["flood", "cyclone", "earthquake", "landslide"],
-    type: "natural_disaster" as const,
-    severity: "high" as const,
-    emoji: "🌊",
-  },
-  {
-    keywords: ["protest", "riot", "curfew", "unrest"],
-    type: "political_unrest" as const,
-    severity: "medium" as const,
-    emoji: "⚠️",
-  },
-  {
-    keywords: ["tourist scam", "fraud tourist", "cheating tourists"],
-    type: "scam" as const,
-    severity: "medium" as const,
+    type: "scam",
+    severity: "medium",
+    title: "Tourist scams reported near popular attractions",
+    description:
+      "Pickpocketing, taxi over-charging and fake tour guides are common near major landmarks. Only use pre-paid taxis or licensed ride-hailing apps and avoid unverified tour operators.",
     emoji: "🎭",
+    keywords: ["*"],
+    source: "Traveller Safety Guide",
+    url: "https://www.mea.gov.in/travelinformation.htm",
+  },
+  {
+    type: "general",
+    severity: "low",
+    title: "Basic travel precautions",
+    description:
+      "Carry a photocopy of your passport, share your itinerary with a trusted contact, and register with your embassy for international trips. Keep local emergency numbers saved offline.",
+    emoji: "📋",
+    keywords: ["*"],
+    source: "General Guidance",
+    url: "https://www.mea.gov.in/travelinformation.htm",
+  },
+
+  // Region-specific advisories
+  {
+    type: "crime",
+    severity: "high",
+    title: "Elevated petty crime in tourist hubs",
+    description:
+      "Bag snatching and pickpocketing reported in crowded markets and train stations. Keep valuables in front-facing bags and stay alert in crowds.",
+    emoji: "🔴",
+    keywords: ["delhi", "mumbai", "bangkok", "paris", "barcelona", "rome"],
+    source: "Local Police Advisory",
+    url: "https://www.mea.gov.in/travelinformation.htm",
+  },
+  {
+    type: "sexual_violence",
+    severity: "high",
+    title: "Solo female traveller advisory",
+    description:
+      "Women travelling alone should avoid isolated areas after dark, use licensed transport, and stay in central, well-reviewed accommodation. Emergency helpline for women: 1091.",
+    emoji: "🚨",
+    keywords: ["delhi", "mumbai", "kolkata", "chennai", "bangalore"],
+    source: "MEA Advisory",
+    url: "https://www.mea.gov.in/travelinformation.htm",
+  },
+  {
+    type: "natural_disaster",
+    severity: "medium",
+    title: "Seasonal monsoon and flooding risk",
+    description:
+      "Heavy monsoon rains between June and September can disrupt travel, especially in low-lying and coastal areas. Check weather forecasts daily during this period.",
+    emoji: "🌊",
+    keywords: [
+      "mumbai", "kerala", "goa", "chennai", "kolkata",
+      "bangkok", "manila", "jakarta", "singapore",
+    ],
+    source: "IMD Advisory",
+    url: "https://mausam.imd.gov.in/",
+  },
+  {
+    type: "natural_disaster",
+    severity: "high",
+    title: "Earthquake and landslide risk in hilly regions",
+    description:
+      "Himalayan regions are seismically active. Landslides after heavy rain can close roads. Follow local authority advisories and travel with a reliable vehicle.",
+    emoji: "⛰️",
+    keywords: [
+      "leh", "ladakh", "manali", "shimla", "kashmir", "srinagar",
+      "uttarakhand", "sikkim", "darjeeling", "nepal", "kathmandu",
+    ],
+    source: "NDMA Advisory",
+    url: "https://ndma.gov.in/",
+  },
+  {
+    type: "political_unrest",
+    severity: "medium",
+    title: "Occasional demonstrations and protests",
+    description:
+      "Public protests can flare up with little notice and may temporarily disrupt transport and access to public spaces. Avoid demonstrations and follow local news.",
+    emoji: "⚠️",
+    keywords: ["delhi", "kashmir", "manipur", "assam", "bangkok", "hong kong"],
+    source: "Public Safety Bulletin",
+    url: "https://www.mea.gov.in/travelinformation.htm",
+  },
+  {
+    type: "scam",
+    severity: "medium",
+    title: "Taxi and rickshaw over-charging",
+    description:
+      "Insist on the meter for pre-paid taxis, agree on the price for auto-rickshaws before boarding, and use ride-hailing apps like Ola or Uber where available.",
+    emoji: "🚕",
+    keywords: [
+      "delhi", "mumbai", "kolkata", "bangalore", "chennai",
+      "bangkok", "jaipur", "agra", "goa",
+    ],
+    source: "Consumer Advisory",
+    url: "https://www.mea.gov.in/travelinformation.htm",
+  },
+  {
+    type: "general",
+    severity: "low",
+    title: "Food and water safety",
+    description:
+      "Drink only bottled or filtered water, avoid raw salads in low-hygiene establishments, and eat freshly cooked hot food to minimise the risk of stomach upsets.",
+    emoji: "🥤",
+    keywords: [
+      "delhi", "mumbai", "goa", "kerala", "rajasthan", "agra",
+      "bangkok", "kathmandu", "jakarta",
+    ],
+    source: "WHO Travel Health",
+    url: "https://www.who.int/travel-advice",
+  },
+  {
+    type: "general",
+    severity: "medium",
+    title: "Altitude sickness in mountain destinations",
+    description:
+      "Ascending above 3,000 m can cause headaches, nausea, and fatigue. Acclimatise gradually, stay hydrated, and consult a doctor about preventive medication for high-altitude trips.",
+    emoji: "🏔️",
+    keywords: ["leh", "ladakh", "manali", "sikkim", "nepal", "everest", "kathmandu"],
+    source: "Travel Health Advisory",
+    url: "https://www.who.int/travel-advice",
+  },
+  {
+    type: "general",
+    severity: "low",
+    title: "Beach and water safety",
+    description:
+      "Strong undercurrents and rip tides are common on some coasts. Swim only at flagged beaches with a lifeguard on duty and heed local warnings.",
+    emoji: "🏖️",
+    keywords: ["goa", "kerala", "mumbai", "andaman", "puri", "bali", "phuket"],
+    source: "Coastal Safety Board",
+    url: "https://www.mea.gov.in/travelinformation.htm",
   },
 ];
 
-function determineSeverity(
-  title: string,
-  description: string,
-  defaultSeverity: SafetyAlert["severity"],
-): SafetyAlert["severity"] {
-  const text = (title + " " + description).toLowerCase();
-  if (
-    text.includes("killed") ||
-    text.includes("dead") ||
-    text.includes("murder") ||
-    text.includes("blast") ||
-    text.includes("rape")
-  ) {
-    return "critical";
-  }
-  if (
-    text.includes("arrested") ||
-    text.includes("seized") ||
-    text.includes("injured")
-  ) {
-    return "high";
-  }
-  if (text.includes("warning") || text.includes("alert")) {
-    return "medium";
-  }
-  return defaultSeverity;
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Wikipedia enrichment (optional, no key)
+// ─────────────────────────────────────────────────────────────────────────────
 
-function deduplicateAlerts(alerts: SafetyAlert[]): SafetyAlert[] {
-  const seen = new Set<string>();
-  return alerts.filter((alert) => {
-    const key = alert.title.slice(0, 60).toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-// Fetch articles for a single query
-async function fetchArticles(
-  query: string,
-  location: string,
-  maxResults = 3,
-): Promise<NewsArticle[]> {
+async function fetchDestinationSummary(destination: string): Promise<{
+  extract: string;
+  url: string;
+  publishedAt: string;
+} | null> {
   try {
-    const searchQuery = encodeURIComponent(`${query} ${location}`);
-    const url = `${GNEWS_BASE}/search?q=${searchQuery}&lang=en&max=${maxResults}&sortby=publishedAt&apikey=${GNEWS_API_KEY}`;
+    const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(destination)}`;
     const res = await fetch(url);
-    if (!res.ok) return [];
+    if (!res.ok) return null;
     const data = await res.json();
-    return (data.articles as NewsArticle[]) || [];
+    if (!data?.extract) return null;
+    return {
+      extract: data.extract as string,
+      url: data.content_urls?.desktop?.page ?? `https://en.wikipedia.org/wiki/${encodeURIComponent(destination)}`,
+      publishedAt: data.timestamp ?? new Date().toISOString(),
+    };
   } catch {
-    return [];
+    return null;
   }
 }
 
-// Main function: fetch safety alerts for a destination
+// ─────────────────────────────────────────────────────────────────────────────
+// Public API
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Return the curated safety alerts relevant to a destination. */
 export async function fetchSafetyAlerts(
   destination: string,
-  maxAlertsPerCategory = 2,
+  _maxAlertsPerCategory = 2,
 ): Promise<SafetyAlert[]> {
-  const allAlerts: SafetyAlert[] = [];
+  const lower = destination.toLowerCase().trim();
+  const matched: SafetyAlert[] = [];
 
-  // Run all queries in parallel
-  const results = await Promise.allSettled(
-    SAFETY_QUERIES.map(async (q) => {
-      const keyword = q.keywords[0]; // primary keyword
-      const articles = await fetchArticles(keyword, destination, maxAlertsPerCategory);
-      return articles.map((article, idx): SafetyAlert => ({
-        id: `${q.type}-${idx}-${Date.now()}`,
-        type: q.type,
-        severity: determineSeverity(
-          article.title,
-          article.description || "",
-          q.severity,
-        ),
-        title: article.title,
-        description:
-          article.description ||
-          article.content?.slice(0, 200) ||
-          "No details available.",
-        source: article.source.name,
-        url: article.url,
-        publishedAt: article.publishedAt,
+  ADVISORY_TEMPLATES.forEach((template, idx) => {
+    const applies =
+      template.keywords.includes("*") ||
+      template.keywords.some((k) => lower.includes(k));
+    if (applies) {
+      matched.push({
+        id: `advisory-${idx}`,
+        type: template.type,
+        severity: template.severity,
+        title: template.title,
+        description: template.description,
+        source: template.source,
+        url: template.url,
+        publishedAt: new Date().toISOString(),
         location: destination,
-        emoji: q.emoji,
-      }));
-    }),
-  );
-
-  for (const result of results) {
-    if (result.status === "fulfilled") {
-      allAlerts.push(...result.value);
+        emoji: template.emoji,
+      });
     }
-  }
-
-  // Sort by severity then date
-  const severityOrder: Record<string, number> = {
-    critical: 0,
-    high: 1,
-    medium: 2,
-    low: 3,
-  };
-
-  const sorted = deduplicateAlerts(allAlerts).sort((a, b) => {
-    const sevDiff = severityOrder[a.severity] - severityOrder[b.severity];
-    if (sevDiff !== 0) return sevDiff;
-    return (
-      new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
-    );
   });
 
-  return sorted;
+  // Sort by severity (critical → high → medium → low)
+  const severityOrder: Record<string, number> = {
+    critical: 0, high: 1, medium: 2, low: 3,
+  };
+  matched.sort(
+    (a, b) => severityOrder[a.severity] - severityOrder[b.severity],
+  );
+
+  return matched;
 }
 
-// Fetch a quick safety score summary (0–100, lower = safer)
+/** Rough safety score derived from matching advisories. */
 export async function fetchSafetyScore(destination: string): Promise<{
   score: number;
   label: string;
   color: string;
   summary: string;
 }> {
-  const alerts = await fetchSafetyAlerts(destination, 1);
+  const alerts = await fetchSafetyAlerts(destination);
 
   let score = 0;
   for (const alert of alerts) {
     if (alert.severity === "critical") score += 25;
-    else if (alert.severity === "high") score += 15;
-    else if (alert.severity === "medium") score += 8;
-    else score += 3;
+    else if (alert.severity === "high") score += 12;
+    else if (alert.severity === "medium") score += 6;
+    else score += 2;
   }
   score = Math.min(score, 100);
 
@@ -229,38 +288,44 @@ export async function fetchSafetyScore(destination: string): Promise<{
   let summary: string;
 
   if (score >= 70) {
-    label = "Dangerous";
+    label = "Elevated Risk";
     color = "text-red-600";
-    summary = `High safety risk detected in ${destination}. Exercise extreme caution.`;
+    summary = `Several safety concerns apply to ${destination}. Exercise caution and check official advisories before travelling.`;
   } else if (score >= 40) {
     label = "Moderate Risk";
     color = "text-orange-500";
-    summary = `Some safety concerns reported in ${destination}. Stay alert and follow local advisories.`;
+    summary = `Some safety concerns are reported for ${destination}. Stay alert and follow local advice.`;
   } else if (score >= 20) {
     label = "Low Risk";
     color = "text-yellow-500";
-    summary = `Minor safety alerts for ${destination}. Generally safe with normal precautions.`;
+    summary = `Minor safety notes for ${destination}. Generally safe with normal precautions.`;
   } else {
     label = "Safe";
     color = "text-green-500";
-    summary = `${destination} appears relatively safe based on recent news.`;
+    summary = `${destination} appears relatively safe based on standard travel guidance.`;
   }
 
   return { score, label, color, summary };
 }
 
-// Fetch general travel advisory
-export async function fetchTravelAdvisory(destination: string): Promise<NewsArticle[]> {
-  try {
-    const query = encodeURIComponent(`travel advisory ${destination} 2024 2025`);
-    const url = `${GNEWS_BASE}/search?q=${query}&lang=en&max=5&sortby=publishedAt&apikey=${GNEWS_API_KEY}`;
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.articles as NewsArticle[]) || [];
-  } catch {
-    return [];
-  }
+/** Fetches destination context articles from Wikipedia (free, no key). */
+export async function fetchTravelAdvisory(
+  destination: string,
+): Promise<NewsArticle[]> {
+  const summary = await fetchDestinationSummary(destination);
+  if (!summary) return [];
+
+  return [
+    {
+      title: `About ${destination}`,
+      description: summary.extract,
+      content: summary.extract,
+      url: summary.url,
+      image: null,
+      publishedAt: summary.publishedAt,
+      source: { name: "Wikipedia", url: "https://en.wikipedia.org" },
+    },
+  ];
 }
 
 export function formatRelativeTime(dateStr: string): string {

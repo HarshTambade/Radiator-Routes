@@ -2,7 +2,7 @@ import { useLocation, Link } from "react-router-dom";
 import {
   LayoutDashboard,
   CalendarDays,
-  Compass,
+  
   Users,
   UserCircle,
 } from "lucide-react";

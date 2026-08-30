@@ -4,6 +4,7 @@ import { MapPin, Loader2, CheckCircle, XCircle, LogIn } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { errorMessage } from "@/lib/errors";
 
 export default function JoinTrip() {
   const { inviteCode } = useParams();
@@ -64,7 +65,7 @@ export default function JoinTrip() {
         .insert({ trip_id: invite.trip_id, user_id: user.id, invite_id: invite.id });
 
       if (error) {
-        if (error.message.includes("duplicate")) {
+        if (errorMessage(error).includes("duplicate")) {
           setStatus("already");
           toast({ title: "You already have a pending request for this trip." });
         } else {
@@ -75,9 +76,9 @@ export default function JoinTrip() {
 
       setStatus("sent");
       toast({ title: "Join request sent! ✅", description: "The trip organizer will review your request." });
-    } catch (error: any) {
+    } catch (error: unknown) {
       setStatus("error");
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({ title: "Error", description: errorMessage(error), variant: "destructive" });
     } finally {
       setSubmitting(false);
     }

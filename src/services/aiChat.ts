@@ -4,6 +4,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { supabase } from "@/integrations/supabase/client";
+import { cityToIATA } from "@/lib/iata";
+import { formatLocalDate } from "@/lib/date";
+
+// Re-exported so existing importers of `cityToIATA` from this module keep working.
+export { cityToIATA };
 
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string;
 const GROQ_BASE = "https://api.groq.com/openai/v1";
@@ -203,7 +208,7 @@ const INTENT_PATTERNS: Array<{ intent: Intent; patterns: RegExp[] }> = [
   {
     intent: "CURRENCY",
     patterns: [
-      /\b(exchange\s*rate|currency|convert|how\s*much\s*is\s*[\$€£¥₹]|rupees?\s*to|dollars?\s*to|euros?\s*to)\b/i,
+      /\b(exchange\s*rate|currency|convert|how\s*much\s*is\s*[$€£¥₹]|rupees?\s*to|dollars?\s*to|euros?\s*to)\b/i,
       /\b(forex|foreign\s*exchange|money\s*exchange)\b/i,
     ],
   },
@@ -410,7 +415,7 @@ export function extractDate(text: string): string | null {
   // ISO or numeric: 2025-08-15 or 15/08/2025 or 08-15-2025
   const iso = text.match(/\b(\d{4}-\d{2}-\d{2})\b/);
   if (iso) return iso[1];
-  const dmy = text.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/);
+  const dmy = text.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/);
   if (dmy) {
     const y = dmy[3].length === 2 ? `20${dmy[3]}` : dmy[3];
     return `${y}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
@@ -441,155 +446,6 @@ export function extractPassengers(text: string): number {
   if (/\bsolo\b|\bjust\s+me\b|\balone\b|\bmyself\b/i.test(text)) return 1;
   return 1;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// City → IATA airport code (expanded global + India coverage)
-// ─────────────────────────────────────────────────────────────────────────────
-
-const CITY_TO_IATA: Record<string, string> = {
-  // India — metro
-  delhi: "DEL",
-  "new delhi": "DEL",
-  ndls: "DEL",
-  mumbai: "BOM",
-  bombay: "BOM",
-  bangalore: "BLR",
-  bengaluru: "BLR",
-  blr: "BLR",
-  hyderabad: "HYD",
-  hyd: "HYD",
-  chennai: "MAA",
-  madras: "MAA",
-  kolkata: "CCU",
-  calcutta: "CCU",
-  // India — tier 2
-  goa: "GOI",
-  "north goa": "GOI",
-  "south goa": "GOI",
-  pune: "PNQ",
-  ahmedabad: "AMD",
-  jaipur: "JAI",
-  cochin: "COK",
-  kochi: "COK",
-  lucknow: "LKO",
-  varanasi: "VNS",
-  banaras: "VNS",
-  benares: "VNS",
-  amritsar: "ATQ",
-  bhubaneswar: "BBI",
-  patna: "PAT",
-  nagpur: "NAG",
-  indore: "IDR",
-  srinagar: "SXR",
-  leh: "IXL",
-  ladakh: "IXL",
-  udaipur: "UDR",
-  coimbatore: "CJB",
-  visakhapatnam: "VTZ",
-  vizag: "VTZ",
-  chandigarh: "IXC",
-  raipur: "RPR",
-  ranchi: "IXR",
-  guwahati: "GAU",
-  imphal: "IMF",
-  bhopal: "BHO",
-  agra: "AGR",
-  jodhpur: "JDH",
-  aurangabad: "IXU",
-  mangalore: "IXE",
-  tiruchirappalli: "TRZ",
-  trichy: "TRZ",
-  "port blair": "IXZ",
-  andaman: "IXZ",
-  dibrugarh: "DIB",
-  jammu: "IXJ",
-  dehradun: "DED",
-  shimla: "SLV",
-  kullu: "KUU",
-  manali: "KUU",
-  hubli: "HBX",
-  belgaum: "IXG",
-  mysore: "MYQ",
-  madurai: "IXM",
-  tirupati: "TIR",
-  kolhapur: "KLH",
-  rajahmundry: "RJA",
-  // International — Asia
-  dubai: "DXB",
-  "abu dhabi": "AUH",
-  sharjah: "SHJ",
-  singapore: "SIN",
-  bangkok: "BKK",
-  suvarnabhumi: "BKK",
-  "kuala lumpur": "KUL",
-  malaysia: "KUL",
-  "hong kong": "HKG",
-  tokyo: "NRT",
-  osaka: "KIX",
-  beijing: "PEK",
-  shanghai: "PVG",
-  seoul: "ICN",
-  kathmandu: "KTM",
-  colombo: "CMB",
-  srilanka: "CMB",
-  dhaka: "DAC",
-  karachi: "KHI",
-  lahore: "LHE",
-  male: "MLE",
-  maldives: "MLE",
-  // International — Europe
-  london: "LHR",
-  "london heathrow": "LHR",
-  paris: "CDG",
-  amsterdam: "AMS",
-  frankfurt: "FRA",
-  rome: "FCO",
-  milan: "MXP",
-  madrid: "MAD",
-  barcelona: "BCN",
-  zurich: "ZRH",
-  vienna: "VIE",
-  istanbul: "IST",
-  athens: "ATH",
-  lisbon: "LIS",
-  prague: "PRG",
-  budapest: "BUD",
-  moscow: "SVO",
-  // International — Americas
-  "new york": "JFK",
-  nyc: "JFK",
-  "los angeles": "LAX",
-  chicago: "ORD",
-  miami: "MIA",
-  toronto: "YYZ",
-  vancouver: "YVR",
-  "sao paulo": "GRU",
-  "mexico city": "MEX",
-  // International — Oceania / Africa
-  sydney: "SYD",
-  melbourne: "MEL",
-  auckland: "AKL",
-  cairo: "CAI",
-  nairobi: "NBO",
-  johannesburg: "JNB",
-};
-
-export function cityToIATA(city: string): string {
-  const key = city.toLowerCase().trim();
-  return CITY_TO_IATA[key] ?? city.toUpperCase().slice(0, 3);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Local date formatter (YYYY-MM-DD, no timezone shift)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function formatLocalDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Intent → precise action hint injected into the system prompt
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1018,13 +874,17 @@ function buildMessages(
 // Core fetch helper — shared by streaming + non-streaming
 // ─────────────────────────────────────────────────────────────────────────────
 
+export function isChatAvailable(): boolean {
+  return !!GROQ_API_KEY && GROQ_API_KEY.length > 10;
+}
+
 async function groqFetch(
   messages: OAIMessage[],
   stream: boolean,
   temperature = 0.3,
   maxTokens = 3072,
 ): Promise<Response> {
-  if (!GROQ_API_KEY) throw new Error("VITE_GROQ_API_KEY is not configured");
+  if (!isChatAvailable()) throw new Error("NO_API_KEY");
 
   const res = await fetch(`${GROQ_BASE}/chat/completions`, {
     method: "POST",
@@ -1107,12 +967,7 @@ export async function streamChatMessage(
     userLang,
   );
 
-  let res: Response;
-  try {
-    res = await groqFetch(buildMessages(systemPrompt, messages), true);
-  } catch (err) {
-    throw err;
-  }
+  const res = await groqFetch(buildMessages(systemPrompt, messages), true);
 
   if (!res.body) {
     const text = await sendChatMessage(messages);

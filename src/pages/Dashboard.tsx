@@ -1,11 +1,11 @@
 import {
   Search,
-  Mic,
-  MicOff,
+  
+  
   Plus,
   MapPin,
   Calendar,
-  Loader2,
+  
   Users,
   User,
   Globe,
@@ -15,7 +15,7 @@ import {
 import { formatCurrency } from "@/lib/currency";
 import { useAuth } from "@/hooks/useAuth";
 import { useTrips } from "@/hooks/useTrips";
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -25,6 +25,7 @@ import TripCreationChat from "@/components/TripCreationChat";
 import { useOnlineStatus } from "@/hooks/useOfflineTrip";
 import { getAllOfflineTrips } from "@/services/offlineTrip";
 import { useLanguage } from "@/hooks/useLanguage";
+import { parseLocalDate, daysBetween, startOfToday } from "@/lib/date";
 
 import destinationAgra from "@/assets/destination-agra.jpg";
 import destinationGoa from "@/assets/destination-goa.jpg";
@@ -32,6 +33,7 @@ import destinationKerala from "@/assets/destination-kerala.jpg";
 import travelBeach from "@/assets/travel-beach.jpg";
 import travelBoat from "@/assets/travel-boat.jpg";
 import travelOcean from "@/assets/travel-ocean.jpg";
+import { errorMessage } from "@/lib/errors";
 
 const tripImages = [
   destinationAgra,
@@ -63,18 +65,6 @@ const tripTypes = [
   },
 ];
 
-// Local date helpers to avoid UTC shift
-function parseLocalDate(dateStr: string): Date {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function daysBetween(start: string, end: string): number {
-  const s = parseLocalDate(start);
-  const e = parseLocalDate(end);
-  return Math.round((e.getTime() - s.getTime()) / 86400000);
-}
-
 export default function Dashboard() {
   const { user } = useAuth();
   const { data: trips = [], isLoading } = useTrips();
@@ -103,16 +93,8 @@ export default function Dashboard() {
   );
 
   const getDaysLeft = (dateStr: string) => {
-    const target = parseLocalDate(dateStr);
-    const now = new Date();
-    // Normalize "now" to start of local day for accurate day count
-    const todayStart = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-    );
-    const diff = target.getTime() - todayStart.getTime();
-    return Math.max(0, Math.ceil(diff / 86400000));
+    const diff = parseLocalDate(dateStr).getTime() - startOfToday().getTime();
+    return Math.max(0, Math.ceil(diff / 86_400_000));
   };
 
   const getTripDuration = (startDate: string, endDate: string) => {
@@ -135,10 +117,10 @@ export default function Dashboard() {
         description: `"${tripName}" has been removed.`,
       });
       queryClient.invalidateQueries({ queryKey: ["trips"] });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     }

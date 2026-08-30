@@ -25,13 +25,18 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { getCurrencySymbol } from "@/lib/currency";
+import { formatLocalDate, parseLocalDate, daysBetween } from "@/lib/date";
 import ReactMarkdown from "react-markdown";
+import { errorMessage } from "@/lib/errors";
 import {
   startGroqRecording,
   transcribeWithGroq,
   type RecordingHandle,
 } from "@/services/groqVoice";
 import { getSavedLanguage } from "@/services/translate";
+
+// Track the transcript emitted by the web-speech engine
+const pendingTranscriptSlot = { current: "" };
 
 type Step =
   | "destination"
@@ -93,24 +98,6 @@ const INTEREST_OPTIONS: Option[] = [
   { label: "🎭 Nightlife", value: "nightlife" },
   { label: "📸 Photography", value: "photography" },
 ];
-
-function formatLocalDate(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function parseLocalDate(dateStr: string): Date {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function daysBetween(start: string, end: string): number {
-  const s = parseLocalDate(start);
-  const e = parseLocalDate(end);
-  return Math.round((e.getTime() - s.getTime()) / 86400000);
-}
 
 interface Props {
   onClose: () => void;
@@ -531,11 +518,11 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
             if (newTrips?.[0]) navigate(`/itinerary/${newTrips[0].id}`);
             onClose();
           }, 1500);
-        } catch (error: any) {
-          addBotMessage(`❌ Error: ${error.message}. Please try again.`);
+        } catch (error: unknown) {
+          addBotMessage(`❌ Error: ${errorMessage(error)}. Please try again.`);
           toast({
             title: "Error",
-            description: error.message,
+            description: errorMessage(error),
             variant: "destructive",
           });
         } finally {
@@ -565,8 +552,16 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
 
     try {
       const audioBlob = await handle.stop();
-      const userLang = getSavedLanguage();
-      const transcript = await transcribeWithGroq(audioBlob, userLang);
+      // Web-speech engine emits transcript via the onTranscript callback
+      let transcript = pendingTranscriptSlot.current.trim();
+      pendingTranscriptSlot.current = "";
+
+      // Media-recorder engine returns a Blob → Groq Whisper transcription
+      if (!transcript && audioBlob) {
+        const userLang = getSavedLanguage();
+        transcript = (await transcribeWithGroq(audioBlob, userLang)).trim();
+      }
+
       if (transcript) {
         setInput(transcript);
         handleInputRef.current(transcript);
@@ -577,9 +572,9 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
           description: "Please try again.",
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setInput("");
-      const msg = err?.message ?? "";
+      const msg = errorMessage(err) ?? "";
       if (msg === "EMPTY_AUDIO") {
         toast({
           title: "No speech detected",
@@ -626,16 +621,20 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
     }
 
     try {
-      const handle = await startGroqRecording();
+      pendingTranscriptSlot.current = "";
+      const handle = await startGroqRecording({
+        language: getSavedLanguage(),
+        onTranscript: (text) => { pendingTranscriptSlot.current = text; },
+      });
       recordingRef.current = handle;
       isListeningRef.current = true;
       setIsListening(true);
       setInput("🎙️ Listening…");
-    } catch (err: any) {
+    } catch (err: unknown) {
       isListeningRef.current = false;
       setIsListening(false);
       recordingRef.current = null;
-      const msg = (err?.message ?? "").toLowerCase();
+      const msg = (errorMessage(err) ?? "").toLowerCase();
       if (
         msg.includes("not-allowed") ||
         msg.includes("permission") ||
@@ -702,8 +701,6 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
         <div className="flex items-center gap-0.5">
           {steps.map((s, i) => {
             const Icon = stepIcons[s];
-            // ── Determine mic button label / state ───────────────────────────────────
-            const micBusy = isTranscribing;
 
             return (
               <div key={s} className="flex items-center gap-0.5 flex-1">

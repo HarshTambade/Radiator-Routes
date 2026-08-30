@@ -96,7 +96,6 @@ export default function ItineraryNotifications({ activities, tripName }: Props) 
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [tick, setTick] = useState(0);
   const notifiedRef = useRef<Set<string>>(new Set());
-  const permissionAsked = useRef(false);
 
   // Tick every 30 seconds to refresh statuses
   useEffect(() => {

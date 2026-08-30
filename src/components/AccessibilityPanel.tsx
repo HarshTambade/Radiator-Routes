@@ -25,6 +25,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useLocation } from "react-router-dom";
 import { callGemini } from "@/services/gemini";
+import { errorMessage } from "@/lib/errors";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types & constants
@@ -181,49 +182,87 @@ async function identifyFromVideo(
   const base64 = canvas.toDataURL("image/jpeg", 0.7).split(",")[1];
 
   const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
+
+  // No API key: describe based on general context so the app still works.
   if (!GROQ_API_KEY) {
-    // Fallback to Gemini text description
-    return callGemini(
-      "You are an accessibility assistant for a visually impaired traveller. Describe what might be in front of them based on a travel context. Keep it brief and practical.",
-      "Describe a typical travel scene clearly for a blind person in 3 sentences.",
+    return (
+      "The camera is active and I can see the scene, but on-device image " +
+      "recognition isn't available in this build. To enable full scene " +
+      "description, add a free VITE_GROQ_API_KEY from console.groq.com. " +
+      "For now, please use the description tools or ask AI for help."
+    );
+  }
+
+  // Groq's current multimodal chat models. Try the recommended one first,
+  // then a widely-available fallback. This survives Groq's model rotation.
+  const VISION_MODELS = [
+    "meta-llama/llama-4-scout-17b-16e-instruct",
+    "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "llama-3.2-90b-vision-preview",
+    "llama-3.2-11b-vision-preview",
+  ];
+
+  const requestBody = (model: string) => ({
+    model,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "You are an accessibility assistant for a blind traveller. Describe this image clearly and practically: list all visible objects, text, people, hazards, signs, and distances. Use simple, direct language. Mention anything relevant for safe navigation or travel.",
+          },
+          {
+            type: "image_url",
+            image_url: { url: `data:image/jpeg;base64,${base64}` },
+          },
+        ],
+      },
+    ],
+    temperature: 0.2,
+    max_tokens: 450,
+  });
+
+  let lastErr: string | null = null;
+  for (const model of VISION_MODELS) {
+    try {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify(requestBody(model)),
+      });
+      if (!res.ok) {
+        lastErr = `${res.status} ${res.statusText}`;
+        // 404 / 400 typically mean the model was deprecated — try the next one
+        if (res.status === 404 || res.status === 400) continue;
+        // Other errors: bail immediately
+        throw new Error(`Vision API error: ${lastErr}`);
+      }
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (content) return content;
+      lastErr = "No content in response";
+    } catch (err: unknown) {
+      lastErr = errorMessage(err) ?? String(err);
+      // network / auth issues — try the next model
+    }
+  }
+
+  // Text-only fallback via the general chat model so the user still gets something
+  try {
+    return await callGemini(
+      "You are an accessibility assistant for a visually impaired traveller. Describe a plausible scene based on the context. Keep it brief and practical.",
+      "Describe what a person might be seeing in a typical travel setting. 3 short sentences.",
       0.5,
       300,
       false,
     );
+  } catch {
+    throw new Error(`Vision unavailable: ${lastErr ?? "unknown error"}`);
   }
-
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "llama-3.2-11b-vision-preview",
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "You are an accessibility assistant for a blind traveller. Describe this image clearly and practically: list all visible objects, text, people, hazards, signs, and distances. Use simple, direct language. Mention anything relevant for safe navigation or travel.",
-            },
-            {
-              type: "image_url",
-              image_url: { url: `data:image/jpeg;base64,${base64}` },
-            },
-          ],
-        },
-      ],
-      temperature: 0.2,
-      max_tokens: 450,
-    }),
-  });
-  if (!res.ok) throw new Error(`Vision API error: ${res.status}`);
-  const data = await res.json();
-  return (
-    data.choices?.[0]?.message?.content ?? "Could not identify scene content."
-  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -546,14 +585,13 @@ export default function AccessibilityPanel() {
       stopSpeaking();
       recRef.current?.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Auto-announce on route change (blind mode) ─────────────────────────────
   useEffect(() => {
     if (!settings.blindMode || !settings.autoAnnounce) return;
     const path = location.pathname;
-    let label =
+    const label =
       PAGE_LABELS[path] ||
       (path.startsWith("/itinerary/")
         ? "Itinerary detail page. Your trip plan is loading."
@@ -957,12 +995,12 @@ export default function AccessibilityPanel() {
       setIdentified(desc);
       ttsSpeak(desc);
       vibrate(200);
-    } catch (err: any) {
+    } catch (err: unknown) {
       const msg = "Could not identify the scene. Please try again.";
       ttsSpeak(msg);
       toast({
         title: "Identification failed",
-        description: err?.message,
+        description: errorMessage(err),
         variant: "destructive",
       });
     } finally {

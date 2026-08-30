@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useTrips } from "@/hooks/useTrips";
 import { useToast } from "@/hooks/use-toast";
+import { errorMessage } from "@/lib/errors";
 
 interface Props {
   activity: {
@@ -36,8 +37,7 @@ export default function AddToTripButton({ activity, className = "" }: Props) {
     if (open && btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect();
       const spaceBelow = window.innerHeight - rect.bottom;
-      const spaceRight = window.innerWidth - rect.left;
-      const dropW = 220;
+        const dropW = 220;
 
       let top = rect.bottom + 6;
       let left = rect.right - dropW;
@@ -103,10 +103,10 @@ export default function AddToTripButton({ activity, className = "" }: Props) {
         description: `${activity.name} added to itinerary.`,
       });
       setTimeout(() => setAdded(false), 3000);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {

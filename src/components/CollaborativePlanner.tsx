@@ -6,7 +6,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
+import { errorMessage } from "@/lib/errors";
 
 interface Activity {
   id: string;
@@ -46,7 +46,6 @@ interface Props {
 export default function CollaborativePlanner({ tripId, activities, onActivityUpdated }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
   const [votes, setVotes] = useState<Vote[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -139,8 +138,8 @@ export default function CollaborativePlanner({ tripId, activities, onActivityUpd
           vote,
         });
       }
-    } catch (e: any) {
-      toast({ title: "Vote error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast({ title: "Vote error", description: errorMessage(e), variant: "destructive" });
     }
   };
 
@@ -150,8 +149,8 @@ export default function CollaborativePlanner({ tripId, activities, onActivityUpd
       if (error) throw error;
       onActivityUpdated();
       toast({ title: status === "done" ? "Marked done ✅" : status === "skipped" ? "Skipped ⏭️" : "Reset to pending" });
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast({ title: "Error", description: errorMessage(e), variant: "destructive" });
     }
   };
 
@@ -180,8 +179,8 @@ export default function CollaborativePlanner({ tripId, activities, onActivityUpd
       setEditingId(null);
       onActivityUpdated();
       toast({ title: "Activity updated ✏️" });
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast({ title: "Error", description: errorMessage(e), variant: "destructive" });
     }
   };
 
@@ -197,8 +196,8 @@ export default function CollaborativePlanner({ tripId, activities, onActivityUpd
       });
       if (error) throw error;
       setChatInput("");
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast({ title: "Error", description: errorMessage(e), variant: "destructive" });
     } finally {
       setSendingMsg(false);
     }

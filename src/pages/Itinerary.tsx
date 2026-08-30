@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { useLanguage } from "@/hooks/useLanguage";
 import { useParams, useNavigate } from "react-router-dom";
 import {
@@ -11,36 +11,35 @@ import {
   ShoppingBag,
   Bus,
   MessageSquare,
-  Edit,
+  
   Loader2,
   Brain,
   AlertTriangle,
   Send,
-  RefreshCw,
+  
   Zap,
   Map as MapIcon,
   Download,
   Navigation,
-  ExternalLink,
+  
   CloudSun,
   Wind,
   Droplets,
   Thermometer,
   Car,
   Route,
-  Shield,
-  Star,
+  
+  
   Home,
   Music,
   X,
 } from "lucide-react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import { formatCurrency } from "@/lib/currency";
+import { errorMessage } from "@/lib/errors";
 import {
   getWeatherForecast,
   geocodeDestination,
-  WMO_CODES,
+  
   type DailyForecast,
 } from "@/services/climate";
 import { trafficFlow as fetchTrafficFlow } from "@/services/traffic";
@@ -61,8 +60,10 @@ import DisruptionReplanner from "@/components/DisruptionReplanner";
 
 import TripMoneyExpenses from "@/components/TripMoneyExpenses";
 import WorldMap from "@/components/WorldMap";
-import Map3D from "@/components/Map3D";
 import SafetyWarnings from "@/components/SafetyWarnings";
+
+// maplibre-gl is ~780 kB — only load it when the user switches to 3D view.
+const Map3D = lazy(() => import("@/components/Map3D"));
 import ItineraryReasoningPanel, {
   type ItineraryReasoning,
 } from "@/components/ItineraryReasoning";
@@ -327,8 +328,8 @@ export default function Itinerary() {
           description: `${dist} · ~${dur} by car`,
         });
       }
-    } catch (err: any) {
-      if (err.code === 1) {
+    } catch (err: unknown) {
+      if ((err as { code?: unknown }).code === 1) {
         toast({
           title: "Location permission denied",
           description: "Enable location access to get directions.",
@@ -337,7 +338,7 @@ export default function Itinerary() {
       } else {
         toast({
           title: "Route error",
-          description: err.message,
+          description: errorMessage(err),
           variant: "destructive",
         });
       }
@@ -479,10 +480,10 @@ export default function Itinerary() {
           plan.explanation ||
           `${activitiesToInsert.length} activities planned.`,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Generation failed",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -503,10 +504,10 @@ export default function Itinerary() {
       });
       if (error) throw error;
       setChatInput("");
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -536,10 +537,10 @@ export default function Itinerary() {
         description:
           "Itinerary updated due to weather disruption. Outdoor activities adjusted.",
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Replan failed",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -691,9 +692,14 @@ export default function Itinerary() {
             {/* Save Offline button */}
             <OfflineSaveButton trip={trip as Record<string, unknown>} />
             <button
-              onClick={() => {
-                // Download itinerary as text file
+              onClick={async () => {
                 // ── Beautiful PDF export ──────────────────────────
+                // jspdf + autotable total ~550 kB — loaded only on click.
+                const [{ default: jsPDF }, { default: autoTable }] =
+                  await Promise.all([
+                    import("jspdf"),
+                    import("jspdf-autotable"),
+                  ]);
                 const doc = new jsPDF({
                   orientation: "portrait",
                   unit: "mm",
@@ -1257,13 +1263,21 @@ export default function Itinerary() {
                     className="w-full h-full"
                   />
                 ) : (
-                  <Map3D
-                    lat={destCoords.lat}
-                    lng={destCoords.lng}
-                    name={trip.destination}
-                    zoom={10}
-                    className="w-full h-full"
-                  />
+                  <Suspense
+                    fallback={
+                      <div className="w-full h-full flex items-center justify-center bg-secondary">
+                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                      </div>
+                    }
+                  >
+                    <Map3D
+                      lat={destCoords.lat}
+                      lng={destCoords.lng}
+                      name={trip.destination}
+                      zoom={10}
+                      className="w-full h-full"
+                    />
+                  </Suspense>
                 )}
               </div>
             )}

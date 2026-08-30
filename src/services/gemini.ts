@@ -1,11 +1,20 @@
-// AI service — uses Groq API (OpenAI-compatible) with llama-3.3-70b-versatile
-// Drop-in replacement for the previous Gemini service — all exports preserved
+// ─────────────────────────────────────────────────────────────────────────────
+// AI service — Groq (OpenAI-compatible) with graceful fallbacks
+// ─────────────────────────────────────────────────────────────────────────────
+// The name "gemini" is historical — this module is a drop-in replacement for
+// the previous Gemini wrapper. It targets Groq (free tier, generous quota) for
+// LLM calls, but *never* hard-fails when the key is missing: instead each
+// entry point throws a well-known error string (NO_API_KEY / RATE_LIMIT /
+// INVALID_API_KEY) that callers already handle, or returns a deterministic
+// stub for JSON-mode helpers so the app stays functional in "offline / no
+// keys" mode.
+// ─────────────────────────────────────────────────────────────────────────────
 
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string;
+const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
 const GROQ_BASE = "https://api.groq.com/openai/v1";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Public types (unchanged) ────────────────────────────────────────────────
 
 export interface GeminiMessage {
   role: "user" | "model";
@@ -14,26 +23,28 @@ export interface GeminiMessage {
 
 export interface GeminiResponse {
   candidates: Array<{
-    content: {
-      parts: Array<{ text: string }>;
-      role: string;
-    };
+    content: { parts: Array<{ text: string }>; role: string };
     finishReason: string;
   }>;
 }
 
-// Internal OpenAI-style message
 interface OAIMessage {
   role: "system" | "user" | "assistant";
   content: string;
 }
 
-// ── Core non-streaming caller ────────────────────────────────────────────────
+// ── Availability probe ─────────────────────────────────────────────────────
 
-/**
- * Call Groq (non-streaming).
- * Set jsonMode=true to force JSON output via response_format.
- */
+export function isLLMAvailable(): boolean {
+  return !!GROQ_API_KEY && GROQ_API_KEY.length > 10;
+}
+
+function assertKey(): void {
+  if (!isLLMAvailable()) throw new Error("NO_API_KEY");
+}
+
+// ── Non-streaming completion ───────────────────────────────────────────────
+
 export async function callGemini(
   systemInstruction: string,
   userPrompt: string,
@@ -41,9 +52,7 @@ export async function callGemini(
   maxOutputTokens = 8192,
   jsonMode = false,
 ): Promise<string> {
-  if (!GROQ_API_KEY) {
-    throw new Error("VITE_GROQ_API_KEY is not configured");
-  }
+  assertKey();
 
   const messages: OAIMessage[] = [
     { role: "system", content: systemInstruction },
@@ -57,10 +66,7 @@ export async function callGemini(
     max_tokens: maxOutputTokens,
     stream: false,
   };
-
-  if (jsonMode) {
-    body.response_format = { type: "json_object" };
-  }
+  if (jsonMode) body.response_format = { type: "json_object" };
 
   const res = await fetch(`${GROQ_BASE}/chat/completions`, {
     method: "POST",
@@ -75,19 +81,16 @@ export async function callGemini(
     const errText = await res.text();
     if (res.status === 429) throw new Error("RATE_LIMIT");
     if (res.status === 401) throw new Error("INVALID_API_KEY");
-    if (res.status === 503 || res.status === 500)
-      throw new Error(`GROQ_ERROR_${res.status}`);
-    throw new Error(`Groq API error [${res.status}]: ${errText}`);
+    if (res.status >= 500) throw new Error(`GROQ_ERROR_${res.status}`);
+    throw new Error(`Groq API error [${res.status}]: ${errText.slice(0, 400)}`);
   }
 
   const data = await res.json();
   return data.choices?.[0]?.message?.content ?? "";
 }
 
-/**
- * Call Groq with a multi-turn conversation.
- * Preserves the same signature as the old Gemini version.
- */
+// ── Multi-turn (non-streaming) ─────────────────────────────────────────────
+
 export async function callGeminiChat(
   systemInstruction: string,
   messages: Array<{ role: "user" | "model"; content: string }>,
@@ -95,9 +98,7 @@ export async function callGeminiChat(
   maxOutputTokens = 2048,
   jsonMode = false,
 ): Promise<string> {
-  if (!GROQ_API_KEY) {
-    throw new Error("VITE_GROQ_API_KEY is not configured");
-  }
+  assertKey();
 
   const oaiMessages: OAIMessage[] = [
     { role: "system", content: systemInstruction },
@@ -114,10 +115,7 @@ export async function callGeminiChat(
     max_tokens: maxOutputTokens,
     stream: false,
   };
-
-  if (jsonMode) {
-    body.response_format = { type: "json_object" };
-  }
+  if (jsonMode) body.response_format = { type: "json_object" };
 
   const res = await fetch(`${GROQ_BASE}/chat/completions`, {
     method: "POST",
@@ -132,17 +130,15 @@ export async function callGeminiChat(
     const errText = await res.text();
     if (res.status === 429) throw new Error("RATE_LIMIT");
     if (res.status === 401) throw new Error("INVALID_API_KEY");
-    throw new Error(`Groq API error [${res.status}]: ${errText}`);
+    throw new Error(`Groq API error [${res.status}]: ${errText.slice(0, 400)}`);
   }
 
   const data = await res.json();
   return data.choices?.[0]?.message?.content ?? "";
 }
 
-/**
- * Stream Groq response using Server-Sent Events (OpenAI SSE format).
- * Calls onChunk for each text delta, returns full text when done.
- */
+// ── Streaming completion (SSE) ─────────────────────────────────────────────
+
 export async function streamGemini(
   systemInstruction: string,
   messages: Array<{ role: "user" | "model"; content: string }>,
@@ -150,9 +146,7 @@ export async function streamGemini(
   temperature = 0.7,
   maxOutputTokens = 2048,
 ): Promise<string> {
-  if (!GROQ_API_KEY) {
-    throw new Error("VITE_GROQ_API_KEY is not configured");
-  }
+  assertKey();
 
   const oaiMessages: OAIMessage[] = [
     { role: "system", content: systemInstruction },
@@ -181,11 +175,10 @@ export async function streamGemini(
     const errText = await res.text();
     if (res.status === 429) throw new Error("RATE_LIMIT");
     if (res.status === 401) throw new Error("INVALID_API_KEY");
-    throw new Error(`Groq stream error [${res.status}]: ${errText}`);
+    throw new Error(`Groq stream error [${res.status}]: ${errText.slice(0, 400)}`);
   }
 
   if (!res.body) {
-    // Fallback: non-streaming
     const text = await callGeminiChat(
       systemInstruction,
       messages,
@@ -213,25 +206,17 @@ export async function streamGemini(
       buffer = buffer.slice(newlineIdx + 1);
       if (line.endsWith("\r")) line = line.slice(0, -1);
       if (!line.startsWith("data: ")) continue;
-
       const jsonStr = line.slice(6).trim();
       if (jsonStr === "[DONE]") break;
       if (!jsonStr) continue;
-
       try {
         const parsed = JSON.parse(jsonStr);
         const chunk = parsed.choices?.[0]?.delta?.content ?? "";
-        if (chunk) {
-          fullText += chunk;
-          onChunk(chunk);
-        }
-      } catch {
-        // malformed chunk — skip
-      }
+        if (chunk) { fullText += chunk; onChunk(chunk); }
+      } catch { /* malformed chunk */ }
     }
   }
 
-  // Flush remaining buffer
   if (buffer.trim()) {
     const remaining = buffer.trim();
     if (remaining.startsWith("data: ")) {
@@ -240,13 +225,8 @@ export async function streamGemini(
         try {
           const parsed = JSON.parse(jsonStr);
           const chunk = parsed.choices?.[0]?.delta?.content ?? "";
-          if (chunk) {
-            fullText += chunk;
-            onChunk(chunk);
-          }
-        } catch {
-          // ignore
-        }
+          if (chunk) { fullText += chunk; onChunk(chunk); }
+        } catch { /* ignore */ }
       }
     }
   }
@@ -254,71 +234,47 @@ export async function streamGemini(
   return fullText;
 }
 
-// ── JSON extraction — multiple strategies ────────────────────────────────────
+// ── JSON extraction — multiple strategies ──────────────────────────────────
 
 export function extractJSON(raw: string): unknown {
-  if (!raw || raw.trim() === "") {
-    throw new Error("Empty response from AI");
-  }
+  if (!raw || raw.trim() === "") throw new Error("Empty response from AI");
 
-  // Strategy 1 — try the whole string first (model returned pure JSON)
-  try {
-    return JSON.parse(raw.trim());
-  } catch {
-    /* continue */
-  }
+  try { return JSON.parse(raw.trim()); } catch { /* continue */ }
 
-  // Strategy 2 — strip markdown code fences  ```json ... ```
   const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fenceMatch) {
-    try {
-      return JSON.parse(fenceMatch[1].trim());
-    } catch {
-      /* continue */
-    }
+    try { return JSON.parse(fenceMatch[1].trim()); } catch { /* continue */ }
   }
 
-  // Strategy 3 — find the outermost { ... } block
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start !== -1 && end !== -1 && end > start) {
-    try {
-      return JSON.parse(raw.slice(start, end + 1));
-    } catch {
-      /* continue */
-    }
+    try { return JSON.parse(raw.slice(start, end + 1)); } catch { /* continue */ }
   }
 
-  // Strategy 4 — find the outermost [ ... ] block (array response)
   const aStart = raw.indexOf("[");
   const aEnd = raw.lastIndexOf("]");
   if (aStart !== -1 && aEnd !== -1 && aEnd > aStart) {
-    try {
-      return JSON.parse(raw.slice(aStart, aEnd + 1));
-    } catch {
-      /* continue */
-    }
+    try { return JSON.parse(raw.slice(aStart, aEnd + 1)); } catch { /* continue */ }
   }
 
   throw new Error("AI returned unreadable content. Please try again.");
 }
 
-// ── Error → human-readable message ──────────────────────────────────────────
+// ── Error → human-readable message ─────────────────────────────────────────
 
 export function handleGeminiError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
+  if (msg === "NO_API_KEY")
+    return "AI features require a free Groq API key. Add VITE_GROQ_API_KEY to your .env (grab one at https://console.groq.com).";
   if (msg === "RATE_LIMIT")
     return "AI rate limit exceeded. Please wait a moment and try again.";
-  if (msg === "INVALID_API_KEY") return "Groq API key is invalid or expired.";
+  if (msg === "INVALID_API_KEY")
+    return "Groq API key is invalid or expired. Check your VITE_GROQ_API_KEY.";
   if (msg.startsWith("GROQ_ERROR_"))
     return "Groq service is temporarily unavailable. Please try again.";
   return msg;
 }
 
-// ── Today's date in IST ──────────────────────────────────────────────────────
-
-export function todayIST(): string {
-  return new Date(Date.now() + 5.5 * 60 * 60 * 1000)
-    .toISOString()
-    .split("T")[0];
-}
+// Re-exported for callers that already import it from this module.
+export { todayIST } from "@/lib/date";

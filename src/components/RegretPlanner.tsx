@@ -21,6 +21,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQueryClient } from "@tanstack/react-query";
 import { regretCounterfactual } from "@/services/aiPlanner";
 import { formatCurrency } from "@/lib/currency";
+import { errorMessage } from "@/lib/errors";
 
 type Activity = {
   name: string;
@@ -152,10 +153,10 @@ export default function RegretPlanner({
         title: "Plans generated! 🧠",
         description: "3 counterfactual alternatives ready for comparison.",
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Generation failed",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -245,10 +246,10 @@ export default function RegretPlanner({
         description: `${activitiesToInsert.length} activities saved to your itinerary.`,
       });
       onPlanApplied();
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Failed to apply plan",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {

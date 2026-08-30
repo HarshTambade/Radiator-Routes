@@ -253,7 +253,7 @@ Rules:
 - Use +05:30 timezone offset in all timestamps
 - budget plan: regret_score ~0.35, total_cost ~${Math.round(budget * 0.6)}
 - balanced plan: regret_score ~0.20, total_cost ~${Math.round(budget * 0.8)}
-- experience plan: regret_score ~0.10, total_cost ~${Math.round(budget * 1.0)}`;
+- experience plan: regret_score ~0.10, total_cost ~${Math.round(Number(budget))}`;
 
   try {
     const raw = await callGemini(systemPrompt, userPrompt, 0.7, 8192, true);

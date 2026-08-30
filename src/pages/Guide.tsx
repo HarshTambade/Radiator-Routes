@@ -4,7 +4,7 @@ import {
   Search,
   MapPin,
   Loader2,
-  ChevronRight,
+  
   X,
   IndianRupee,
 } from "lucide-react";
@@ -20,6 +20,7 @@ import destinationKerala from "@/assets/destination-kerala.jpg";
 import travelSummit from "@/assets/travel-summit.jpg";
 import travelKayak from "@/assets/travel-kayak.jpg";
 import travelBeach from "@/assets/travel-beach.jpg";
+import { errorMessage } from "@/lib/errors";
 
 const guideImages = [
   destinationAgra,
@@ -71,10 +72,10 @@ export default function Guide() {
       }));
 
       setGuides(guideCards);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {

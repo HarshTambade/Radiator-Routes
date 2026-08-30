@@ -8,11 +8,12 @@ import {
   Utensils,
   Wallet,
   Clock,
-  Users,
+  
   Compass,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getMemory, learnMemory } from "@/services/travelMemory";
+import { errorMessage } from "@/lib/errors";
 
 interface MemoryData {
   preferences: Record<string, any>;
@@ -45,7 +46,7 @@ export default function TravelMemory() {
     try {
       const data = await getMemory();
       setMemory(data);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("Load memory error:", e);
     } finally {
       setLoading(false);
@@ -66,10 +67,10 @@ export default function TravelMemory() {
         description:
           "Your travel profile has been refreshed from your trip history.",
       });
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast({
         title: "Learning failed",
-        description: e.message,
+        description: errorMessage(e),
         variant: "destructive",
       });
     } finally {

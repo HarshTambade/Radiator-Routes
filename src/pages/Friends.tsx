@@ -25,6 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import CollaborativePlanner from "@/components/CollaborativePlanner";
 import { useLanguage } from "@/hooks/useLanguage";
+import { errorMessage } from "@/lib/errors";
 
 type Tab = "discover" | "friends" | "requests" | "invites" | "collaborate";
 
@@ -139,11 +140,6 @@ export default function Friends() {
     (r) => r.status === "accepted",
   );
 
-  // Build a map of friendId → list of trip names they've been added to
-  const friendTripMap = new Map<string, string[]>();
-  for (const trip of trips) {
-    // We'll populate this below after trip-memberships query
-  }
   const pendingReceived = (friendRequests as any[]).filter(
     (r) => r.status === "pending" && r.receiver_id === user?.id,
   );
@@ -229,37 +225,6 @@ export default function Friends() {
     enabled: !!user,
   });
 
-  // ── Send join request to a trip ───────────────────────────────────────────
-  const sendJoinRequest = async (tripId: string, tripName: string) => {
-    if (!user) return;
-    try {
-      const { error } = await supabase
-        .from("trip_join_requests")
-        .insert({ trip_id: tripId, user_id: user.id, status: "pending" });
-      if (error) {
-        if (
-          error.message?.toLowerCase().includes("duplicate") ||
-          error.code === "23505"
-        ) {
-          toast({
-            title: "Already requested",
-            description: "You already sent a join request for this trip.",
-          });
-          return;
-        }
-        throw error;
-      }
-      queryClient.invalidateQueries({ queryKey: ["my-join-requests"] });
-      toast({ title: `Join request sent for "${tripName}"! ✅` });
-    } catch (err: any) {
-      toast({
-        title: "Error",
-        description: err.message,
-        variant: "destructive",
-      });
-    }
-  };
-
   // ── Load DMs ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!chatWithUser || !user) return;
@@ -313,10 +278,10 @@ export default function Friends() {
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ["friend-requests"] });
       toast({ title: "Friend request sent! 👋" });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Error",
-        description: err.message,
+        description: errorMessage(err),
         variant: "destructive",
       });
     }
@@ -336,10 +301,10 @@ export default function Friends() {
       toast({
         title: action === "accepted" ? "Friend added! 🎉" : "Request declined",
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Error",
-        description: err.message,
+        description: errorMessage(err),
         variant: "destructive",
       });
     }
@@ -357,10 +322,10 @@ export default function Friends() {
       });
       if (error) throw error;
       setChatMsg("");
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Error",
-        description: err.message,
+        description: errorMessage(err),
         variant: "destructive",
       });
     } finally {
@@ -396,10 +361,10 @@ export default function Friends() {
         title: `Added to ${tripName}! ✅`,
         description: "They can now view and collaborate on this trip.",
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Error",
-        description: err.message,
+        description: errorMessage(err),
         variant: "destructive",
       });
     }
@@ -420,10 +385,10 @@ export default function Friends() {
       toast({ title: "Invite link created! 🔗" });
       setShowInvite(false);
       setSelectedTripId("");
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Error",
-        description: err.message,
+        description: errorMessage(err),
         variant: "destructive",
       });
     } finally {
@@ -465,10 +430,10 @@ export default function Friends() {
       toast({
         title: action === "accepted" ? "Member added! ✅" : "Request rejected",
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Error",
-        description: err.message,
+        description: errorMessage(err),
         variant: "destructive",
       });
     }
@@ -477,22 +442,6 @@ export default function Friends() {
   const filteredUsers = allUsers.filter((u) =>
     u.name?.toLowerCase().includes(searchQuery.toLowerCase()),
   );
-
-  // Public trips the user could request to join (not organizer, not already member)
-  const { data: publicTrips = [] } = useQuery({
-    queryKey: ["public-trips-for-join", user?.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("trips")
-        .select("id, name, destination, country, organizer_id")
-        .neq("organizer_id", user!.id)
-        .order("start_date", { ascending: true })
-        .limit(20);
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!user,
-  });
 
   // Fetch trip memberships for friends so we can show which trip they're in
   const { data: tripMemberships = [] } = useQuery({

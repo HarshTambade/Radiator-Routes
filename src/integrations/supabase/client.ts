@@ -1,45 +1,64 @@
-// Supabase client — Radiator Routes
-// Project: dfvyuqxyjlkoovxmtikq
+// ─────────────────────────────────────────────────────────────────────────────
+// Supabase client
+// ─────────────────────────────────────────────────────────────────────────────
+// Credentials come exclusively from environment variables. Nothing is
+// hardcoded, so rotating a key or pointing at a different project is a
+// config change with no code edit.
+//
+// Required in .env (see .env.example):
+//   VITE_SUPABASE_URL
+//   VITE_SUPABASE_PUBLISHABLE_KEY   (or VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY)
+// ─────────────────────────────────────────────────────────────────────────────
+
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 
-// ── New project credentials (authoritative defaults) ─────────────────────────
-const NEW_SUPABASE_URL = "https://dfvyuqxyjlkoovxmtikq.supabase.co";
-const NEW_SUPABASE_KEY = "sb_publishable_Y3N5QRELKbHRYqWNZbx3EA_MVvHDzwF";
-const OLD_SUPABASE_URL = "https://zsamypacycdvrhegcqvk.supabase.co";
-
-// Prefer the new-name env var, then fall back to the old-name env var.
-// But if the URL still points at the old project, override with the new credentials
-// so the app works correctly even before the .env file is updated.
-const envUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const envKey =
+const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const anonKey =
+  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
   (import.meta.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY as
     | string
-    | undefined) ||
-  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined);
+    | undefined);
 
-// If the env URL still targets the old project, ignore both env values and use
-// the hardcoded new-project credentials instead.
-const isOldProject = envUrl === OLD_SUPABASE_URL || !envUrl;
+/** True when Supabase is configured — lets features degrade instead of crash. */
+export const isSupabaseConfigured = Boolean(url && anonKey);
 
-const SUPABASE_URL = isOldProject
-  ? NEW_SUPABASE_URL
-  : (envUrl ?? NEW_SUPABASE_URL);
-const SUPABASE_PUBLISHABLE_KEY = isOldProject
-  ? NEW_SUPABASE_KEY
-  : (envKey ?? NEW_SUPABASE_KEY);
+if (!isSupabaseConfigured) {
+  const missing = [
+    !url && "VITE_SUPABASE_URL",
+    !anonKey && "VITE_SUPABASE_PUBLISHABLE_KEY",
+  ]
+    .filter(Boolean)
+    .join(", ");
 
-// Import the supabase client like this:
-// import { supabase } from "@/integrations/supabase/client";
+  // Fail loudly in dev so the misconfiguration is obvious immediately.
+  if (import.meta.env.DEV) {
+    throw new Error(
+      `[supabase] Missing required environment variable(s): ${missing}. ` +
+        `Copy .env.example to .env and fill them in.`,
+    );
+  }
+  console.error(
+    `[supabase] Missing ${missing}. Auth, trips and realtime features are disabled.`,
+  );
+}
 
 export const supabase = createClient<Database>(
-  SUPABASE_URL,
-  SUPABASE_PUBLISHABLE_KEY,
+  url ?? "http://localhost:54321",
+  anonKey ?? "missing-anon-key",
   {
     auth: {
-      storage: localStorage,
+      storage: typeof window !== "undefined" ? window.localStorage : undefined,
       persistSession: true,
       autoRefreshToken: true,
+      detectSessionInUrl: true,
+      flowType: "pkce",
+    },
+    global: {
+      headers: { "x-client-info": "radiator-routes" },
+    },
+    realtime: {
+      params: { eventsPerSecond: 5 },
     },
   },
 );

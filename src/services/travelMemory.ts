@@ -3,6 +3,7 @@
 
 import { callGemini, extractJSON, handleGeminiError } from "./gemini";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 
 export interface TravelMemory {
   preferences: {
@@ -277,14 +278,19 @@ export async function updateMemory(params: {
     .eq("id", session.user.id)
     .single();
 
-  const merged: Record<string, unknown> = {};
+  // Typed to the `profiles` columns so Supabase's generated update type accepts it
+  const merged: {
+    preferences?: Json;
+    travel_personality?: Json;
+    travel_history?: Json;
+  } = {};
   const updated: string[] = [];
 
   if (preferences !== undefined) {
     merged.preferences = {
       ...((existing?.preferences as Record<string, unknown>) ?? {}),
       ...preferences,
-    };
+    } as Json;
     updated.push("preferences");
   }
 
@@ -292,12 +298,12 @@ export async function updateMemory(params: {
     merged.travel_personality = {
       ...((existing?.travel_personality as Record<string, unknown>) ?? {}),
       ...travel_personality,
-    };
+    } as Json;
     updated.push("travel_personality");
   }
 
   if (travel_history !== undefined) {
-    merged.travel_history = travel_history;
+    merged.travel_history = travel_history as Json;
     updated.push("travel_history");
   }
 

@@ -1,120 +1,110 @@
-// TomTom Traffic Monitoring API service
-// Calls TomTom APIs directly from the browser — no Supabase edge function needed
+// ─────────────────────────────────────────────────────────────────────────────
+// Traffic & search — free / open replacements for the TomTom API
+// ─────────────────────────────────────────────────────────────────────────────
+// Uses Nominatim (OSM) for search & reverse geocoding and returns a
+// deterministic best-effort traffic estimate derived from time-of-day.
+// Keeps the same public surface so existing callers stay wire-compatible.
+// ORS-backed helpers (route, isochrone, matrix) are re-exported thin wrappers
+// around openroute.ts so nothing depends on a paid TomTom key.
+// ─────────────────────────────────────────────────────────────────────────────
 
-const TRAFFIC_API_KEY = import.meta.env.VITE_TRAFFIC_API_KEY as string;
-const ORS_API_KEY = import.meta.env.VITE_ORS_API_KEY as string;
+import { nominatimSearch, nominatimReverse } from "./nominatim";
+import {
+  orsDirections,
+  orsIsochrone,
+  orsMatrix,
+} from "./openroute";
 
-const TOMTOM_BASE = "https://api.tomtom.com";
-const ORS_BASE = "https://api.openrouteservice.org";
+const ORS_API_KEY = import.meta.env.VITE_ORS_API_KEY as string | undefined;
 
 type Coord = [number, number]; // [lon, lat]
+interface WaypointParam { lat: number; lon: number }
 
-interface WaypointParam {
-  lat: number;
-  lon: number;
+// ── Deterministic traffic estimator ──────────────────────────────────────────
+// No paid API — this classifies congestion based on local time-of-day.
+function congestionByHour(hour: number): { level: number; label: string; emoji: string } {
+  // 0-5 free flow, 6-8 heavy, 9-11 light, 12-14 moderate, 15-17 light,
+  // 18-20 heavy, 21-23 light
+  if (hour >= 8 && hour <= 10) return { level: 0.35, label: "Heavy — morning rush", emoji: "🔴" };
+  if (hour >= 17 && hour <= 20) return { level: 0.4, label: "Heavy — evening rush", emoji: "🔴" };
+  if (hour >= 11 && hour <= 15) return { level: 0.75, label: "Moderate", emoji: "🟡" };
+  if (hour >= 6 && hour < 8) return { level: 0.55, label: "Building up", emoji: "🟠" };
+  if (hour >= 16 && hour < 17) return { level: 0.6, label: "Building up", emoji: "🟠" };
+  if (hour >= 21 && hour <= 23) return { level: 0.85, label: "Light", emoji: "🟢" };
+  return { level: 0.95, label: "Free flow", emoji: "🟢" };
 }
 
-async function handleResponse(response: Response): Promise<unknown> {
-  if (!response.ok) {
-    const text = await response.text();
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = { raw: text };
-    }
-    throw new Error(
-      `API error [${response.status}]: ${JSON.stringify(parsed)}`,
-    );
-  }
-  return response.json();
-}
-
-// ── Traffic flow at a point ──────────────────────────────────────────────────
+/** Estimate current traffic near a point. */
 export async function trafficFlow(params: {
   lat: number;
   lon: number;
   zoom?: number;
-}): Promise<unknown> {
-  const { lat, lon, zoom = 10 } = params;
-
-  if (lat === undefined || lon === undefined) {
+}): Promise<{
+  flowSegmentData: {
+    currentSpeed: number;
+    freeFlowSpeed: number;
+    confidence: number;
+    congestion: string;
+    emoji: string;
+    estimated: boolean;
+  };
+}> {
+  const { lat, lon } = params;
+  if (lat === undefined || lon === undefined)
     throw new Error("lat and lon are required");
-  }
 
-  const url =
-    `${TOMTOM_BASE}/traffic/services/4/flowSegmentData/absolute/${zoom}/json` +
-    `?point=${lat},${lon}` +
-    `&key=${TRAFFIC_API_KEY}`;
+  const now = new Date();
+  const { level, label, emoji } = congestionByHour(now.getHours());
 
-  const response = await fetch(url);
-  return handleResponse(response);
+  // Rough free-flow speed guesses: urban ~50 km/h, rural/coastal ~70 km/h
+  const isUrban = Math.abs(lat) < 60; // crude proxy — always true in practice
+  const freeFlowSpeed = isUrban ? 50 : 70;
+  const currentSpeed = Math.round(freeFlowSpeed * level);
+
+  return {
+    flowSegmentData: {
+      currentSpeed,
+      freeFlowSpeed,
+      confidence: 0.7,
+      congestion: label,
+      emoji,
+      estimated: true,
+    },
+  };
 }
 
-// ── Traffic incidents in a bounding box ────────────────────────────────────
-export async function trafficIncidents(params: {
+/** Traffic incidents — no free live source, return an empty payload. */
+export async function trafficIncidents(_params: {
   minLat: number;
   minLon: number;
   maxLat: number;
   maxLon: number;
-}): Promise<unknown> {
-  const { minLat, minLon, maxLat, maxLon } = params;
-
-  if (
-    minLat === undefined ||
-    minLon === undefined ||
-    maxLat === undefined ||
-    maxLon === undefined
-  ) {
-    throw new Error("minLat, minLon, maxLat and maxLon are required");
-  }
-
-  const fields = encodeURIComponent(
-    "{incidents{type,geometry{type,coordinates},properties{iconCategory,magnitudeOfDelay,events{description,code,iconCategory},startTime,endTime,from,to,length,delay,roadNumbers,timeValidity}}}",
-  );
-
-  const url =
-    `${TOMTOM_BASE}/traffic/services/5/incidentDetails` +
-    `?key=${TRAFFIC_API_KEY}` +
-    `&bbox=${minLon},${minLat},${maxLon},${maxLat}` +
-    `&fields=${fields}` +
-    `&language=en-GB` +
-    `&t=1111` +
-    `&categoryFilter=0,1,2,3,4,5,6,7,8,9,10,11` +
-    `&timeValidityFilter=present`;
-
-  const response = await fetch(url);
-  return handleResponse(response);
+}): Promise<{ incidents: Array<Record<string, unknown>>; estimated: true }> {
+  return { incidents: [], estimated: true };
 }
 
-// ── Place / POI search ───────────────────────────────────────────────────────
+// ── Place / POI search via Nominatim ─────────────────────────────────────────
 export async function tomtomSearch(params: {
   query: string;
   lat?: number;
   lon?: number;
   radius?: number;
   limit?: number;
-}): Promise<unknown> {
-  const { query, lat, lon, radius = 50000, limit = 10 } = params;
+}): Promise<{ results: Array<{ name: string; position: { lat: number; lon: number }; address?: string }> }> {
+  const { query, limit = 10 } = params;
+  if (!query || !query.trim()) throw new Error("query is required");
 
-  if (!query || query.trim() === "") {
-    throw new Error("query is required");
-  }
-
-  let url =
-    `${TOMTOM_BASE}/search/2/search/${encodeURIComponent(query.trim())}.json` +
-    `?key=${TRAFFIC_API_KEY}` +
-    `&limit=${limit}`;
-
-  if (lat !== undefined && lon !== undefined) {
-    url += `&lat=${lat}&lon=${lon}&radius=${radius}`;
-  }
-
-  const response = await fetch(url);
-  return handleResponse(response);
+  const geo = await nominatimSearch(query, limit);
+  return {
+    results: geo.map((g) => ({
+      name: g.display_name?.split(",")[0]?.trim() ?? "Result",
+      position: { lat: parseFloat(g.lat), lon: parseFloat(g.lon) },
+      address: g.display_name,
+    })),
+  };
 }
 
-// ── Category search near coordinates ────────────────────────────────────────
+/** Category search near coordinates — Nominatim keyword search. */
 export async function tomtomCategorySearch(params: {
   query: string;
   lat: number;
@@ -122,60 +112,50 @@ export async function tomtomCategorySearch(params: {
   radius?: number;
   limit?: number;
   categorySet?: string;
-}): Promise<unknown> {
-  const { query, lat, lon, radius = 10000, limit = 10, categorySet } = params;
-
-  if (!query || query.trim() === "") {
-    throw new Error("query is required");
-  }
-
-  if (lat === undefined || lon === undefined) {
+}): Promise<{ results: Array<{ name: string; position: { lat: number; lon: number } }> }> {
+  const { query, lat, lon, limit = 10 } = params;
+  if (!query || !query.trim()) throw new Error("query is required");
+  if (lat === undefined || lon === undefined)
     throw new Error("lat and lon are required");
-  }
 
-  let url =
-    `${TOMTOM_BASE}/search/2/categorySearch/${encodeURIComponent(query.trim())}.json` +
-    `?key=${TRAFFIC_API_KEY}` +
-    `&lat=${lat}` +
-    `&lon=${lon}` +
-    `&radius=${radius}` +
-    `&limit=${limit}`;
-
-  if (categorySet) url += `&categorySet=${categorySet}`;
-
-  const response = await fetch(url);
-  return handleResponse(response);
+  const enrichedQuery = `${query} near ${lat},${lon}`;
+  const geo = await nominatimSearch(enrichedQuery, limit);
+  return {
+    results: geo.map((g) => ({
+      name: g.display_name?.split(",")[0]?.trim() ?? "Result",
+      position: { lat: parseFloat(g.lat), lon: parseFloat(g.lon) },
+    })),
+  };
 }
 
-// ── Nearby search ────────────────────────────────────────────────────────────
+/** Nearby search — reverse geocode + return the closest match. */
 export async function tomtomNearbySearch(params: {
   lat: number;
   lon: number;
   radius?: number;
   limit?: number;
   categorySet?: string;
-}): Promise<unknown> {
-  const { lat, lon, radius = 1000, limit = 10, categorySet } = params;
-
-  if (lat === undefined || lon === undefined) {
+}): Promise<{ results: Array<{ name: string; position: { lat: number; lon: number } }> }> {
+  const { lat, lon } = params;
+  if (lat === undefined || lon === undefined)
     throw new Error("lat and lon are required");
+
+  try {
+    const result = await nominatimReverse(lat, lon);
+    return {
+      results: [
+        {
+          name: result.display_name?.split(",")[0]?.trim() ?? "Nearby place",
+          position: { lat: parseFloat(result.lat), lon: parseFloat(result.lon) },
+        },
+      ],
+    };
+  } catch {
+    return { results: [] };
   }
-
-  let url =
-    `${TOMTOM_BASE}/search/2/nearbySearch/.json` +
-    `?key=${TRAFFIC_API_KEY}` +
-    `&lat=${lat}` +
-    `&lon=${lon}` +
-    `&radius=${radius}` +
-    `&limit=${limit}`;
-
-  if (categorySet) url += `&categorySet=${categorySet}`;
-
-  const response = await fetch(url);
-  return handleResponse(response);
 }
 
-// ── Route calculation (OpenRouteService) ────────────────────────────────────
+// ── Route / Isochrone / Matrix — delegate to OpenRouteService ───────────────
 export async function trafficRoute(params: {
   origin: WaypointParam;
   destination: WaypointParam;
@@ -183,50 +163,9 @@ export async function trafficRoute(params: {
   alternatives?: boolean;
   waypoints?: WaypointParam[];
 }): Promise<unknown> {
-  const {
-    origin,
-    destination,
-    profile = "driving-car",
-    alternatives = false,
-    waypoints = [],
-  } = params;
-
-  if (!origin || !destination) {
-    throw new Error("origin and destination are required");
-  }
-
-  const coordinates: Coord[] = [
-    [origin.lon, origin.lat],
-    ...waypoints.map((w) => [w.lon, w.lat] as Coord),
-    [destination.lon, destination.lat],
-  ];
-
-  const url = `${ORS_BASE}/v2/directions/${profile}/json`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: ORS_API_KEY,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({
-      coordinates,
-      alternative_routes: alternatives
-        ? { target_count: 3, weight_factor: 1.6 }
-        : undefined,
-      instructions: true,
-      instructions_format: "text",
-      language: "en",
-      units: "km",
-      geometry: true,
-    }),
-  });
-
-  return handleResponse(response);
+  return orsDirections(params);
 }
 
-// ── Isochrone / reachability zone (OpenRouteService) ────────────────────────
 export async function trafficIsochrone(params: {
   lat: number;
   lon: number;
@@ -236,42 +175,9 @@ export async function trafficIsochrone(params: {
   interval?: number;
   smoothing?: number;
 }): Promise<unknown> {
-  const {
-    lat,
-    lon,
-    range = [1800],
-    range_type = "time",
-    profile = "driving-car",
-    interval,
-    smoothing = 0.25,
-  } = params;
-
-  if (lat === undefined || lon === undefined) {
-    throw new Error("lat and lon are required");
-  }
-
-  const url = `${ORS_BASE}/v2/isochrones/${profile}`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: ORS_API_KEY,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      locations: [[lon, lat]],
-      range,
-      range_type,
-      units: "km",
-      smoothing,
-      ...(interval !== undefined ? { interval } : {}),
-    }),
-  });
-
-  return handleResponse(response);
+  return orsIsochrone(params);
 }
 
-// ── Distance / Duration Matrix (OpenRouteService) ───────────────────────────
 export async function trafficMatrix(params: {
   locations: Coord[];
   sources?: number[];
@@ -279,91 +185,33 @@ export async function trafficMatrix(params: {
   profile?: string;
   metrics?: string[];
 }): Promise<unknown> {
-  const {
-    locations,
-    sources,
-    destinations: dests,
-    profile = "driving-car",
-    metrics = ["duration", "distance"],
-  } = params;
-
-  if (!locations || !Array.isArray(locations) || locations.length < 2) {
-    throw new Error(
-      "locations must be an array of at least 2 [lon, lat] pairs",
-    );
-  }
-
-  const url = `${ORS_BASE}/v2/matrix/${profile}/json`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: ORS_API_KEY,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      locations,
-      metrics,
-      units: "km",
-      ...(sources !== undefined ? { sources } : {}),
-      ...(dests !== undefined ? { destinations: dests } : {}),
-    }),
-  });
-
-  return handleResponse(response);
+  return orsMatrix(params);
 }
 
-// ── Forward geocoding (OpenRouteService) ────────────────────────────────────
+// ── Geocoding via Nominatim ─────────────────────────────────────────────────
 export async function trafficGeocode(params: {
   query: string;
   size?: number;
   focusLat?: number;
   focusLon?: number;
 }): Promise<unknown> {
-  const { query, size = 5, focusLat, focusLon } = params;
-
-  if (!query || query.trim() === "") {
-    throw new Error("query is required");
-  }
-
-  let url =
-    `${ORS_BASE}/geocode/search` +
-    `?api_key=${ORS_API_KEY}` +
-    `&text=${encodeURIComponent(query.trim())}` +
-    `&size=${size}`;
-
-  if (focusLat !== undefined && focusLon !== undefined) {
-    url += `&focus.point.lat=${focusLat}&focus.point.lon=${focusLon}`;
-  }
-
-  const response = await fetch(url, { headers: { Accept: "application/json" } });
-  return handleResponse(response);
+  const { query, size = 5 } = params;
+  if (!query || !query.trim()) throw new Error("query is required");
+  return nominatimSearch(query, size);
 }
 
-// ── Reverse geocoding (OpenRouteService) ────────────────────────────────────
 export async function trafficReverseGeocode(params: {
   lat: number;
   lon: number;
   size?: number;
 }): Promise<unknown> {
-  const { lat, lon, size = 1 } = params;
-
-  if (lat === undefined || lon === undefined) {
+  const { lat, lon } = params;
+  if (lat === undefined || lon === undefined)
     throw new Error("lat and lon are required");
-  }
-
-  const url =
-    `${ORS_BASE}/geocode/reverse` +
-    `?api_key=${ORS_API_KEY}` +
-    `&point.lat=${lat}` +
-    `&point.lon=${lon}` +
-    `&size=${size}`;
-
-  const response = await fetch(url, { headers: { Accept: "application/json" } });
-  return handleResponse(response);
+  return nominatimReverse(lat, lon);
 }
 
-// ── Unified action-based dispatcher (mirrors the edge-function interface) ────
+// ── Unified dispatcher ──────────────────────────────────────────────────────
 export async function tomtom(body: {
   action: string;
   [key: string]: unknown;
@@ -371,42 +219,16 @@ export async function tomtom(body: {
   const { action, ...params } = body;
 
   switch (action) {
-    case "traffic-flow":
-      return trafficFlow(params as Parameters<typeof trafficFlow>[0]);
-
-    case "traffic-incidents":
-      return trafficIncidents(params as Parameters<typeof trafficIncidents>[0]);
-
-    case "search":
-      return tomtomSearch(params as Parameters<typeof tomtomSearch>[0]);
-
-    case "category-search":
-      return tomtomCategorySearch(
-        params as Parameters<typeof tomtomCategorySearch>[0],
-      );
-
-    case "nearby-search":
-      return tomtomNearbySearch(
-        params as Parameters<typeof tomtomNearbySearch>[0],
-      );
-
-    case "route":
-      return trafficRoute(params as Parameters<typeof trafficRoute>[0]);
-
-    case "isochrone":
-      return trafficIsochrone(params as Parameters<typeof trafficIsochrone>[0]);
-
-    case "matrix":
-      return trafficMatrix(params as Parameters<typeof trafficMatrix>[0]);
-
-    case "geocode":
-      return trafficGeocode(params as Parameters<typeof trafficGeocode>[0]);
-
-    case "reverse-geocode":
-      return trafficReverseGeocode(
-        params as Parameters<typeof trafficReverseGeocode>[0],
-      );
-
+    case "traffic-flow": return trafficFlow(params as any);
+    case "traffic-incidents": return trafficIncidents(params as any);
+    case "search": return tomtomSearch(params as any);
+    case "category-search": return tomtomCategorySearch(params as any);
+    case "nearby-search": return tomtomNearbySearch(params as any);
+    case "route": return trafficRoute(params as any);
+    case "isochrone": return trafficIsochrone(params as any);
+    case "matrix": return trafficMatrix(params as any);
+    case "geocode": return trafficGeocode(params as any);
+    case "reverse-geocode": return trafficReverseGeocode(params as any);
     default:
       throw new Error(
         `Unknown action: "${action}". Supported: ` +
@@ -415,3 +237,7 @@ export async function tomtom(body: {
       );
   }
 }
+
+// Preserve export just so imports don't break in transitive callers that used
+// the old ORS_API_KEY constant (none remain, but this keeps tree-shaking clean).
+export const __ORS_API_KEY_UNUSED__ = ORS_API_KEY;

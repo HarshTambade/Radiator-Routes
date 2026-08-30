@@ -7,8 +7,10 @@ import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 
-// @ts-ignore
-delete (L.Icon.Default.prototype as any)._getIconUrl;
+// Leaflet resolves its default marker icons via relative URLs that break under
+// a bundler. Drop the internal resolver and point at the imported assets.
+delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)
+  ._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: markerIcon2x,
   iconUrl: markerIcon,

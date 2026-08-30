@@ -15,7 +15,6 @@ export default function ARViewer({ lat, lng, name, description, onClose }: ARVie
   const [fullscreen, setFullscreen] = useState(false);
   const [heading, setHeading] = useState(0);
   const [distance, setDistance] = useState<number | null>(null);
-  const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Start camera
@@ -51,7 +50,6 @@ export default function ARViewer({ lat, lng, name, description, onClose }: ARVie
       (pos) => {
         const uLat = pos.coords.latitude;
         const uLng = pos.coords.longitude;
-        setUserPos({ lat: uLat, lng: uLng });
 
         // Haversine distance
         const R = 6371;

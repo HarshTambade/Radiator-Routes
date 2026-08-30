@@ -8,7 +8,7 @@ import { useAuth } from "./useAuth";
 const OFFLINE_QUERY_OPTIONS = {
   staleTime: 1000 * 60 * 10, // 10 minutes
   gcTime: 1000 * 60 * 60 * 24, // 24 hours
-  retry: (failureCount: number, error: unknown) => {
+  retry: (failureCount: number, _error: unknown) => {
     // Don't retry when offline — just use stale cache
     if (!navigator.onLine) return false;
     return failureCount < 2;

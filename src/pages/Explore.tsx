@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, lazy, Suspense } from "react";
 import { useLanguage } from "@/hooks/useLanguage";
 import {
   Search,
@@ -25,10 +25,30 @@ import {
   amadeusCitySearch,
 } from "@/services/amadeus";
 import WorldMap from "@/components/WorldMap";
-import Map3D from "@/components/Map3D";
-import ARViewer from "@/components/ARViewer";
-import StreetView360 from "@/components/StreetView360";
 import AddToTripButton from "@/components/AddToTripButton";
+import { errorMessage } from "@/lib/errors";
+
+// Heavy, on-demand features — kept out of the initial bundle.
+// Map3D pulls in maplibre-gl (~780 kB); AR/StreetView are modal-only.
+const Map3D = lazy(() => import("@/components/Map3D"));
+const ARViewer = lazy(() => import("@/components/ARViewer"));
+const StreetView360 = lazy(() => import("@/components/StreetView360"));
+
+function LazyOverlayFallback() {
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center">
+      <Loader2 className="w-8 h-8 animate-spin text-primary" />
+    </div>
+  );
+}
+
+function LazyMapFallback() {
+  return (
+    <div className="w-full h-full flex items-center justify-center bg-secondary">
+      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+    </div>
+  );
+}
 
 import destinationAgra from "@/assets/destination-agra.jpg";
 import destinationGoa from "@/assets/destination-goa.jpg";
@@ -132,23 +152,6 @@ async function fetchPlaceImage(place: any): Promise<string | null> {
   }
 
   return null;
-}
-
-// Category-based Unsplash keyword fallback for when no image found
-function getCategoryImageKeyword(kinds: string | undefined): string {
-  if (!kinds) return "travel,landmark";
-  if (kinds.includes("temple") || kinds.includes("religion"))
-    return "temple,india";
-  if (kinds.includes("historic") || kinds.includes("fort"))
-    return "historic,fort,india";
-  if (kinds.includes("natural") || kinds.includes("park"))
-    return "nature,landscape,india";
-  if (kinds.includes("museum")) return "museum,art,heritage";
-  if (kinds.includes("beach")) return "beach,coastal";
-  if (kinds.includes("mountain")) return "mountain,himalaya";
-  if (kinds.includes("architecture")) return "architecture,india";
-  if (kinds.includes("amusement")) return "amusement,park";
-  return "travel,india,destination";
 }
 
 type SearchCache = Record<string, any[]>;
@@ -279,10 +282,10 @@ export default function Explore() {
             title: "No named places found",
             description: "Try a broader search or different category.",
           });
-      } catch (error: any) {
+      } catch (error: unknown) {
         toast({
           title: "Search failed",
-          description: error.message,
+          description: errorMessage(error),
           variant: "destructive",
         });
       } finally {
@@ -355,10 +358,10 @@ export default function Explore() {
           title: "No flights found",
           description: "Try different dates or airports.",
         });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Flight search failed",
-        description: err.message,
+        description: errorMessage(err),
         variant: "destructive",
       });
     } finally {
@@ -395,10 +398,10 @@ export default function Explore() {
           title: "No hotels found",
           description: "Try a different city name or IATA code.",
         });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Hotel search failed",
-        description: err.message,
+        description: errorMessage(err),
         variant: "destructive",
       });
     } finally {
@@ -470,10 +473,10 @@ export default function Explore() {
           title: "No restaurants found",
           description: "Try a broader area.",
         });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Search failed",
-        description: err.message,
+        description: errorMessage(err),
         variant: "destructive",
       });
     } finally {
@@ -577,23 +580,27 @@ export default function Explore() {
 
           {/* AR Viewer */}
           {arPlace && (
-            <ARViewer
-              lat={arPlace.lat}
-              lng={arPlace.lng}
-              name={arPlace.name}
-              description={arPlace.wikipedia_extracts?.text?.slice(0, 120)}
-              onClose={() => setArPlace(null)}
-            />
+            <Suspense fallback={<LazyOverlayFallback />}>
+              <ARViewer
+                lat={arPlace.lat}
+                lng={arPlace.lng}
+                name={arPlace.name}
+                description={arPlace.wikipedia_extracts?.text?.slice(0, 120)}
+                onClose={() => setArPlace(null)}
+              />
+            </Suspense>
           )}
 
           {/* 360° Street View */}
           {streetViewPlace && (
-            <StreetView360
-              lat={streetViewPlace.lat}
-              lng={streetViewPlace.lng}
-              name={streetViewPlace.name}
-              onClose={() => setStreetViewPlace(null)}
-            />
+            <Suspense fallback={<LazyOverlayFallback />}>
+              <StreetView360
+                lat={streetViewPlace.lat}
+                lng={streetViewPlace.lng}
+                name={streetViewPlace.name}
+                onClose={() => setStreetViewPlace(null)}
+              />
+            </Suspense>
           )}
 
           {/* Detail Modal */}
@@ -767,13 +774,15 @@ export default function Explore() {
                                 className="w-full h-full"
                               />
                             ) : (
-                              <Map3D
-                                lat={coords.lat}
-                                lng={coords.lng}
-                                name={selectedPlace.name}
-                                zoom={15}
-                                className="w-full h-full"
-                              />
+                              <Suspense fallback={<LazyMapFallback />}>
+                                <Map3D
+                                  lat={coords.lat}
+                                  lng={coords.lng}
+                                  name={selectedPlace.name}
+                                  zoom={15}
+                                  className="w-full h-full"
+                                />
+                              </Suspense>
                             )}
                           </div>
                         </div>

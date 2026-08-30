@@ -24,6 +24,7 @@ import {
   detectDisruptions as detectDisruptionsService,
   autoReplan,
 } from "@/services/dynamicReplan";
+import { errorMessage } from "@/lib/errors";
 
 type Disruption = {
   type: string;
@@ -123,10 +124,10 @@ export default function DisruptionReplanner({
           description: "No disruptions detected for your trip.",
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Detection failed",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -147,10 +148,10 @@ export default function DisruptionReplanner({
       });
       setReplanResult(data);
       toast({ title: "Replan ready! 🔄", description: data.changes_summary });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Replan failed",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -243,10 +244,10 @@ export default function DisruptionReplanner({
       setDisruptions(null);
       setSelectedDisruption(null);
       onReplanApplied();
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Failed to apply replan",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {

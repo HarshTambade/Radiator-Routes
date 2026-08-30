@@ -8,16 +8,17 @@ import {
   AlertTriangle,
   Shield,
   User,
-  X,
+  
   ChevronDown,
   ChevronUp,
   Loader2,
   Navigation,
-  PhoneCall,
-  Send,
+  
+  
   Check,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { errorMessage } from "@/lib/errors";
 
 interface EmergencyContact {
   id: string;
@@ -76,7 +77,10 @@ export default function SOSPanel() {
   const [sentTo, setSentTo] = useState<string[]>([]);
   const [confirmHold, setConfirmHold] = useState(false);
   const [holdProgress, setHoldProgress] = useState(0);
-  const [holdTimer, setHoldTimer] = useState<NodeJS.Timeout | null>(null);
+  // Browser timer handle — `number` in DOM, avoids depending on Node typings
+  const [holdTimer, setHoldTimer] = useState<ReturnType<
+    typeof setInterval
+  > | null>(null);
 
   // New contact form state
   const [newName, setNewName] = useState("");
@@ -127,7 +131,7 @@ export default function SOSPanel() {
       }
       navigator.geolocation.getCurrentPosition(
         (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        (err) => reject(new Error(err.message)),
+        (err) => reject(new Error(errorMessage(err))),
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     });
@@ -158,8 +162,8 @@ export default function SOSPanel() {
     try {
       location = await getLocation();
       setLiveLocation(location);
-    } catch (err: any) {
-      setLocationError(err.message);
+    } catch (err: unknown) {
+      setLocationError(errorMessage(err));
       // Use a fallback message without location
       location = { lat: 0, lng: 0 };
     }

@@ -1,4 +1,6 @@
 import type { Config } from "tailwindcss";
+import tailwindcssAnimate from "tailwindcss-animate";
+import typography from "@tailwindcss/typography";
 
 export default {
   darkMode: ["class"],
@@ -106,5 +108,7 @@ export default {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  // `typography` was a declared dependency but never registered, so the
+  // `prose` classes used in the chat panels were silently inert.
+  plugins: [tailwindcssAnimate, typography],
 } satisfies Config;
