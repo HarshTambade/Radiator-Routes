@@ -1,33 +1,34 @@
 # 🗺️ Radiator Routes
 
-> **The world's first voice-first, regret-aware AI travel planner for Indian group trips.**
+> **Voice-first, regret-aware AI travel planner for Indian group trips — built entirely on free and open-source services.**
 
 [![React](https://img.shields.io/badge/React-18.3-61DAFB?logo=react)](https://react.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript)](https://www.typescriptlang.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)](https://www.typescriptlang.org)
+[![Vite](https://img.shields.io/badge/Vite-8.2-646CFF?logo=vite)](https://vite.dev)
 [![Supabase](https://img.shields.io/badge/Supabase-Realtime-3ECF8E?logo=supabase)](https://supabase.com)
-[![Vite](https://img.shields.io/badge/Vite-5.4-646CFF?logo=vite)](https://vitejs.dev)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-06B6D4?logo=tailwindcss)](https://tailwindcss.com)
-[![PWA](https://img.shields.io/badge/PWA-Offline--Ready-5A0FC8)](https://web.dev/progressive-web-apps/)
+[![PWA](https://img.shields.io/badge/PWA-Offline--Capable-5A0FC8)](https://web.dev/progressive-web-apps/)
+[![Vulnerabilities](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen)](#security)
 
 ---
 
 ## 📖 Table of Contents
 
 1. [Overview](#-overview)
-2. [Live Demo](#-live-demo)
-3. [Key Features](#-key-features)
+2. [Key Features](#-key-features)
+3. [Offline & PWA Behaviour](#-offline--pwa-behaviour)
 4. [Tech Stack](#-tech-stack)
 5. [Architecture](#-architecture)
 6. [Getting Started](#-getting-started)
-7. [Project Structure](#-project-structure)
-8. [Database Schema](#-database-schema)
-9. [API Integrations](#-api-integrations)
-10. [AI Engine](#-ai-engine)
-11. [Environment Variables](#-environment-variables)
-12. [Available Scripts](#-available-scripts)
-13. [Pages & Routing](#-pages--routing)
-14. [Components Reference](#-components-reference)
-15. [Supabase Setup](#-supabase-setup)
+7. [Environment Variables](#-environment-variables)
+8. [Project Structure](#-project-structure)
+9. [Pages & Routing](#-pages--routing)
+10. [Services Reference](#-services-reference)
+11. [Database Schema](#-database-schema)
+12. [Supabase Setup](#-supabase-setup)
+13. [Available Scripts](#-available-scripts)
+14. [Build & Bundle Budget](#-build--bundle-budget)
+15. [Security](#-security)
 16. [Deployment](#-deployment)
 17. [Contributing](#-contributing)
 18. [License](#-license)
@@ -36,94 +37,113 @@
 
 ## 🌟 Overview
 
-**Radiator Routes** is an AI-powered intelligent travel planning system purpose-built for Indian group travel optimization. It eliminates the friction of coordinating group trips by combining:
+**Radiator Routes** is an AI-powered group travel planner for India. Every integration is either
+completely free (no key) or free-tier with no credit card — there are no paid APIs anywhere in
+the stack.
 
-- **Voice-First Interaction** — Speak your travel dreams, no forms required
-- **Regret-Aware Counterfactual Planning** — AI picks the itinerary everyone will love
-- **Multi-Agent Group Negotiation** — Every traveler gets their own AI proxy
-- **Real-Time Dynamic Replanning** — Live disruption detection and instant adaptation
-- **₹ INR Native** — All budgets, expenses, and payments in Indian Rupees
+- **Voice-first interaction** — speak your trip, no forms
+- **Regret-aware planning** — generates plan variants and picks the one with the lowest maximum regret across the group
+- **Real-time collaboration** — Supabase Realtime for chat, votes, DMs and expense updates
+- **Offline-capable PWA** — saved trips and pre-cached maps work with no connection
+- **₹ INR native** — budgets, expense splits and UPI payments in Indian Rupees
 
-Built as a production-grade Progressive Web App (PWA) with offline support, Supabase Realtime collaboration, and a full suite of live travel APIs.
-
----
-
-## 🚀 Live Demo
-
-> 🔗 **[radiator-routes.vercel.app](https://radiator-routes.vercel.app)** *(deploy link)*
+> **Only Supabase is required to run the app.** Every other integration degrades gracefully when
+> its key is absent.
 
 ---
 
 ## ✨ Key Features
 
-### 🤖 AI Core
+### 🤖 AI core — Groq LLaMA 3.3 70B
 | Feature | Description |
 |---|---|
-| **Voice-First Planning** | Whisper STT + GPT-4o NLU extracts destination, dates, budget, group size, and interests from natural speech |
-| **Regret-Minimized Itineraries** | Counterfactual planning engine generates multiple variants, picks lowest-regret plan |
-| **AI Reasoning Transparency** | "Why This Plan" panel reveals selection criteria, budget logic, and insider tips |
-| **Multi-Agent Group Negotiation** | Each traveler gets a personal AI proxy; agents reach Nash equilibrium consensus |
-| **Regret Score Analytics** | Numeric regret score per itinerary so you always pick the best plan |
+| **Voice-first planning** | Web Speech API transcribes in-browser; Groq LLaMA extracts destination, dates, budget, group size and interests |
+| **Jinny assistant** | Streaming chat with intent classification (`services/aiChat.ts`) |
+| **Regret-minimised itineraries** | Multiple plan variants scored by group regret (`components/RegretPlanner.tsx`) |
+| **AI reasoning transparency** | "Why This Plan" panel exposes selection criteria, budget logic and local tips |
+| **Dynamic replanning** | Weather/schedule disruptions trigger a fresh plan (`services/dynamicReplan.ts`) |
+| **Travel memory** | Learns preferences across trips and folds them into future plans |
 
-### 🗓️ Itinerary & Planning
-| Feature | Description |
-|---|---|
-| **Day-by-Day Timeline** | Visual activity timeline with category icons, costs, times, and notes |
-| **Activity Categories** | Food, Attraction, Transport, Shopping, Accommodation, Entertainment, Other — all with dedicated icons |
-| **PDF Export** | Beautiful A4 PDF with trip header, stats table, activity schedule, and page numbers |
-| **Collaborative Planner** | Real-time multi-user activity voting and plan editing |
-| **Regret-Aware Counterfactual Planner** | Generate optimized plan variants with regret minimization |
-| **Disruption Replanner** | Trigger live replanning when flights, weather, or plans change |
+All AI calls run in Groq **JSON mode** with simplified prompts to prevent truncation. Without
+`VITE_GROQ_API_KEY` these surfaces show an "AI unavailable" notice and the rest of the app works.
 
-### 🌍 Maps & Navigation
-| Feature | Description |
-|---|---|
-| **2D Interactive Maps** | Leaflet + OpenStreetMap with destination pin and activity overlays |
-| **3D Globe View** | MapLibre GL JS / Mappls 3D maps for immersive destination exploration |
-| **Turn-by-Turn Navigation** | One-tap Google Maps / navigation deep-link per activity |
-| **ORS Route Calculation** | OpenRouteService routing with real distance and ETA per activity |
-| **360° Street View** | Street-level imagery preview before visiting any attraction |
-| **AR Attraction Viewer** | Augmented reality overlays for landmarks |
+### 🗓️ Itinerary & planning
+Day-by-day timeline with categorised activities · collaborative voting · A4 PDF export via
+jsPDF + autoTable (dynamically imported, so it costs nothing until you click Export) ·
+disruption replanner · counterfactual regret planner.
 
-### ⛅ Live Data
-| Feature | Description |
-|---|---|
-| **7-Day Weather Forecast** | Open-Meteo daily forecasts with max/min temp, rain, UV, wind, sunrise/sunset |
-| **Severe Weather Alerts** | Automatic warnings baked into itinerary planning |
-| **Live Traffic Status** | TomTom Traffic API with current speed vs. free-flow speed |
-| **Traffic Labels** | Color-coded: 🟢 Free flow → 🟡 Moderate → 🔴 Heavy |
+### 🌍 Maps & navigation
+2D Leaflet + OpenStreetMap · 3D MapLibre GL globe · 360° street view · AR attraction viewer ·
+OpenRouteService distance/ETA per activity · Nominatim geocoding · navigation deep-links.
+Heavy map and AR bundles are lazy-loaded behind `Suspense`.
 
-### 👥 Social & Collaboration
-| Feature | Description |
-|---|---|
-| **Friends & Social Graph** | Send/receive friend requests, view friend profiles |
-| **Direct Messaging** | Real-time DMs between travelers via Supabase Realtime |
-| **Trip Invite Links** | Generate hex-encoded invite codes; friends join with one click |
-| **Join Request System** | Public trip discovery with organizer-approved join requests |
-| **Real-Time Trip Chat** | WebSocket group chat within each trip |
+### ⛅ Live data
+7-day Open-Meteo forecast (temp, rain, UV, wind, sunrise/sunset) · severe weather warnings fed
+into planning · time-of-day traffic estimation · Wikipedia/Wikimedia place context and imagery.
+
+### 👥 Social & collaboration
+Friend requests · real-time DMs · trip invite codes · organiser-approved join requests ·
+per-trip group chat · community groups with events and RSVPs.
 
 ### 💰 Finance
-| Feature | Description |
-|---|---|
-| **Group Expense Splitting** | Track shared expenses with equal/custom/percentage split modes |
-| **Expense Categories** | Accommodation, Food, Transport, Activity, Shopping, General, Other |
-| **Bill Settlement Tracking** | Mark individual splits as settled with timestamps |
-| **UPI P2P Payments** | Deep-link UPI payment to any trip member |
-| **Multi-Currency Display** | Smart ₹ INR formatting with country-aware currency display |
+Group expense splitting (equal / custom / percentage) · per-member settlement tracking ·
+UPI P2P deep-link payments · country-aware currency formatting.
 
-### 🛡️ Safety
-| Feature | Description |
-|---|---|
-| **SOS & Emergency Panel** | One-tap emergency call with local police/hospital numbers |
-| **Safety Warnings** | Auto-fetched travel advisories for destination |
-| **Offline Mode** | Service worker caches trips; works without internet |
+### 🛡️ Safety & accessibility
+SOS panel with local emergency numbers and live GPS sharing · destination advisories from
+Wikipedia REST plus curated regional guidance · 5-tab accessibility panel (Speak, Listen,
+Camera, Ask AI, Settings) · high-contrast and large-text modes.
 
-### ♿ Accessibility
-| Feature | Description |
+---
+
+## 📴 Offline & PWA Behaviour
+
+Installable on Android, iOS and desktop. The service worker is generated by
+`vite-plugin-pwa` in **`generateSW`** mode with `registerType: "autoUpdate"`.
+
+### What works with no connection
+
+| Capability | Mechanism |
 |---|---|
-| **Accessibility Panel** | Filter by wheelchair access, hearing assistance, visual aids |
-| **PWA Install** | Install as native-like app on any device |
-| **Offline Trip Saving** | Save trips to local storage for offline access |
+| **Any route loads** | App shell precached (80 entries, ~4.3 MB) + `navigateFallback: index.html` |
+| **Saved trips** | Trip, itineraries and activities in IndexedDB (`services/offlineTrip.ts`) |
+| **Maps around a saved trip** | ~173 OSM tiles pre-fetched at z10–z14 into the `osm-tiles-offline` cache |
+| **Previously-viewed Supabase data** | `StaleWhileRevalidate` on `/rest/*` replays the last response |
+| **Weather, places, Wikipedia, fonts** | Per-origin runtime caches with TTLs (see below) |
+| **App updates** | Waiting worker detected; `OfflineIndicator` offers a one-tap reload |
+
+### What still needs a connection
+
+| Not available offline | Why |
+|---|---|
+| **Sign-in / sign-up** | Auth endpoints are deliberately never cached |
+| **AI features** | Groq inference is a live API call with no useful cached form |
+| **Realtime chat, votes, DMs** | WebSocket transport can't be replayed from cache |
+| **New route calculation** | OpenRouteService is not runtime-cached |
+| **Writes** | A durable IndexedDB mutation queue exists in `hooks/useOfflineStorage.ts`, but it is **not yet wired into the mutation paths** — offline edits are not persisted. See the audit report. |
+
+### Runtime cache policy
+
+| Cache | Strategy | Retention |
+|---|---|---|
+| `osm-tiles-offline` | CacheFirst | 2000 entries · 30 d |
+| `topo-maps` | CacheFirst | 1000 entries · 30 d |
+| `google-fonts`, `gstatic-fonts` | CacheFirst | 10 entries · 365 d |
+| `wikimedia` | CacheFirst | 300 entries · 30 d |
+| `supabase-rest` | StaleWhileRevalidate | 200 entries · 1 d |
+| `nominatim`, `nominatim-search` | StaleWhileRevalidate | 100 / 50 entries · 7 d |
+| `opentripmap` | StaleWhileRevalidate | 100 entries · 1 d |
+| `wikipedia` | StaleWhileRevalidate | 100 entries · 7 d |
+| `weather` | NetworkFirst (6 s timeout) | 50 entries · 15 min |
+
+`supabase-rest` holds user-scoped rows, so signing out purges it (`hooks/useAuth.tsx`).
+Anonymous caches — tiles, fonts, Wikipedia — survive logout so the app stays useful offline.
+
+### Manifest
+
+`standalone` display with `minimal-ui`/`browser` fallbacks, portrait orientation, 8 icon sizes
+(192 and 512 marked `any maskable`), 4 app shortcuts (Dashboard, Explore, Itinerary, Profile),
+`handle_links: preferred`, `launch_handler.client_mode: auto`, and an Edge side-panel width.
 
 ---
 
@@ -133,116 +153,123 @@ Built as a production-grade Progressive Web App (PWA) with offline support, Supa
 | Technology | Version | Purpose |
 |---|---|---|
 | **React** | 18.3 | UI framework |
-| **TypeScript** | 5.8 | Type safety |
-| **Vite** | 5.4 | Build tool & dev server |
+| **TypeScript** | 5.9 | Type safety |
+| **Vite** | 8.2 | Build tool & dev server (Rolldown + Oxc) |
 | **Tailwind CSS** | 3.4 | Utility-first styling |
-| **shadcn/ui** | latest | Accessible component library |
-| **Radix UI** | latest | Headless UI primitives |
-| **TanStack Query** | 5.83 | Server state management & caching |
-| **React Router DOM** | 6.30 | Client-side routing |
-| **Lucide React** | 0.462 | Icon library |
-| **React Hook Form** | 7.61 | Form management |
-| **Zod** | 3.25 | Schema validation |
-| **Recharts** | 2.15 | Data visualization |
+| **Radix UI** | latest | Headless primitives (toast, tooltip) |
+| **TanStack Query** | 5.x | Server state caching |
+| **React Router DOM** | 7.18 | Client-side routing (declarative mode) |
+| **Lucide React** | 0.577 | Icon library |
+| **react-markdown** | 10.x | AI response rendering |
+| **Sonner** | 1.7 | Toast notifications |
 
-### Backend & Database
+> **No component library dependency.** The 45 unused shadcn/ui components were removed; only
+> `sonner`, `toast`, `toaster` and `tooltip` remain in `components/ui/`.
+
+### Backend
 | Technology | Purpose |
 |---|---|
-| **Supabase** | PostgreSQL database, Auth, Realtime, Storage |
-| **PostgreSQL** | Relational database with JSONB support |
-| **Row-Level Security (RLS)** | Per-user and per-trip data isolation |
+| **Supabase** | PostgreSQL, Auth (PKCE), Realtime, Storage |
+| **PostgreSQL** | Relational store with JSONB columns |
+| **Row-Level Security** | Per-user and per-trip isolation on every table |
 | **Supabase Realtime** | WebSocket subscriptions for live collaboration |
-| **pgvector** | Vector embeddings for semantic place search |
 
-### AI & Machine Learning
+### AI
 | Technology | Purpose |
 |---|---|
-| **OpenAI GPT-4o** | Itinerary generation, NLU, reasoning |
-| **Whisper STT** | Voice-to-text for voice-first planning |
-| **LangGraph** | Multi-agent workflow orchestration |
-| **pgvector** | Semantic similarity search for place discovery |
+| **Groq — `llama-3.3-70b-versatile`** | Itinerary generation, chat, replanning, regret scoring |
+| **Web Speech API** | Browser-native STT and TTS — no key, no network |
+| **Groq Whisper** | Optional STT fallback when a Groq key is present |
 
-### Maps & Geospatial
-| Technology | Purpose |
-|---|---|
-| **Leaflet + React-Leaflet** | 2D interactive maps |
-| **MapLibre GL JS** | 3D WebGL maps |
-| **Mappls Web Maps SDK** | India-specific maps |
-| **Nominatim / OSM** | Geocoding and reverse geocoding |
-| **OpenRouteService (ORS)** | Turn-by-turn routing |
+### Maps & geospatial
+Leaflet + React-Leaflet · MapLibre GL JS · Nominatim / OpenStreetMap · OpenRouteService.
 
 ### External APIs
-| API | Purpose |
-|---|---|
-| **Open-Meteo** | Free 7-day weather forecast |
-| **TomTom Traffic API** | Real-time traffic flow data |
-| **Amadeus Travel API** | Flight disruption detection |
-| **OpenTripMap API** | Place of interest discovery |
-| **Google Maps (deep-link)** | Navigation handoff |
+| API | Key required | Purpose |
+|---|---|---|
+| **Open-Meteo** | No | 7-day weather forecast |
+| **Nominatim / OSM** | No | Geocoding, reverse geocoding, tiles |
+| **Wikipedia / Wikimedia REST** | No | Place context, imagery, safety advisories |
+| **MyMemory** | No | Translation (1000 req/day per IP) |
+| **Groq** | Free tier | All LLM inference |
+| **OpenRouteService** | Free tier | Routing, ETA, elevation |
+| **OpenTripMap** | Free tier | POI discovery |
 
-### DevOps & Tools
-| Technology | Purpose |
+### Removed paid services
+
+These were replaced with free alternatives. The env vars are inert — setting them does nothing.
+
+| Removed | Replaced by |
 |---|---|
-| **Vite PWA Plugin** | Service worker & offline support |
-| **Workbox** | Cache strategies for PWA |
-| **Vitest** | Unit & integration testing |
-| **Testing Library** | Component testing |
-| **ESLint** | Code quality |
-| **jsPDF + AutoTable** | PDF generation |
+| Amadeus | Deep-links to Google Flights, Kiwi, Skyscanner, Booking.com (`services/amadeus.ts`) |
+| TomTom Traffic | Time-of-day estimation + Nominatim + ORS (`services/traffic.ts`) |
+| Mappls Web Maps SDK | OpenStreetMap + MapLibre GL |
+| GNews *(key was hardcoded in source)* | Wikipedia REST + curated advisories (`services/gnews.ts`) |
+| OpenAI GPT-4o | Groq LLaMA 3.3 70B |
+
+> `services/traffic.ts` still exports functions named `tomtomSearch`, `tomtomNearbySearch` and so
+> on. These are compatibility shims over free providers, kept so existing callers didn't need to
+> change — the names are historical, not an indication of a TomTom dependency. The same applies to
+> `services/gemini.ts`, which targets Groq.
+
+### DevOps
+Vite PWA Plugin + Workbox · Vitest + Testing Library · ESLint 9 (flat config) · TypeScript strict.
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        RADIATOR ROUTES                          │
-│                    AI Group Travel Planner                      │
-└─────────────────────────────────────────────────────────────────┘
-                               │
-          ┌────────────────────┼────────────────────┐
-          │                    │                    │
-   ┌──────▼──────┐    ┌───────▼──────┐    ┌────────▼────────┐
-   │  React 18   │    │   Supabase   │    │   AI Engine     │
-   │  Frontend   │    │   Backend    │    │  (LangGraph +   │
-   │  (Vite/TS)  │    │  (Postgres + │    │   GPT-4o +      │
-   └──────┬──────┘    │   Realtime)  │    │   Whisper)      │
-          │           └───────┬──────┘    └────────┬────────┘
-          │                   │                    │
-   ┌──────▼──────────────────▼────────────────────▼────────┐
-   │                    Feature Modules                      │
-   │                                                         │
-   │  ┌──────────┐  ┌──────────┐  ┌──────────┐             │
-   │  │Itinerary │  │  Maps &  │  │  Group   │             │
-   │  │  AI Plan │  │  Routing │  │  Social  │             │
-   │  └──────────┘  └──────────┘  └──────────┘             │
-   │                                                         │
-   │  ┌──────────┐  ┌──────────┐  ┌──────────┐             │
-   │  │ Weather  │  │ Finance  │  │  Safety  │             │
-   │  │ Traffic  │  │ Expenses │  │   SOS    │             │
-   │  └──────────┘  └──────────┘  └──────────┘             │
-   └────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      RADIATOR ROUTES                         │
+└──────────────────────────────────────────────────────────────┘
+                             │
+      ┌──────────────────────┼──────────────────────┐
+      │                      │                      │
+┌─────▼──────┐      ┌────────▼───────┐     ┌────────▼────────┐
+│  React 18  │      │    Supabase    │     │   Groq LLaMA    │
+│ Vite 8 /TS │      │ Postgres + RLS │     │  3.3 70B (JSON  │
+│  PWA shell │      │  + Realtime    │     │      mode)      │
+└─────┬──────┘      └────────┬───────┘     └────────┬────────┘
+      │                      │                      │
+┌─────▼──────────────────────▼──────────────────────▼─────────┐
+│                       Feature Modules                        │
+│                                                              │
+│  ┌───────────┐  ┌───────────┐  ┌───────────┐                │
+│  │ Itinerary │  │  Maps &   │  │  Group    │                │
+│  │  AI Plan  │  │  Routing  │  │  Social   │                │
+│  └───────────┘  └───────────┘  └───────────┘                │
+│  ┌───────────┐  ┌───────────┐  ┌───────────┐                │
+│  │  Weather  │  │  Finance  │  │  Safety   │                │
+│  │  Traffic  │  │  Expenses │  │   SOS     │                │
+│  └───────────┘  └───────────┘  └───────────┘                │
+└──────────────────────────────────────────────────────────────┘
+      │
+┌─────▼──────────────────────────────────────────────────────┐
+│  Offline layer — Workbox SW · IndexedDB · OSM tile cache   │
+└────────────────────────────────────────────────────────────┘
 ```
 
-### Data Flow
+### Voice-to-itinerary flow
+
 ```
-User Voice Input
-       │
-       ▼
-Whisper STT → GPT-4o NLU → Extract (destination, dates, budget, interests)
-       │
-       ▼
-LangGraph Multi-Agent Orchestration
-  ├── Agent 1: Destination Research (OpenTripMap)
-  ├── Agent 2: Weather Check (Open-Meteo)
-  ├── Agent 3: Budget Optimizer
-  └── Agent 4: Regret Minimizer (counterfactual variants)
-       │
-       ▼
-Supabase (itineraries + activities tables)
-       │
-       ▼
-Supabase Realtime → All group members see updates live
+Speech  →  Web Speech API (in-browser STT)
+              │  └─ optional: Groq Whisper when a key is set
+              ▼
+        Groq LLaMA 3.3 (JSON mode)
+              │
+              ▼
+        { destination, start_date, end_date, travelers,
+          budget_total, interests[], trip_type }
+              │
+              ▼
+        Plan generation  →  regret scoring  →  lowest-max-regret variant
+              │
+              ▼
+        Supabase (itineraries + activities)
+              │
+              ▼
+        Supabase Realtime  →  every group member updates live
 ```
 
 ---
@@ -251,32 +278,65 @@ Supabase Realtime → All group members see updates live
 
 ### Prerequisites
 
-- **Node.js** >= 18.x
-- **npm** >= 9.x (or yarn / bun)
-- **Supabase** account (free tier works)
+- **Node.js ≥ 20.19** (enforced via `engines` in `package.json`)
+- **npm ≥ 10**
+- A **Supabase** project (free tier is enough)
 
 ### Installation
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/HarshTambade/Radiator-Routes.git
 cd Radiator-Routes
 
-# 2. Install dependencies
 npm install
 
-# 3. Configure environment variables
 cp .env.example .env
-# Fill in your keys (see Environment Variables section)
+# Fill in VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY at minimum
 
-# 4. Set up Supabase database
-# Paste supabase/master_schema.sql into Supabase SQL Editor and run
-
-# 5. Start the development server
+# Create the schema: paste supabase/master_schema.sql into the Supabase SQL Editor
 npm run dev
 ```
 
-The app will be available at **http://localhost:5173**
+The dev server runs on **http://localhost:8080**.
+
+> The Supabase client **throws on startup in dev** if its two required variables are missing —
+> the failure is immediate and explicit rather than a confusing runtime error later.
+
+### Verifying the PWA locally
+
+The service worker is disabled in dev (`devOptions.enabled: false`). To exercise it:
+
+```bash
+npm run build && npm run preview
+```
+
+Then in DevTools → Application: confirm the worker is active, install the app, and tick
+**Network → Offline** to test offline routes.
+
+---
+
+## 🔐 Environment Variables
+
+Only the Supabase pair is required. See `.env.example` for the annotated source of truth.
+
+```env
+# ── Required ────────────────────────────────────────────────────────────
+VITE_SUPABASE_URL="https://your-project.supabase.co"
+VITE_SUPABASE_PUBLISHABLE_KEY="your-publishable-key"
+
+# ── Optional: all free tier, no credit card ─────────────────────────────
+VITE_GROQ_API_KEY=""          # AI chat, planning, regret engine, replanning
+VITE_ORS_API_KEY=""           # routing, ETA, elevation — 2000 req/day
+VITE_OPENTRIPMAP_API_KEY=""   # POI discovery — 1000 req/day
+```
+
+No key needed for Open-Meteo, Nominatim/OpenStreetMap, MapLibre GL, Wikipedia/Wikimedia or the
+Web Speech API.
+
+> ⚠️ Every `VITE_*` variable is **inlined into the client bundle** and is therefore public by
+> design. Never put a service-role key, a secret, or any key that can spend money in a `VITE_*`
+> variable. Restrict each free-tier key by HTTP referrer in its provider dashboard, and rely on
+> Supabase Row-Level Security — not key secrecy — for data protection.
 
 ---
 
@@ -284,599 +344,314 @@ The app will be available at **http://localhost:5173**
 
 ```
 Radiator-Routes/
-│
-├── public/                         # Static assets & PWA manifest
-│
+├── public/                      # Icons, favicons, robots.txt
 ├── src/
-│   ├── assets/                     # Images (hero, destinations, travel photos)
-│   │   ├── hero-ocean.jpg
-│   │   ├── destination-goa.jpg
-│   │   ├── destination-agra.jpg
-│   │   ├── destination-kerala.jpg
-│   │   └── ...
+│   ├── assets/                  # Destination & hero imagery
+│   ├── components/
+│   │   ├── ui/                  # sonner · toast · toaster · tooltip (only)
+│   │   ├── AIAssistant.tsx      # Jinny voice + chat assistant
+│   │   ├── ARViewer.tsx         # AR attraction overlay (lazy)
+│   │   ├── AccessibilityPanel.tsx
+│   │   ├── AppSidebar.tsx
+│   │   ├── CollaborativePlanner.tsx
+│   │   ├── DisruptionReplanner.tsx
+│   │   ├── ErrorBoundary.tsx    # Chunk-load-aware root boundary
+│   │   ├── ItineraryNotifications.tsx
+│   │   ├── ItineraryReasoning.tsx
+│   │   ├── LanguageSwitcher.tsx
+│   │   ├── LiveLocationPanel.tsx
+│   │   ├── Map3D.tsx            # MapLibre GL globe (lazy)
+│   │   ├── MobileHeader.tsx
+│   │   ├── MobileNav.tsx
+│   │   ├── OfflineIndicator.tsx # Connectivity banner + update prompt
+│   │   ├── OfflineSaveButton.tsx
+│   │   ├── PWAInstallPrompt.tsx # Android prompt + iOS instructions
+│   │   ├── ProtectedLayout.tsx
+│   │   ├── ProtectedRoute.tsx
+│   │   ├── RegretPlanner.tsx
+│   │   ├── SOSPanel.tsx
+│   │   ├── SafetyWarnings.tsx
+│   │   ├── StreetView360.tsx    # (lazy)
+│   │   ├── TravelMemory.tsx
+│   │   ├── TripCreationChat.tsx
+│   │   ├── TripMoneyExpenses.tsx
+│   │   ├── UPIPayment.tsx
+│   │   └── WorldMap.tsx         # Leaflet 2D map
 │   │
-│   ├── components/                 # Reusable UI components
-│   │   ├── ui/                     # shadcn/ui base components
-│   │   ├── AIAssistant.tsx         # Voice-first AI assistant
-│   │   ├── ARViewer.tsx            # Augmented reality attraction viewer
-│   │   ├── AccessibilityPanel.tsx  # Accessibility filter panel
-│   │   ├── AddToTripButton.tsx     # Add activity to trip button
-│   │   ├── AppSidebar.tsx          # Main navigation sidebar
-│   │   ├── CollaborativePlanner.tsx # Real-time multi-user planner
-│   │   ├── DisruptionReplanner.tsx  # Live disruption & replanning
-│   │   ├── ItineraryReasoning.tsx   # "Why This Plan" AI reasoning panel
-│   │   ├── Layout.tsx               # Main layout wrapper
-│   │   ├── Map3D.tsx                # 3D MapLibre map component
-│   │   ├── MapplsMap.tsx            # Mappls India map component
-│   │   ├── MobileHeader.tsx         # Mobile top header
-│   │   ├── MobileNav.tsx            # Mobile bottom navigation
-│   │   ├── NavLink.tsx              # Sidebar nav link
-│   │   ├── OfflineSaveButton.tsx    # Save trip for offline access
-│   │   ├── PWAInstallPrompt.tsx     # PWA installation prompt
-│   │   ├── ProtectedLayout.tsx      # Auth-protected layout
-│   │   ├── ProtectedRoute.tsx       # Auth-protected route guard
-│   │   ├── RegretPlanner.tsx        # Counterfactual regret planner
-│   │   ├── SOSPanel.tsx             # Emergency SOS panel
-│   │   ├── SafetyWarnings.tsx       # Destination safety warnings
-│   │   ├── StreetView360.tsx        # 360° street view
-│   │   ├── TravelMemory.tsx         # Trip memory / photo journal
-│   │   ├── TripCreationChat.tsx     # AI chat for trip creation
-│   │   ├── TripMoneyExpenses.tsx    # Group expense tracker
-│   │   ├── UPIPayment.tsx           # UPI P2P payment
-│   │   └── WorldMap.tsx             # 2D Leaflet world map
+│   ├── hooks/
+│   │   ├── useAuth.tsx          # Session + sign-out cache purge
+│   │   ├── useLanguage.tsx
+│   │   ├── useOfflineStorage.ts # Mutation queue + SW update detection
+│   │   ├── useOfflineTrip.ts    # Save/remove trips offline, useOnlineStatus
+│   │   ├── useTrips.tsx
+│   │   └── use-toast.ts
 │   │
-│   ├── data/                        # Static data files
-│   │
-│   ├── hooks/                       # Custom React hooks
-│   │   ├── useAuth.ts               # Authentication hook
-│   │   ├── useOfflineTrip.ts        # Offline storage hook
-│   │   ├── useTrips.ts              # Trip CRUD hooks
-│   │   └── use-toast.ts             # Toast notification hook
-│   │
-│   ├── integrations/
-│   │   └── supabase/
-│   │       ├── client.ts            # Supabase client instance
-│   │       └── types.ts             # Auto-generated DB types
+│   ├── integrations/supabase/
+│   │   ├── client.ts            # Env-only credentials, no hardcoding
+│   │   └── types.ts             # Generated DB types
 │   │
 │   ├── lib/
-│   │   ├── currency.ts              # ₹ INR + multi-currency formatting
-│   │   └── utils.ts                 # Tailwind merge utilities
+│   │   ├── currency.ts          # ₹ INR + multi-currency formatting
+│   │   ├── date.ts
+│   │   ├── errors.ts            # Shared error taxonomy
+│   │   ├── http.ts              # Fetch wrapper: timeout, retry, JSON
+│   │   ├── iata.ts              # City → IATA lookup
+│   │   ├── idb.ts               # Typed IndexedDB wrapper (6 stores)
+│   │   ├── offlineCache.ts      # TTL cache over IndexedDB
+│   │   └── utils.ts
 │   │
-│   ├── pages/                       # Route page components
-│   │   ├── Auth.tsx                 # Login / Registration page
-│   │   ├── Community.tsx            # Community hub page
-│   │   ├── Dashboard.tsx            # User dashboard
-│   │   ├── Explore.tsx              # Destination explorer
-│   │   ├── Friends.tsx              # Friends, DMs, invites, join requests
-│   │   ├── Guide.tsx                # Travel guide
-│   │   ├── Index.tsx                # App entry redirect
-│   │   ├── Itinerary.tsx            # Main itinerary planner page
-│   │   ├── JoinTrip.tsx             # Join trip via invite link
-│   │   ├── Landing.tsx              # Public marketing landing page
-│   │   ├── NotFound.tsx             # 404 page
-│   │   └── Profile.tsx              # User profile page
-│   │
-│   ├── services/                    # External API service modules
-│   │   ├── aiPlanner.ts             # GPT-4o itinerary planning
-│   │   ├── climate.ts               # Open-Meteo weather service
-│   │   ├── nominatim.ts             # OSM geocoding service
-│   │   └── traffic.ts               # TomTom traffic service
-│   │
-│   ├── test/                        # Test files
-│   ├── App.tsx                      # Root app component with routing
-│   ├── main.tsx                     # React entry point
-│   └── index.css                    # Global styles + Tailwind directives
+│   ├── pages/                   # 11 route components, all lazy-loaded
+│   ├── services/                # 15 external-API modules
+│   ├── test/
+│   ├── App.tsx                  # Routing + providers + ErrorBoundary
+│   ├── main.tsx
+│   └── index.css
 │
 ├── supabase/
-│   ├── migrations/                  # Incremental database migrations
-│   │   ├── 20260221080224_*.sql     # Initial schema
-│   │   ├── 20260221084836_*.sql     # Auth & profiles
-│   │   ├── 20260221090907_*.sql     # Trips & memberships
-│   │   ├── 20260221104720_*.sql     # Itineraries & activities
-│   │   ├── 20260221105025_*.sql     # Community tables
-│   │   ├── 20260221110549_*.sql     # Activity status & votes
-│   │   ├── 20260221110824_*.sql     # Activity voting
-│   │   ├── 20260221112103_*.sql     # Trip invites & join requests
-│   │   ├── 20260221112457_*.sql     # Disruption events
-│   │   ├── 20260221130439_*.sql     # Profile visibility
-│   │   ├── 20260222000001_friends_and_expenses.sql  # Friends, DMs, expenses
-│   │   └── 20260222000002_fix_trip_join_requests_status.sql  # Status constraint fix
-│   │
-│   ├── master_schema.sql            # Complete idempotent schema (run on fresh DB)
-│   ├── schema.sql                   # Alternate schema reference
-│   ├── config.toml                  # Supabase local config
-│   └── SETUP_INSTRUCTIONS.md        # Step-by-step Supabase setup guide
+│   ├── migrations/              # 12 incremental migrations
+│   ├── functions/
+│   ├── master_schema.sql        # Idempotent full schema
+│   └── SETUP_INSTRUCTIONS.md
 │
-├── index.html                       # HTML entry point
-├── vite.config.ts                   # Vite configuration with PWA plugin
-├── tailwind.config.ts               # Tailwind theme configuration
-├── tsconfig.json                    # TypeScript configuration
-├── vercel.json                      # Vercel deployment config (SPA rewrites)
-└── package.json                     # Dependencies & scripts
-```
-
----
-
-## 🗄️ Database Schema
-
-Radiator Routes uses **PostgreSQL via Supabase** with full **Row-Level Security (RLS)**.
-
-### Core Tables
-
-| Table | Description |
-|---|---|
-| `profiles` | User profiles (name, avatar, bio, travel preferences) |
-| `trips` | Trip records (destination, dates, budget, status, organizer) |
-| `trip_memberships` | Many-to-many: users ↔ trips with roles (organizer/member) |
-| `itineraries` | AI-generated itinerary versions per trip |
-| `activities` | Day-by-day activities within an itinerary |
-| `activity_votes` | Member votes on activities (upvote/downvote) |
-| `messages` | Real-time group chat messages per trip |
-| `disruption_events` | Flight/weather disruptions triggering replanning |
-
-### Social & Invite Tables
-
-| Table | Description |
-|---|---|
-| `trip_invites` | Invite codes with max_uses, expiry |
-| `trip_join_requests` | Join requests: `pending` → `approved` / `rejected` |
-| `friend_requests` | Friend connections: `pending` → `accepted` / `rejected` |
-| `direct_messages` | Private 1-to-1 messages between users |
-
-### Finance Tables
-
-| Table | Description |
-|---|---|
-| `group_expenses` | Shared trip expenses with split type |
-| `expense_splits` | Per-member expense shares with settlement status |
-
-### Community Tables
-
-| Table | Description |
-|---|---|
-| `communities` | Public travel communities |
-| `community_memberships` | User ↔ community relationships |
-| `community_messages` | Community chat messages |
-| `community_events` | Community events |
-| `event_rsvps` | Event attendance tracking |
-
-### Status Constraints
-
-```sql
--- trips.status
-CHECK (status IN ('planning', 'booked', 'ongoing', 'completed'))
-
--- trip_join_requests.status
-CHECK (status IN ('pending', 'approved', 'rejected'))
-
--- friend_requests.status
-CHECK (status IN ('pending', 'accepted', 'rejected'))
-
--- event_rsvps.status
-CHECK (status IN ('going', 'maybe', 'not_going'))
-```
-
-### Key Database Functions
-
-```sql
--- Check if user is a trip member
-public.is_trip_member(trip_id UUID) → BOOLEAN
-
--- Check if user is the trip organizer
-public.is_trip_organizer(trip_id UUID) → BOOLEAN
-
--- Auto-update updated_at timestamp
-public.set_updated_at() → TRIGGER
-```
-
-### Realtime Subscriptions
-
-The following tables are added to `supabase_realtime` publication for live updates:
-- `messages` — Trip group chat
-- `activity_votes` — Live voting
-- `community_messages` — Community chat
-- `trip_join_requests` — Organizer notifications
-- `direct_messages` — Friend DMs
-- `friend_requests` — Friend request notifications
-- `group_expenses` — Expense updates
-- `expense_splits` — Settlement updates
-
----
-
-## 🔌 API Integrations
-
-### Open-Meteo (Weather)
-```typescript
-// src/services/climate.ts
-// Free, no API key required
-GET https://api.open-meteo.com/v1/forecast
-  ?latitude={lat}&longitude={lon}
-  &daily=temperature_2m_max,temperature_2m_min,precipitation_sum,
-         weathercode,windspeed_10m_max,uv_index_max,sunrise,sunset
-  &timezone=auto
-  &forecast_days=7
-```
-
-### TomTom Traffic
-```typescript
-// src/services/traffic.ts
-GET https://api.tomtom.com/traffic/services/4/flowSegmentData/relative0/10/json
-  ?point={lat},{lon}&key={VITE_TOMTOM_KEY}
-```
-
-### OpenRouteService (Routing)
-```typescript
-// Used in Itinerary.tsx for per-activity routes
-POST https://api.openrouteservice.org/v2/directions/driving-car
-Authorization: Bearer {ORS_KEY}
-Body: { coordinates: [[originLon, originLat], [destLon, destLat]], units: "km" }
-```
-
-### Nominatim (Geocoding)
-```typescript
-// src/services/nominatim.ts — Free, no key required
-GET https://nominatim.openstreetmap.org/search
-  ?q={destination}&format=json&limit=1
-```
-
-### OpenAI GPT-4o (AI Planning)
-```typescript
-// src/services/aiPlanner.ts
-// Generates structured itinerary JSON with regret scoring
-POST https://api.openai.com/v1/chat/completions
-  model: "gpt-4o"
-  messages: [system prompt + trip context]
-```
-
----
-
-## 🤖 AI Engine
-
-### Voice-First NLU Pipeline
-
-```
-User speaks → MediaRecorder API → Audio Blob
-     → Whisper STT API → Transcript
-     → GPT-4o NLU → Structured JSON:
-        {
-          destination: "Goa",
-          start_date: "2026-03-15",
-          end_date: "2026-03-20",
-          travelers: 4,
-          budget_total: 40000,
-          interests: ["beaches", "seafood", "nightlife"],
-          trip_type: "leisure"
-        }
-```
-
-### Regret-Minimization Planner
-
-The AI generates itinerary plans using a **counterfactual regret minimization** approach:
-
-1. Generate **N candidate itineraries** (different activity mixes)
-2. For each plan, compute **regret score** = how much each traveler misses out
-3. Select the plan with the **minimum maximum regret** across all travelers
-4. Output includes `reasoning` object explaining every decision:
-   - `plan_title` — Creative trip name
-   - `selection_summary` — One-line plan justification
-   - `selection_criteria` — Array of criteria with icons and reasons
-   - `why_these_activities` — Activity selection logic
-   - `budget_strategy` — How budget was allocated
-   - `best_value_picks` — Top value-for-money activities
-   - `time_optimization` — Route and schedule optimization notes
-   - `traveler_fit` — Why this fits the group
-   - `local_tips` — Insider tips for the destination
-   - `potential_savings` — Money-saving suggestions
-
-### Multi-Agent Group Negotiation
-
-```
-Trip Members: [Alice (beaches), Bob (history), Carol (food)]
-       │
-       ▼
-  Agent Alice  →  Preference vector: beaches=0.9, history=0.2, food=0.5
-  Agent Bob    →  Preference vector: beaches=0.3, history=0.9, food=0.6
-  Agent Carol  →  Preference vector: beaches=0.4, history=0.4, food=0.95
-       │
-       ▼
-  Nash Equilibrium Solver
-  → Weighted activity scores
-  → Pareto-optimal itinerary
-  → Regret score: 0.23 (everyone gets ≥70% of what they want)
-```
-
----
-
-## 🔐 Environment Variables
-
-Create a `.env` file in the project root:
-
-```env
-# ─── Supabase ─────────────────────────────────────────────────────
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key-here
-
-# ─── OpenAI (AI Itinerary Planning + Voice NLU) ───────────────────
-VITE_OPENAI_API_KEY=sk-your-openai-key-here
-
-# ─── TomTom (Live Traffic) ────────────────────────────────────────
-VITE_TOMTOM_KEY=your-tomtom-api-key-here
-
-# ─── OpenRouteService (Turn-by-Turn Routing) ──────────────────────
-VITE_ORS_KEY=your-ors-key-here
-
-# ─── Mappls (India Maps SDK) ──────────────────────────────────────
-VITE_MAPPLS_KEY=your-mappls-key-here
-
-# ─── Amadeus (Flight Disruption Detection) ────────────────────────
-VITE_AMADEUS_CLIENT_ID=your-amadeus-client-id
-VITE_AMADEUS_CLIENT_SECRET=your-amadeus-client-secret
-
-# ─── OpenTripMap (Place Discovery) ───────────────────────────────
-VITE_OPENTRIPMAP_KEY=your-opentripmap-key-here
-```
-
-> **Note:** Open-Meteo and Nominatim are completely free with no API key required.
-
----
-
-## 📦 Available Scripts
-
-```bash
-# Development server (http://localhost:5173)
-npm run dev
-
-# Production build (output to /dist)
-npm run build
-
-# Preview production build locally
-npm run preview
-
-# Run all tests (Vitest)
-npm run test
-
-# Run tests in watch mode
-npm run test:watch
-
-# Lint code (ESLint)
-npm run lint
-
-# Development build (with source maps)
-npm run build:dev
+├── index.html
+├── vite.config.ts               # Build, chunking, PWA manifest & Workbox
+├── vitest.config.ts
+├── tailwind.config.ts
+├── eslint.config.js
+├── vercel.json                  # SPA rewrites
+└── package.json
 ```
 
 ---
 
 ## 🗺️ Pages & Routing
 
-| Route | Page | Access | Description |
-|---|---|---|---|
-| `/` | `Index.tsx` | Public | Redirects to Landing or Dashboard |
-| `/landing` | `Landing.tsx` | Public | Marketing landing page |
-| `/auth` | `Auth.tsx` | Public | Login / Registration |
-| `/auth?mode=signup` | `Auth.tsx` | Public | Registration mode |
-| `/dashboard` | `Dashboard.tsx` | Protected | User dashboard with trips |
-| `/itinerary` | `Itinerary.tsx` | Protected | Itinerary without trip ID |
-| `/itinerary/:tripId` | `Itinerary.tsx` | Protected | Full itinerary planner |
-| `/explore` | `Explore.tsx` | Protected | Destination explorer |
-| `/friends` | `Friends.tsx` | Protected | Friends, DMs, invites |
-| `/community` | `Community.tsx` | Protected | Community hub |
-| `/guide` | `Guide.tsx` | Protected | Travel guide |
-| `/profile` | `Profile.tsx` | Protected | User profile |
-| `/join/:inviteCode` | `JoinTrip.tsx` | Protected | Join via invite link |
-| `*` | `NotFound.tsx` | Public | 404 page |
+Every page is `React.lazy()`-loaded, so each ships as its own chunk.
+
+| Route | Page | Access |
+|---|---|---|
+| `/` | `Landing.tsx` | Public |
+| `/auth` | `Auth.tsx` | Public |
+| `/join/:inviteCode` | `JoinTrip.tsx` | Public |
+| `/dashboard` | `Dashboard.tsx` | Protected |
+| `/itinerary` | `Itinerary.tsx` | Protected |
+| `/itinerary/:tripId` | `Itinerary.tsx` | Protected |
+| `/explore` | `Explore.tsx` | Protected |
+| `/guide` | `Guide.tsx` | Protected |
+| `/friends` | `Friends.tsx` | Protected |
+| `/community` | `Community.tsx` | Protected |
+| `/profile` | `Profile.tsx` | Protected |
+| `*` | `NotFound.tsx` | Public |
+
+Protected routes sit behind `ProtectedLayout`, which redirects unauthenticated users to `/auth`.
 
 ---
 
-## 🧩 Components Reference
+## 🔌 Services Reference
 
-### Core Planner Components
+| Module | Provider | Key | Notes |
+|---|---|---|---|
+| `gemini.ts` | Groq | Optional | Base LLM wrapper — name is historical |
+| `aiChat.ts` | Groq | Optional | Streaming chat + intent classification |
+| `aiPlanner.ts` | Groq | Optional | Itinerary generation, JSON mode |
+| `dynamicReplan.ts` | Groq | Optional | Disruption-driven replanning |
+| `travelMemory.ts` | Groq | Optional | Cross-trip preference learning |
+| `groqVoice.ts` | Web Speech API | No | Groq Whisper only as fallback |
+| `climate.ts` | Open-Meteo | No | 7-day forecast, WMO code mapping |
+| `nominatim.ts` | Nominatim / OSM | No | Geocoding + reverse geocoding |
+| `openroute.ts` | OpenRouteService | Optional | Direct browser calls |
+| `opentripmap.ts` | OpenTripMap | Optional | Empty results without a key |
+| `traffic.ts` | Nominatim + ORS | No | Time-of-day traffic estimation |
+| `amadeus.ts` | Deep-links | No | Google Flights, Kiwi, Skyscanner, Booking.com |
+| `gnews.ts` | Wikipedia REST | No | Place context + curated advisories |
+| `translate.ts` | MyMemory | No | Falls back to source text on error |
+| `offlineTrip.ts` | IndexedDB + Cache API | No | Trip persistence + OSM tile pre-caching |
 
-#### `RegretPlanner`
-Generates multiple itinerary variants using counterfactual reasoning and lets users pick the best plan.
+Network calls go through `lib/http.ts`, which centralises timeout, retry and JSON handling, and
+`lib/errors.ts`, which normalises failures into a single taxonomy.
 
-**Props:**
-```typescript
-{
-  tripId: string;
-  destination: string;
-  country?: string;
-  days: number;
-  budget: number;
-  activeItineraryId?: string;
-  onPlanApplied: () => void;
-}
+---
+
+## 🗄️ Database Schema
+
+PostgreSQL via Supabase with **Row-Level Security on every table**.
+
+### Core
+| Table | Description |
+|---|---|
+| `profiles` | User profile, avatar, bio, travel preferences (JSONB) |
+| `trips` | Destination, dates, budget, status, organiser |
+| `trip_memberships` | users ↔ trips with `organizer` / `member` roles |
+| `itineraries` | Versioned AI-generated itineraries per trip |
+| `activities` | Day-by-day activities within an itinerary |
+| `activity_votes` | Per-member up/down votes |
+| `messages` | Per-trip group chat |
+| `disruption_events` | Weather/schedule disruptions that trigger replanning |
+
+### Social & invites
+`trip_invites` · `trip_join_requests` · `friend_requests` · `direct_messages`
+
+### Finance
+`group_expenses` · `expense_splits`
+
+### Community
+`communities` · `community_memberships` · `community_messages` · `community_events` · `event_rsvps`
+
+### Status constraints
+
+```sql
+CHECK (trips.status              IN ('planning','booked','ongoing','completed'))
+CHECK (trip_join_requests.status IN ('pending','approved','rejected'))
+CHECK (friend_requests.status    IN ('pending','accepted','rejected'))
+CHECK (event_rsvps.status        IN ('going','maybe','not_going'))
 ```
 
-#### `DisruptionReplanner`
-Detects and handles disruptions (flight delays, severe weather) with live replanning.
+### Helper functions
 
-**Props:**
-```typescript
-{
-  tripId: string;
-  activeItineraryId?: string;
-  onReplanApplied: () => void;
-}
+```sql
+public.is_trip_member(trip_id UUID)    → BOOLEAN
+public.is_trip_organizer(trip_id UUID) → BOOLEAN
+public.set_updated_at()                → TRIGGER
 ```
 
-#### `CollaborativePlanner`
-Real-time multi-user activity collaboration with voting.
+### Realtime publication
 
-**Props:**
-```typescript
-{
-  tripId: string;
-  activities: Activity[];
-  onActivityUpdated: () => void;
-}
-```
-
-#### `ItineraryReasoningPanel`
-Displays AI reasoning in a tabbed panel: "Why This Plan", "Budget Logic", "Insider Tips".
-
-**Props:**
-```typescript
-{
-  reasoning: ItineraryReasoning;
-  totalCost?: number;
-  budget?: number;
-  destination?: string;
-  explanation?: string;
-}
-```
-
-#### `TripMoneyExpenses`
-Full group expense tracker with bill splitting, settlements, and budget visualization.
-
-**Props:**
-```typescript
-{
-  activities: Activity[];
-  tripBudget: number;
-  country?: string;
-  travelers: number;
-  memberNames?: string[];
-}
-```
-
-#### `SOSPanel`
-Emergency panel with one-tap SOS, local emergency numbers, and nearest hospital locator.
-
-#### `SafetyWarnings`
-Auto-fetches destination-specific travel advisories.
-
-**Props:**
-```typescript
-{
-  destination: string;
-  autoFetch?: boolean;
-}
-```
-
-#### `WorldMap`
-2D Leaflet map centered on a destination.
-
-**Props:**
-```typescript
-{
-  lat: number;
-  lng: number;
-  name: string;
-  zoom?: number;
-  className?: string;
-}
-```
-
-#### `Map3D`
-3D MapLibre GL map with satellite/terrain view.
-
-**Props:**
-```typescript
-{
-  lat: number;
-  lng: number;
-  name: string;
-  zoom?: number;
-  className?: string;
-}
-```
+`messages` · `activity_votes` · `community_messages` · `trip_join_requests` ·
+`direct_messages` · `friend_requests` · `group_expenses` · `expense_splits`
 
 ---
 
 ## ⚙️ Supabase Setup
 
-### Option 1: Master Schema (Recommended for fresh setup)
+### Option 1 — master schema (recommended)
 
-1. Go to your **Supabase Dashboard** → **SQL Editor** → **New Query**
-2. Open `supabase/master_schema.sql`
-3. Paste the entire contents and click **Run**
-4. This script is **100% idempotent** — safe to re-run on existing databases
+Supabase Dashboard → SQL Editor → New Query → paste all of `supabase/master_schema.sql` → Run.
+The script is idempotent, so it is safe to re-run against an existing database.
 
-### Option 2: Incremental Migrations
-
-Run migrations in order from the `supabase/migrations/` directory:
+### Option 2 — incremental migrations
 
 ```bash
-# Using Supabase CLI
 supabase db push
-
-# Or manually in SQL Editor, in this order:
-20260221080224_*.sql   # Base schema
-20260221084836_*.sql   # Auth & profiles
-20260221090907_*.sql   # Trips & memberships
-20260221104720_*.sql   # Itineraries & activities
-20260221105025_*.sql   # Community
-20260221110549_*.sql   # Activity status
-20260221110824_*.sql   # Voting
-20260221112103_*.sql   # Invites & join requests
-20260221112457_*.sql   # Disruption events
-20260221130439_*.sql   # Profile visibility
-20260222000001_*.sql   # Friends, DMs, expenses
-20260222000002_*.sql   # Fix status constraint (IMPORTANT)
 ```
 
-### Supabase Auth Setup
+Or run the 12 files in `supabase/migrations/` in filename order. `20260222000002_*` fixes the
+`trip_join_requests` status constraint and must not be skipped.
 
-1. **Dashboard → Authentication → Providers**
-2. Enable **Email** provider
-3. Set **Site URL** to your deployment URL (e.g., `https://radiator-routes.vercel.app`)
-4. Add redirect URLs for local dev: `http://localhost:5173/**`
+### Auth
 
-### Required Supabase Extensions
+Authentication → Providers → enable **Email**. Set the Site URL to your deployment origin and add
+`http://localhost:8080/**` as a redirect URL for local development. The client uses the **PKCE**
+flow with session persistence and automatic token refresh.
+
+### Extensions
 
 ```sql
--- Enable in Dashboard → Database → Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "vector";       -- for pgvector semantic search
-CREATE EXTENSION IF NOT EXISTS "pg_crypto";    -- for gen_random_bytes (invite codes)
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";   -- gen_random_bytes for invite codes
 ```
 
-### Enable Realtime
-
-The master schema automatically enables Realtime for all required tables. To verify:
+### Verify Realtime
 
 ```sql
--- Check which tables have realtime enabled
 SELECT schemaname, tablename
 FROM pg_publication_tables
 WHERE pubname = 'supabase_realtime';
 ```
 
-Expected tables: `messages`, `activity_votes`, `community_messages`, `trip_join_requests`, `direct_messages`, `friend_requests`, `group_expenses`, `expense_splits`
+---
+
+## 📦 Available Scripts
+
+| Script | Description |
+|---|---|
+| `npm run dev` | Dev server on `:8080` |
+| `npm run build` | Type-check then production build |
+| `npm run build:dev` | Development-mode build with sourcemaps |
+| `npm run preview` | Serve `dist/` on `:8080` — use this to test the service worker |
+| `npm run typecheck` | `tsc --noEmit` only |
+| `npm run lint` | ESLint |
+| `npm run lint:fix` | ESLint with autofix |
+| `npm run lint:ci` | ESLint with a warning ceiling |
+| `npm run test` | Vitest, single run |
+| `npm run test:watch` | Vitest in watch mode |
+| `npm run verify` | typecheck → lint → test → build |
+| `npm run clean` | Remove `dist`, `dev-dist`, Vite cache |
+
+---
+
+## 📊 Build & Bundle Budget
+
+`npm run build` output on the current tree:
+
+| Chunk | Raw | Loaded |
+|---|---|---|
+| `index` | 173 kB | initial |
+| `vendor-react` | 140 kB | initial |
+| `vendor-supabase` | 209 kB | initial |
+| `vendor-router` | 39 kB | initial |
+| `vendor-query` | 33 kB | initial |
+| `vendor-maplibre` | 787 kB | **lazy** — only on 3D map |
+| `vendor-pdf` | 658 kB | **lazy** — only on PDF export |
+| `vendor-leaflet` | 160 kB | lazy — 2D map |
+| `vendor-markdown` | 115 kB | lazy — AI responses |
+| `Itinerary` | 131 kB | lazy — per route |
+
+**Initial gzipped payload ≈ 175 kB**, down from ~749 kB before code-splitting. The two largest
+bundles — MapLibre and jsPDF — never load unless the user opens a 3D map or exports a PDF.
+
+Chunking is declared via `build.rolldownOptions.output.advancedChunks.groups` in
+`vite.config.ts`. Vite 8 uses **Rolldown + Oxc**, not esbuild or Rollup, so the older
+`manualChunks` function form does not apply.
+
+Two chunks exceed the 700 kB warning threshold. Both are single third-party libraries that cannot
+be split further and are already lazy-only, so the warning is expected rather than a regression.
+
+---
+
+## 🔒 Security
+
+- **`npm audit`: 0 vulnerabilities** across 819 packages
+- **No hardcoded credentials in `src/`** — verified by scanning for JWT, `sk-` and `gsk_` patterns
+- **Supabase credentials come from env only**, with a loud dev-time failure when absent
+- **PKCE auth flow** with session persistence and auto-refresh
+- **Row-Level Security on every table** — the browser holds only a publishable key
+- **No sourcemaps in production** (`sourcemap: !isProd`)
+- **User-scoped caches purged on sign-out** so cached rows don't leak across sessions on a shared device
+- **Runtime deps reduced 57 → 20**, and 45 unused UI components removed, shrinking the attack surface
+
+### Client-side key exposure
+
+All `VITE_*` variables are compiled into the JavaScript bundle and are readable by anyone. This is
+inherent to a browser-only app, not a defect. Consequently:
+
+- Only publishable/anon keys belong in `VITE_*`
+- Restrict every free-tier key by HTTP referrer in its provider dashboard
+- Treat Row-Level Security as the actual authorisation boundary
+- Move any key that must stay secret behind a Supabase Edge Function
+
+A full findings list, including open items, is in [`AUDIT.md`](./AUDIT.md).
 
 ---
 
 ## 🚢 Deployment
 
-### Vercel (Recommended)
+### Vercel
 
-The project includes `vercel.json` with SPA rewrites pre-configured.
+`vercel.json` already contains the SPA rewrites.
 
 ```bash
-# Install Vercel CLI
 npm i -g vercel
-
-# Deploy
 vercel --prod
 ```
 
-Or connect your GitHub repo directly in the Vercel dashboard.
-
-**Environment Variables in Vercel:**
-Add all variables from the [Environment Variables](#-environment-variables) section in:
-`Vercel Dashboard → Project Settings → Environment Variables`
+Add every variable from [Environment Variables](#-environment-variables) under
+**Project Settings → Environment Variables**.
 
 ### Netlify
 
 ```bash
-# Build command
-npm run build
-
-# Publish directory
-dist
-
-# Add _redirects file for SPA routing
+# Build:   npm run build
+# Publish: dist
 echo "/*  /index.html  200" > public/_redirects
 ```
 
@@ -896,97 +671,62 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
 ```
 
-### PWA Considerations
+### PWA notes
 
-The app uses **Vite PWA Plugin** with **Workbox** for caching. After deployment:
-- Users can install the app from browser prompts
-- Trips saved offline remain accessible without internet
-- Service worker auto-updates on new deployments
+Serve over HTTPS — service workers require a secure context (`localhost` is exempt). With
+`registerType: "autoUpdate"`, a new deploy is picked up on the next visit; `OfflineIndicator`
+surfaces a reload prompt when a worker is waiting. Make sure your host does not long-cache
+`sw.js` or clients will be pinned to a stale worker.
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! Here's how to get started:
-
-### Development Workflow
-
 ```bash
-# Fork and clone
-git clone https://github.com/HarshTambade/Radiator-Routes.git
-cd Radiator-Routes
-
-# Create a feature branch
-git checkout -b feat/your-feature-name
-
-# Make your changes
-# ...
-
-# Run tests
-npm run test
-
-# Lint
-npm run lint
-
-# Commit with conventional commits
+git checkout -b feat/your-feature
+# ... make changes ...
+npm run verify          # typecheck + lint + test + build
 git commit -m "feat: add voice command shortcuts"
-
-# Push and open a PR
-git push origin feat/your-feature-name
+git push origin feat/your-feature
 ```
 
-### Code Style Guidelines
+### Guidelines
 
-- **TypeScript** — No `any` types where avoidable; use proper interfaces
-- **Components** — Functional components with hooks only
-- **Naming** — PascalCase for components, camelCase for hooks and utilities
-- **CSS** — Tailwind utility classes; avoid inline styles except for dynamic font-family
-- **Database** — Always add RLS policies for new tables
-- **API Keys** — Never hardcode; always use `import.meta.env.VITE_*`
+- **TypeScript** — avoid `any`; prefer `unknown` plus narrowing
+- **Components** — function components with hooks
+- **Naming** — PascalCase components, camelCase hooks and utilities
+- **Styling** — Tailwind utilities; no inline styles except genuinely dynamic values
+- **Network** — route new calls through `lib/http.ts`
+- **Database** — every new table needs RLS policies
+- **Keys** — never hardcode; `import.meta.env.VITE_*` only, and never for secrets
+- **Offline** — new heavy third-party origins need a runtime caching rule in `vite.config.ts`
 
-### Adding a New Feature
+`npm run verify` must pass before a PR.
 
-1. Create service in `src/services/` for any new API integration
-2. Add custom hook in `src/hooks/` for reusable data fetching
-3. Create component in `src/components/` 
-4. Add Supabase migration in `supabase/migrations/` if DB changes needed
-5. Update `supabase/master_schema.sql` to reflect changes
-6. Add tests in `src/test/`
-
-### Reporting Issues
-
-Please include:
-- Browser and OS version
-- Steps to reproduce
-- Expected vs actual behavior
-- Console errors (if any)
-- Supabase error messages (if applicable)
-
----
-
-## 📊 Key Technical Decisions
+### Key technical decisions
 
 | Decision | Rationale |
 |---|---|
-| **Supabase over Firebase** | PostgreSQL + RLS gives us relational integrity, pgvector support, and SQL expressiveness |
-| **TanStack Query** | Server state caching reduces redundant Supabase calls and provides optimistic updates |
-| **Vite over CRA** | 10-100x faster HMR, native ESM, better tree-shaking |
-| **Tailwind over CSS-in-JS** | Zero runtime cost, consistent design tokens, no style collisions |
-| **React Router v6** | Native data loading, nested layouts, type-safe route params |
-| **Open-Meteo** | Free, no rate limits, GDPR-compliant weather data |
-| **ORS over Google Directions** | Free, open-source, no per-request billing |
-| **Nominatim over Google Geocoding** | Free, no API key required, good India coverage |
+| **Supabase over Firebase** | Relational integrity, RLS, SQL expressiveness |
+| **Groq over OpenAI** | Generous free tier, no card, OpenAI-compatible API |
+| **Web Speech API over hosted STT** | Zero cost, zero latency, no audio leaves the device |
+| **Vite 8 / Rolldown** | Faster builds; declarative priority-based chunking |
+| **Route-level `lazy()`** | Landing visitors don't download the planner, maps or PDF engine |
+| **Open-Meteo, Nominatim, ORS** | Free and open, no per-request billing |
+| **`generateSW` over `injectManifest`** | Declarative caching config; no service-worker source to maintain |
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **MIT License**.
+MIT.
+
+> No `LICENSE` file is currently committed and `package.json` has no `license` field. Without
+> them the MIT grant below is not machine-readable and tooling will report the project as
+> unlicensed. Tracked in [`AUDIT.md`](./AUDIT.md).
 
 ```
-MIT License
-
-Copyright (c) 2026 Radiator Routes
+MIT License · Copyright (c) 2026 Radiator Routes
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -1011,15 +751,16 @@ SOFTWARE.
 
 ## 🙏 Acknowledgements
 
-- **OpenAI** — GPT-4o and Whisper STT
-- **Supabase** — Open-source Firebase alternative
-- **Open-Meteo** — Free weather API
-- **OpenStreetMap & Nominatim** — Free geocoding
-- **OpenRouteService** — Free routing
-- **TomTom** — Traffic data
-- **shadcn/ui** — Beautiful accessible components
-- **Lucide** — Consistent icon library
-- **Vercel** — Deployment platform
+[Groq](https://groq.com) · [Supabase](https://supabase.com) ·
+[Open-Meteo](https://open-meteo.com) · [OpenStreetMap & Nominatim](https://www.openstreetmap.org) ·
+[OpenRouteService](https://openrouteservice.org) · [OpenTripMap](https://opentripmap.io) ·
+[Wikipedia & Wikimedia](https://www.wikipedia.org) · [MapLibre](https://maplibre.org) ·
+[Leaflet](https://leafletjs.com) · [Radix UI](https://www.radix-ui.com) ·
+[Lucide](https://lucide.dev) · [Workbox](https://developer.chrome.com/docs/workbox) ·
+[Vite](https://vite.dev)
+
+Map data © OpenStreetMap contributors, available under the
+[Open Database License](https://www.openstreetmap.org/copyright).
 
 ---
 
@@ -1027,6 +768,6 @@ SOFTWARE.
 
 Made with ❤️ in India 🇮🇳
 
-**[⭐ Star this repo](https://github.com/HarshTambade/Radiator-Routes)** if Radiator Routes helps you plan better trips!
+**[⭐ Star this repo](https://github.com/HarshTambade/Radiator-Routes)**
 
 </div>

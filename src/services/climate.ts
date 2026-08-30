@@ -1,7 +1,8 @@
 // Climate & Weather service
 // Uses Open-Meteo (free, no key required) for forecasts
 // Uses ORS (OpenRouteService) for elevation & climate-aware routing
-// Uses TomTom for real-time traffic conditions
+// Traffic conditions come from services/traffic.ts (time-of-day estimation,
+// no paid provider)
 
 const ORS_API_KEY = import.meta.env.VITE_ORS_API_KEY as string;
 const OPEN_METEO_BASE = "https://api.open-meteo.com/v1";

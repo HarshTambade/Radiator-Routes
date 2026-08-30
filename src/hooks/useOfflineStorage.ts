@@ -1,170 +1,166 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  getOfflineQueue,
+  saveToOfflineQueue,
+  updateOfflineQueue,
+  type StoredRecord,
+} from "@/lib/idb";
+import { clearExpiredCaches, getCacheStats } from "@/lib/offlineCache";
 
-type SyncStatus = "idle" | "syncing" | "success" | "error";
+export type SyncStatus = "idle" | "syncing" | "success" | "error";
 
-interface OfflineQueueItem {
-  id: string;
-  type: "trip" | "itinerary" | "message" | "action";
-  action: string;
-  data: Record<string, unknown>;
-  timestamp: number;
+export type QueuedAction = "create" | "update" | "delete";
+export type QueuedEntity = "trip" | "itinerary" | "activity" | "message" | "expense";
+
+export interface OfflineQueueItem extends StoredRecord {
+  entity: QueuedEntity;
+  action: QueuedAction;
+  table: string;
+  payload: Record<string, unknown>;
 }
 
-interface OfflineCache {
-  trips: Record<string, unknown>;
-  places: Record<string, unknown>;
-  user: Record<string, unknown>;
-  lastSync: number | null;
-}
-
-export function useOfflineStorage() {
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
-  const [queue, setQueue] = useState<OfflineQueueItem[]>([]);
-  const [cache, setCache] = useState<OfflineCache>({
-    trips: {},
-    places: {},
-    user: {},
-    lastSync: null,
-  });
-
-  useEffect(() => {
-    const loadCache = () => {
-      const storedCache = localStorage.getItem("radiator-cache");
-      const storedQueue = localStorage.getItem("radiator-queue");
-      
-      if (storedCache) {
-        setCache(JSON.parse(storedCache));
-      }
-      if (storedQueue) {
-        setQueue(JSON.parse(storedQueue));
-      }
+/** Minimal shape of the Supabase client surface this hook needs. */
+interface QueueWriter {
+  from(table: string): {
+    insert(values: Record<string, unknown>): Promise<{ error: unknown }>;
+    update(values: Record<string, unknown>): {
+      eq(column: string, value: unknown): Promise<{ error: unknown }>;
     };
-
-    loadCache();
-  }, []);
-
-  const saveCache = useCallback((newCache: OfflineCache) => {
-    localStorage.setItem("radiator-cache", JSON.stringify(newCache));
-    setCache(newCache);
-  }, []);
-
-  const addToQueue = useCallback((item: OfflineQueueItem) => {
-    const newQueue = [...queue, item];
-    setQueue(newQueue);
-    localStorage.setItem("radiator-queue", JSON.stringify(newQueue));
-  }, [queue]);
-
-  const removeFromQueue = useCallback((id: string) => {
-    const newQueue = queue.filter((item) => item.id !== id);
-    setQueue(newQueue);
-    localStorage.setItem("radiator-queue", JSON.stringify(newQueue));
-  }, [queue]);
-
-  const syncQueue = useCallback(async (supabase: any) => {
-    setSyncStatus("syncing");
-    const queueCopy = [...queue];
-    
-    for (const item of queueCopy) {
-      try {
-        switch (item.type) {
-          case "trip":
-            if (item.action === "create") {
-              await supabase.from("trips").insert(item.data);
-            } else if (item.action === "update") {
-              await supabase.from("trips").update(item.data).eq("id", item.data.id);
-            }
-            break;
-          case "itinerary":
-            if (item.action === "create") {
-              await supabase.from("itinerary_items").insert(item.data);
-            } else if (item.action === "update") {
-              await supabase.from("itinerary_items").update(item.data).eq("id", item.data.id);
-            }
-            break;
-          case "message":
-            await supabase.from("messages").insert(item.data);
-            break;
-        }
-        removeFromQueue(item.id);
-      } catch (error) {
-        console.error("Sync failed:", error);
-        setSyncStatus("error");
-        return;
-      }
-    }
-    
-    saveCache({
-      ...cache,
-      lastSync: Date.now(),
-    });
-    setSyncStatus("success");
-    
-    setTimeout(() => setSyncStatus("idle"), 3000);
-  }, [queue, removeFromQueue, saveCache, cache]);
-
-  const cacheData = useCallback((type: "trips" | "places" | "user", key: string, data: unknown) => {
-    const newCache = { ...cache };
-    newCache[type][key] = data;
-    saveCache(newCache);
-  }, [cache, saveCache]);
-
-  const getCachedData = useCallback((type: "trips" | "places" | "user", key: string) => {
-    return cache[type][key];
-  }, [cache]);
-
-  return {
-    isOnline: navigator.onLine,
-    syncStatus,
-    queue,
-    addToQueue,
-    removeFromQueue,
-    syncQueue,
-    cacheData,
-    getCachedData,
-    hasOfflineData: queue.length > 0,
+    delete(): { eq(column: string, value: unknown): Promise<{ error: unknown }> };
   };
 }
 
+/**
+ * Durable queue for mutations made while offline, backed by the `offlineQueue`
+ * IndexedDB store. Enqueue with `enqueue`, drain with `sync` once back online.
+ *
+ * Read-side offline trip caching lives in `useOfflineTrip` / `services/offlineTrip`.
+ */
+export function useOfflineStorage() {
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+  const [queue, setQueue] = useState<OfflineQueueItem[]>([]);
+
+  const refresh = useCallback(async () => {
+    const pending = (await getOfflineQueue()) as OfflineQueueItem[];
+    setQueue(pending);
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const enqueue = useCallback(
+    async (item: Omit<OfflineQueueItem, "id">) => {
+      await saveToOfflineQueue({ ...item, id: crypto.randomUUID() });
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const sync = useCallback(
+    async (client: QueueWriter) => {
+      const pending = (await getOfflineQueue()) as OfflineQueueItem[];
+      if (pending.length === 0) return;
+
+      setSyncStatus("syncing");
+      let failed = false;
+
+      for (const item of pending) {
+        try {
+          const table = client.from(item.table);
+          const { error } =
+            item.action === "create"
+              ? await table.insert(item.payload)
+              : item.action === "update"
+                ? await table.update(item.payload).eq("id", item.payload.id)
+                : await table.delete().eq("id", item.payload.id);
+
+          if (error) throw error;
+          await updateOfflineQueue(item.id, "completed");
+        } catch {
+          await updateOfflineQueue(item.id, "failed");
+          failed = true;
+        }
+      }
+
+      await refresh();
+      setSyncStatus(failed ? "error" : "success");
+      setTimeout(() => setSyncStatus("idle"), 3000);
+    },
+    [refresh],
+  );
+
+  return {
+    syncStatus,
+    queue,
+    pendingCount: queue.length,
+    hasOfflineData: queue.length > 0,
+    enqueue,
+    sync,
+    refresh,
+    getCacheStats,
+  };
+}
+
+/**
+ * Detects a waiting service worker and exposes a one-call `update()` that
+ * activates it and reloads. Also prunes TTL-expired IndexedDB records on mount.
+ */
 export function useServiceWorkerUpdate() {
   const [hasUpdate, setHasUpdate] = useState(false);
 
   useEffect(() => {
+    clearExpiredCaches().catch(() => {
+      /* cache pruning is best-effort */
+    });
+
     if (!("serviceWorker" in navigator)) return;
 
-    navigator.serviceWorker.ready.then((registration) => {
+    let cancelled = false;
+
+    const watch = (registration: ServiceWorkerRegistration) => {
+      if (registration.waiting) setHasUpdate(true);
+
       registration.addEventListener("updatefound", () => {
-        const newWorker = registration.installing;
-        newWorker.addEventListener("statechange", () => {
-          if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
-            setHasUpdate(true);
+        const installing = registration.installing;
+        if (!installing) return;
+        installing.addEventListener("statechange", () => {
+          if (installing.state === "installed" && navigator.serviceWorker.controller) {
+            if (!cancelled) setHasUpdate(true);
           }
         });
       });
+    };
+
+    navigator.serviceWorker.getRegistration().then((registration) => {
+      if (registration && !cancelled) watch(registration);
     });
 
-    const interval = setInterval(() => {
-      navigator.serviceWorker.getRegistration().then((registration) => {
-        if (registration && registration.waiting) {
-          setHasUpdate(true);
-        }
-      });
-    }, 5 * 60 * 1000);
+    // Poll hourly so long-lived sessions still pick up a new deploy.
+    const interval = setInterval(
+      () => {
+        navigator.serviceWorker.getRegistration().then((registration) => {
+          registration?.update().catch(() => {
+            /* offline — retry next tick */
+          });
+          if (registration?.waiting && !cancelled) setHasUpdate(true);
+        });
+      },
+      60 * 60 * 1000,
+    );
 
     return () => {
+      cancelled = true;
       clearInterval(interval);
     };
   }, []);
 
-  const update = useCallback(() => {
-    if (hasUpdate) {
-      navigator.serviceWorker.getRegistration().then((registration) => {
-        if (registration && registration.waiting) {
-          registration.waiting.postMessage("SKIP_WAITING");
-          window.location.reload();
-        }
-      });
-    }
-  }, [hasUpdate]);
+  const update = useCallback(async () => {
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration?.waiting) return;
+    registration.waiting.postMessage({ type: "SKIP_WAITING" });
+    window.location.reload();
+  }, []);
 
   return { hasUpdate, update };
 }

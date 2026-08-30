@@ -52,6 +52,7 @@ export default defineConfig(({ mode }) => {
         registerType: "autoUpdate",
         includeAssets: ["favicon.ico", "favicon.svg", "icons/*.png"],
         manifest: {
+          id: "/",
           name: "Radiator Routes",
           short_name: "RadRoutes",
           description: "AI-powered intelligent travel planning — itineraries, safety alerts, group trips & offline support.",
@@ -102,18 +103,9 @@ export default defineConfig(({ mode }) => {
               icons: [{ src: "/icons/icon-96x96.png", sizes: "96x96" }],
             },
           ],
-          prefer_related_applications: false,
-          related_applications: [
-            {
-              platform: "play",
-              url: "https://play.google.com/store/apps/details?id=com.radiatorroutes",
-              id: "com.radiatorroutes",
-            },
-          ],
           handle_links: "preferred",
           launch_handler: { client_mode: "auto" },
           edge_side_panel: { preferred_width: 320 },
-          clipboard_write: "default",
           display_override: ["minimal-ui", "standalone", "browser"],
         },
         workbox: {
@@ -236,7 +228,6 @@ export default defineConfig(({ mode }) => {
           ],
         },
         devOptions: { enabled: false },
-        srcDSW: "src/sw.ts",
       }),
     ],
 

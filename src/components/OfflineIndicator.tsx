@@ -1,89 +1,94 @@
-import { useEffect, useState } from "react";
-import { AlertCircle, WifiOff, Wifi, Smartphone } from "lucide-react";
+import { useEffect, useRef, type ReactNode } from "react";
+import { RefreshCw, WifiOff } from "lucide-react";
+import { useOnlineStatus } from "@/hooks/useOfflineTrip";
+import { useServiceWorkerUpdate } from "@/hooks/useOfflineStorage";
 import { useToast } from "@/hooks/use-toast";
 
-export type ConnectionStatus = "online" | "offline" | "slow";
-
-const ConnectionStatusContext = {
-  status: "online" as ConnectionStatus,
-  setOffline: () => {},
-  setOnline: () => {},
-  setSlow: () => {},
-};
-
-export function useConnectionStatus() {
-  return ConnectionStatusContext;
-}
-
+/**
+ * Persistent connectivity banner plus a "new version available" prompt.
+ *
+ * Online/offline state comes from `useOnlineStatus` so the whole app shares a
+ * single source of truth rather than each component attaching its own
+ * online/offline listeners.
+ */
 export function OfflineIndicator() {
-  const [status, setStatus] = useState<ConnectionStatus>("online");
+  const isOnline = useOnlineStatus();
+  const { hasUpdate, update } = useServiceWorkerUpdate();
   const { toast } = useToast();
+  const wasOffline = useRef(false);
 
   useEffect(() => {
-    const checkConnection = () => {
-      const isConnected = navigator.onLine;
-      if (!isConnected) {
-        setStatus("offline");
-        toast({
-          title: "Offline",
-          description: "You're offline. Some features may be limited.",
-          variant: "destructive",
-        });
-      } else if (status === "offline") {
-        setStatus("online");
-        toast({
-          title: "Reconnected",
-          description: "You're back online. All features are available.",
-        });
-      }
-    };
+    if (!isOnline) {
+      wasOffline.current = true;
+      toast({
+        title: "You're offline",
+        description: "Saved trips and cached maps still work. Changes sync when you reconnect.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    checkConnection();
-    window.addEventListener("online", checkConnection);
-    window.addEventListener("offline", checkConnection);
+    // Only announce reconnection to users who actually dropped off.
+    if (wasOffline.current) {
+      wasOffline.current = false;
+      toast({
+        title: "Back online",
+        description: "Live data and syncing have resumed.",
+      });
+    }
+  }, [isOnline, toast]);
 
-    return () => {
-      window.removeEventListener("online", checkConnection);
-      window.removeEventListener("offline", checkConnection);
-    };
-  }, [status, toast]);
-
-  if (status === "online") {
-    return null;
+  if (hasUpdate) {
+    return (
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 bg-primary p-3 text-sm text-primary-foreground md:text-base"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="mx-auto flex max-w-7xl items-center justify-center gap-3">
+          <span className="font-medium">A new version of Radiator Routes is ready.</span>
+          <button
+            type="button"
+            onClick={update}
+            className="inline-flex items-center gap-1.5 rounded-full bg-primary-foreground/15 px-3 py-1 font-semibold transition-colors hover:bg-primary-foreground/25"
+          >
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+            Reload
+          </button>
+        </div>
+      </div>
+    );
   }
 
+  if (isOnline) return null;
+
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 bg-destructive text-destructive-foreground p-3 text-sm md:text-base animate-in slide-in-from-bottom-5 duration-300">
-      <div className="max-w-7xl mx-auto flex items-center justify-center gap-2">
-        <WifiOff className="h-5 w-5 md:h-6 md:w-6 flex-shrink-0" />
-        <span className="font-medium">
-          {status === "offline" ? "You're offline. Some features may be limited." : "Slow connection detected. Some features may be limited."}
-        </span>
+    <div
+      className="fixed bottom-0 left-0 right-0 z-50 bg-destructive p-3 text-sm text-destructive-foreground md:text-base"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="mx-auto flex max-w-7xl items-center justify-center gap-2">
+        <WifiOff className="h-5 w-5 flex-shrink-0 md:h-6 md:w-6" aria-hidden="true" />
+        <span className="font-medium">Offline — showing saved trips and cached maps.</span>
       </div>
     </div>
   );
 }
 
-export function OfflineAware({ children, fallback }: { children: React.ReactNode; fallback?: React.ReactNode }) {
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
-
-  if (!isOnline && fallback) {
-    return <>{fallback}</>;
-  }
-
+/**
+ * Renders `fallback` instead of `children` while the device is offline. Use for
+ * panels that are meaningless without a live network call.
+ */
+export function OfflineAware({
+  children,
+  fallback,
+}: {
+  children: ReactNode;
+  fallback?: ReactNode;
+}) {
+  const isOnline = useOnlineStatus();
+  if (!isOnline && fallback) return <>{fallback}</>;
   return <>{children}</>;
 }
 

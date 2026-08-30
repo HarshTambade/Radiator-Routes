@@ -169,7 +169,7 @@
                 "@type": "SoftwareApplication",
                 "name": "Radiator Routes",
                 "alternateName": "RadRoutes",
-                "description": "India's AI-powered intelligent travel planning system for group travel optimization. Combines voice-first interaction, Groq LLaMA-powered itinerary reasoning, regret-aware counterfactual planning, real-time safety warnings via GNews, SOS emergency with live location, 5-tab accessibility panel, UPI P2P payments, PWA mobile app, community groups, 3D maps, AR view, Amadeus flight & hotel search, and dynamic disruption replanning.",
+                "description": "India's AI-powered intelligent travel planning system for group travel optimization. Combines voice-first interaction, Groq LLaMA-powered itinerary reasoning, regret-aware counterfactual planning, Wikipedia-backed safety context, SOS emergency with live location, 5-tab accessibility panel, UPI P2P payments, an offline-capable PWA, community groups, 3D maps, AR view, flight & hotel search deep-links, and dynamic disruption replanning.",
                 "url": "https://radiatorroutes.vercel.app",
                 "applicationCategory": "TravelApplication",
                 "applicationSubCategory": "AI Travel Planner",
@@ -192,33 +192,26 @@
                     "Voice-First Trip Creation via Web Speech API",
                     "Jinny AI — Jarvis-personality Travel Assistant",
                     "SOS Emergency Panel with Live GPS Location Sharing",
-                    "Real-time Safety Warnings via GNews AI",
+                    "Safety Advisories from Wikipedia REST + Curated Regional Guidance",
                     "5-Tab Accessibility Panel: Speak, Listen, Camera, Ask AI, Settings",
                     "UPI P2P Payment Wrapper & Group Expense Split",
-                    "Group Travel Multi-Agent Negotiation",
-                    "Dynamic Real-time Disruption Replanning (Amadeus + OpenWeatherMap)",
+                    "Group Travel Preference Negotiation",
+                    "Dynamic Real-time Disruption Replanning (Open-Meteo + Groq)",
                     "Regret-Aware Counterfactual Itinerary Planning",
-                    "Explore — Places, Flights, Hotels & Restaurants (Amadeus + OTM)",
+                    "Explore — Places & Restaurants (OpenTripMap + OpenStreetMap + Wikipedia)",
                     "Community Groups with Real-time Chat & Events",
                     "Friends System — DM, Connect, Trip Invites",
                     "3D Maps, AR View & 360° Street View",
-                    "Amadeus Flight & Hotel Search",
-                    "Weather Forecast + Live Traffic (ORS)",
+                    "Flight & Hotel Search via Free Provider Deep-Links",
+                    "7-Day Weather Forecast (Open-Meteo) + Route ETA (OpenRouteService)",
                     "PDF Itinerary Export (jsPDF + autoTable)",
                     "Collaborative Real-time Trip Planning",
-                    "PWA — Installable Mobile App with Offline Support",
-                    "TomTom & OpenRouteService Navigation",
+                    "PWA — Installable App with Offline Trips & Cached Maps",
+                    "OpenRouteService Navigation & Elevation",
                     "Country Auto-detect & Multi-currency Formatting",
                     "High Contrast & Large Text Accessibility Modes"
                 ],
                 "screenshot": "https://radiatorroutes.vercel.app/icons/icon-512x512.png",
-                "aggregateRating": {
-                    "@type": "AggregateRating",
-                    "ratingValue": "4.9",
-                    "reviewCount": "1200",
-                    "bestRating": "5",
-                    "worstRating": "1"
-                },
                 "keywords": "AI travel planner, group travel, India travel, itinerary generator, voice planning, SOS emergency, UPI payment, accessibility travel, PWA travel app"
             }
         </script>
@@ -242,8 +235,9 @@
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link rel="dns-prefetch" href="https://api.groq.com" />
-        <link rel="dns-prefetch" href="https://gnews.io" />
-        <link rel="dns-prefetch" href="https://api.openweathermap.org" />
+        <link rel="dns-prefetch" href="https://api.open-meteo.com" />
+        <link rel="dns-prefetch" href="https://en.wikipedia.org" />
+        <link rel="dns-prefetch" href="https://tile.openstreetmap.org" />
         <link rel="dns-prefetch" href="https://nominatim.openstreetmap.org" />
         <link rel="dns-prefetch" href="https://api.opentripmap.com" />
     </head>

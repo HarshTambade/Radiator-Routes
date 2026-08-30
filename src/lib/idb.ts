@@ -1,180 +1,136 @@
-import { IDBPDatabase, openDB } from "idb";
+import { type IDBPDatabase, openDB } from "idb";
 
 const DB_NAME = "radiator-routes-db";
 const DB_VERSION = 1;
 
-type StoreName = "trips" | "itinerary" | "places" | "media" | "searchHistory" | "offlineQueue";
+export type StoreName =
+  | "trips"
+  | "itinerary"
+  | "places"
+  | "media"
+  | "searchHistory"
+  | "offlineQueue";
 
-const STORES: StoreName[] = ["trips", "itinerary", "places", "media", "searchHistory", "offlineQueue"];
+/** Secondary indexes created per store on first open. */
+const STORE_INDEXES: Record<StoreName, string[]> = {
+  trips: ["userId", "createdAt", "updatedAt"],
+  itinerary: ["tripId", "date"],
+  places: ["searchQuery", "type"],
+  media: ["tripId", "createdAt"],
+  searchHistory: ["userId", "timestamp"],
+  offlineQueue: ["createdAt", "status"],
+};
+
+export type QueueStatus = "pending" | "completed" | "failed";
+
+export interface StoredRecord {
+  id: string;
+  [key: string]: unknown;
+}
 
 export async function getDB(): Promise<IDBPDatabase> {
   return openDB(DB_NAME, DB_VERSION, {
     upgrade(db) {
-      STORES.forEach((storeName) => {
-        if (!db.objectStoreNames.contains(storeName)) {
-          const store = db.createObjectStore(storeName, { keyPath: "id" });
-          
-          if (storeName === "trips") {
-            store.createIndex("userId", "userId");
-            store.createIndex("createdAt", "createdAt");
-            store.createIndex("updatedAt", "updatedAt");
-          }
-          
-          if (storeName === "itinerary") {
-            store.createIndex("tripId", "tripId");
-            store.createIndex("date", "date");
-          }
-          
-          if (storeName === "places") {
-            store.createIndex("searchQuery", "searchQuery");
-            store.createIndex("type", "type");
-          }
-          
-          if (storeName === "media") {
-            store.createIndex("tripId", "tripId");
-            store.createIndex("createdAt", "createdAt");
-          }
-          
-          if (storeName === "searchHistory") {
-            store.createIndex("userId", "userId");
-            store.createIndex("timestamp", "timestamp");
-          }
-          
-          if (storeName === "offlineQueue") {
-            store.createIndex("createdAt", "createdAt");
-            store.createIndex("status", "status");
-          }
-        }
-      });
+      for (const [name, indexes] of Object.entries(STORE_INDEXES) as [StoreName, string[]][]) {
+        if (db.objectStoreNames.contains(name)) continue;
+        const store = db.createObjectStore(name, { keyPath: "id" });
+        for (const index of indexes) store.createIndex(index, index);
+      }
     },
   });
 }
 
-export async function saveTrip(trip: any) {
+/** Open, run one operation, always close. Keeps callers from leaking handles. */
+async function withDB<T>(fn: (db: IDBPDatabase) => Promise<T>): Promise<T> {
   const db = await getDB();
-  await db.put("trips", { ...trip, updatedAt: new Date().toISOString() });
-  db.close();
-}
-
-export async function saveItinerary(item: any) {
-  const db = await getDB();
-  await db.put("itinerary", { ...item, updatedAt: new Date().toISOString() });
-  db.close();
-}
-
-export async function savePlace(place: any) {
-  const db = await getDB();
-  await db.put("places", place);
-  db.close();
-}
-
-export async function saveMedia(item: any) {
-  const db = await getDB();
-  await db.put("media", { ...item, createdAt: new Date().toISOString() });
-  db.close();
-}
-
-export async function saveSearchHistory(item: any) {
-  const db = await getDB();
-  await db.put("searchHistory", { ...item, timestamp: new Date().toISOString() });
-  db.close();
-}
-
-export async function saveToOfflineQueue(item: any) {
-  const db = await getDB();
-  await db.put("offlineQueue", { ...item, createdAt: new Date().toISOString(), status: "pending" });
-  db.close();
-}
-
-export async function getTrip(id: string) {
-  const db = await getDB();
-  const trip = await db.get("trips", id);
-  db.close();
-  return trip;
-}
-
-export async function getItinerary(tripId: string) {
-  const db = await getDB();
-  const items = await db.getAllFromIndex("itinerary", "tripId", tripId);
-  db.close();
-  return items;
-}
-
-export async function getPlace(id: string) {
-  const db = await getDB();
-  const place = await db.get("places", id);
-  db.close();
-  return place;
-}
-
-export async function getMedia(tripId: string) {
-  const db = await getDB();
-  const items = await db.getAllFromIndex("media", "tripId", tripId);
-  db.close();
-  return items;
-}
-
-export async function getSearchHistory(userId: string) {
-  const db = await getDB();
-  const items = await db.getAllFromIndex("searchHistory", "userId", userId);
-  db.close();
-  return items;
-}
-
-export async function getOfflineQueue() {
-  const db = await getDB();
-  const items = await db.getAllFromIndex("offlineQueue", "status", "pending");
-  db.close();
-  return items;
-}
-
-export async function updateOfflineQueue(id: string, status: "pending" | "completed" | "failed") {
-  const db = await getDB();
-  const item = await db.get("offlineQueue", id);
-  if (item) {
-    await db.put("offlineQueue", { ...item, status, updatedAt: new Date().toISOString() });
+  try {
+    return await fn(db);
+  } finally {
+    db.close();
   }
-  db.close();
 }
 
-export async function deleteTrip(id: string) {
-  const db = await getDB();
-  await db.delete("trips", id);
-  db.close();
+// ── Writes ───────────────────────────────────────────────────────────────────
+
+const put = (store: StoreName, record: StoredRecord) =>
+  withDB((db) => db.put(store, record));
+
+export const saveTrip = (trip: StoredRecord) =>
+  put("trips", { ...trip, updatedAt: new Date().toISOString() });
+
+export const saveItinerary = (item: StoredRecord) =>
+  put("itinerary", { ...item, updatedAt: new Date().toISOString() });
+
+export const savePlace = (place: StoredRecord) => put("places", place);
+
+export const saveMedia = (item: StoredRecord) =>
+  put("media", { createdAt: new Date().toISOString(), ...item });
+
+export const saveSearchHistory = (item: StoredRecord) =>
+  put("searchHistory", { timestamp: Date.now(), ...item });
+
+export const saveToOfflineQueue = (item: StoredRecord) =>
+  put("offlineQueue", {
+    ...item,
+    createdAt: new Date().toISOString(),
+    status: "pending" satisfies QueueStatus,
+  });
+
+// ── Reads ────────────────────────────────────────────────────────────────────
+
+export const getTrip = (id: string) =>
+  withDB((db) => db.get("trips", id)) as Promise<StoredRecord | undefined>;
+
+export const getItinerary = (tripId: string) =>
+  withDB((db) => db.getAllFromIndex("itinerary", "tripId", tripId)) as Promise<StoredRecord[]>;
+
+export const getPlace = (id: string) =>
+  withDB((db) => db.get("places", id)) as Promise<StoredRecord | undefined>;
+
+export const getMedia = (tripId: string) =>
+  withDB((db) => db.getAllFromIndex("media", "tripId", tripId)) as Promise<StoredRecord[]>;
+
+export const getSearchHistory = (userId: string) =>
+  withDB((db) => db.getAllFromIndex("searchHistory", "userId", userId)) as Promise<StoredRecord[]>;
+
+export const getOfflineQueue = () =>
+  withDB((db) => db.getAllFromIndex("offlineQueue", "status", "pending")) as Promise<StoredRecord[]>;
+
+// ── Mutations & deletes ──────────────────────────────────────────────────────
+
+export async function updateOfflineQueue(id: string, status: QueueStatus) {
+  await withDB(async (db) => {
+    const item = await db.get("offlineQueue", id);
+    if (!item) return;
+    await db.put("offlineQueue", { ...item, status, updatedAt: new Date().toISOString() });
+  });
 }
 
+export const deleteTrip = (id: string) => withDB((db) => db.delete("trips", id));
+
+/** Deletes only the itinerary rows belonging to `tripId`. */
 export async function deleteItinerary(tripId: string) {
-  const db = await getDB();
-  await db.clear("itinerary");
-  db.close();
+  await withDB(async (db) => {
+    const keys = await db.getAllKeysFromIndex("itinerary", "tripId", tripId);
+    const tx = db.transaction("itinerary", "readwrite");
+    await Promise.all([...keys.map((key) => tx.store.delete(key)), tx.done]);
+  });
 }
 
 export async function clearAllData() {
-  const db = await getDB();
-  STORES.forEach((storeName) => db.clear(storeName));
-  db.close();
+  await withDB(async (db) => {
+    for (const store of Object.keys(STORE_INDEXES) as StoreName[]) {
+      await db.clear(store);
+    }
+  });
 }
 
-export async function countAllData() {
-  const db = await getDB();
-  const counts: Record<string, number> = {};
-  const keys: string[] = ["trips", "itinerary", "places", "media", "searchHistory"];
-  
-  for (const key of keys) {
-    counts[key] = await db.count(key);
-  }
-  
-  db.close();
-  return counts;
+export async function countAllData(): Promise<Record<StoreName, number>> {
+  return withDB(async (db) => {
+    const counts = {} as Record<StoreName, number>;
+    for (const store of Object.keys(STORE_INDEXES) as StoreName[]) {
+      counts[store] = await db.count(store);
+    }
+    return counts;
+  });
 }
-
-export async function upgradeDB(oldVersion: number) {
-  const db = await getDB();
-  if (oldVersion < 1) {
-    // Initial upgrade logic
-    console.log("Upgrading database from version 0 to 1");
-  }
-  db.close();
-}
-
-export default getDB;

@@ -72,7 +72,7 @@ const reasons = [
     label: "Voice-First",
     title: "Voice-First Planning",
     description:
-      "Just speak your travel dreams — our multimodal NLU pipeline powered by Whisper + GPT extracts destinations, dates, budget, group size, and interests from natural speech. No forms, no friction.",
+      "Just speak your travel dreams — the Web Speech API transcribes you in-browser and Groq LLaMA extracts destinations, dates, budget, group size, and interests from natural speech. No forms, no friction.",
     icon: Mic,
   },
   {
@@ -104,7 +104,7 @@ const reasons = [
     label: "Smart Discovery",
     title: "Intelligent Place Discovery",
     description:
-      "Explore curated attractions, restaurants, and hidden gems powered by OpenTripMap & TomTom. Our semantic search uses pgvector embeddings to match places with your unique travel personality.",
+      "Explore curated attractions, restaurants, and hidden gems powered by OpenTripMap, OpenStreetMap and Wikipedia — matched to your interests and budget, with photos and context for every place.",
     icon: Compass,
   },
 ];
@@ -169,14 +169,14 @@ const allFeatures = [
   {
     icon: Car,
     title: "Live Traffic & Navigation",
-    desc: "TomTom live traffic overlaid on your route. ORS routing with distance & ETA per activity.",
+    desc: "OpenRouteService routing with distance & ETA per activity, plus time-of-day traffic estimates.",
     color: "text-green-500 bg-green-500/10",
     tag: "Navigation",
   },
   {
     icon: Map,
     title: "2D & 3D Interactive Maps",
-    desc: "Switch between 2D Leaflet maps and 3D Mapbox/Mappls globe views for your destination.",
+    desc: "Switch between 2D Leaflet maps and 3D MapLibre GL globe views, all on OpenStreetMap data.",
     color: "text-teal-500 bg-teal-500/10",
     tag: "Maps",
   },
@@ -267,7 +267,7 @@ const allFeatures = [
   {
     icon: Compass,
     title: "Intelligent Place Discovery",
-    desc: "pgvector semantic search matches hidden gems to your travel personality across 200+ destinations.",
+    desc: "Interest-ranked place discovery over OpenTripMap and Wikipedia, with photos and context for every pick.",
     color: "text-lime-600 bg-lime-500/10",
     tag: "Explore",
   },
@@ -312,17 +312,14 @@ const techStack = [
     category: "Backend",
     color: "text-green-500",
   },
-  { name: "LangGraph Agent Workflows", category: "AI", color: "text-primary" },
-  { name: "OpenAI GPT-4o", category: "AI", color: "text-primary" },
-  { name: "Whisper STT", category: "AI", color: "text-primary" },
-  { name: "pgvector Embeddings", category: "AI", color: "text-primary" },
+  { name: "Groq LLaMA 3.3 70B", category: "AI", color: "text-primary" },
+  { name: "Web Speech API (STT + TTS)", category: "AI", color: "text-primary" },
   { name: "Open-Meteo Weather API", category: "Data", color: "text-sky-500" },
-  { name: "TomTom Traffic API", category: "Data", color: "text-sky-500" },
-  { name: "Amadeus Travel API", category: "Data", color: "text-sky-500" },
+  { name: "Wikipedia / Wikimedia REST", category: "Data", color: "text-sky-500" },
   { name: "OpenTripMap API", category: "Data", color: "text-sky-500" },
   { name: "Nominatim / OSM", category: "Maps", color: "text-orange-500" },
-  { name: "Mapbox GL JS", category: "Maps", color: "text-orange-500" },
-  { name: "Mappls Maps SDK", category: "Maps", color: "text-orange-500" },
+  { name: "MapLibre GL JS", category: "Maps", color: "text-orange-500" },
+  { name: "Leaflet + OpenStreetMap", category: "Maps", color: "text-orange-500" },
   {
     name: "OpenRouteService (ORS)",
     category: "Routing",
@@ -750,8 +747,8 @@ export default function Landing() {
               {[
                 {
                   icon: Brain,
-                  title: "LangGraph AI",
-                  desc: "Multi-agent workflow orchestration for intelligent planning",
+                  title: "Groq LLaMA 3.3",
+                  desc: "Structured JSON-mode reasoning for itinerary planning and replanning",
                   color: "text-primary",
                   bg: "bg-primary/5",
                 },
@@ -1564,10 +1561,10 @@ export default function Landing() {
             <h4 className="font-semibold mb-4 text-sm">Technology</h4>
             <ul className="space-y-2.5 text-sm text-background/60">
               <li>Voice NLU Pipeline</li>
-              <li>LangGraph Agents</li>
+              <li>Groq LLaMA 3.3 70B</li>
               <li>Regret-Aware Engine</li>
               <li>Supabase Realtime</li>
-              <li>pgvector Search</li>
+              <li>Offline-First PWA</li>
             </ul>
           </div>
           <div>
