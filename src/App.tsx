@@ -9,6 +9,19 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { LanguageProvider } from "@/hooks/useLanguage";
 import { ProtectedLayout } from "@/components/ProtectedLayout";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import OfflineIndicator from "@/components/OfflineIndicator";
+import PWAInstallPrompt from "@/components/PWAInstallPrompt";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60_000,
+      gcTime: 5 * 60_000,
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 // Route-level code splitting — each page ships as its own chunk so a visitor
 // landing on "/" doesn't download the itinerary planner, maps or community.
@@ -23,17 +36,6 @@ const Friends = lazy(() => import("./pages/Friends"));
 const Community = lazy(() => import("./pages/Community"));
 const Profile = lazy(() => import("./pages/Profile"));
 const NotFound = lazy(() => import("./pages/NotFound"));
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 60_000,
-      gcTime: 5 * 60_000,
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
-  },
-});
 
 function RouteFallback() {
   return (
@@ -54,6 +56,8 @@ const App = () => (
       <AuthProvider>
         <LanguageProvider>
           <TooltipProvider>
+            <OfflineIndicator />
+            <PWAInstallPrompt />
             <Toaster />
             <Sonner />
             <BrowserRouter>

@@ -3,9 +3,6 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { VitePWA } from "vite-plugin-pwa";
 
-const ICON_SIZES = [72, 96, 128, 144, 152, 192, 384, 512] as const;
-const MASKABLE = new Set([192, 512]);
-
 export default defineConfig(({ mode }) => {
   const isProd = mode === "production";
 
@@ -20,21 +17,16 @@ export default defineConfig(({ mode }) => {
 
     build: {
       target: "es2022",
-      // No sourcemaps in production output: keeps dist lean and avoids
-      // shipping readable source. Flip to "hidden" if you wire up Sentry.
       sourcemap: !isProd,
       cssCodeSplit: true,
       chunkSizeWarningLimit: 700,
       reportCompressedSize: false,
-      // Vite 8 minifies with Oxc by default — no explicit engine needed.
       minify: true,
       rolldownOptions: {
         output: {
           chunkFileNames: "assets/[name]-[hash].js",
           entryFileNames: "assets/[name]-[hash].js",
           assetFileNames: "assets/[name]-[hash][extname]",
-          // Split heavy, independently-cacheable vendors so a change in app
-          // code doesn't invalidate the whole bundle. Higher priority wins.
           advancedChunks: {
             groups: [
               { name: "vendor-react", priority: 40, test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
@@ -62,8 +54,7 @@ export default defineConfig(({ mode }) => {
         manifest: {
           name: "Radiator Routes",
           short_name: "RadRoutes",
-          description:
-            "AI-powered intelligent travel planning — itineraries, safety alerts, group trips & more.",
+          description: "AI-powered intelligent travel planning — itineraries, safety alerts, group trips & offline support.",
           theme_color: "#e8390e",
           background_color: "#f5f4f2",
           display: "standalone",
@@ -71,12 +62,16 @@ export default defineConfig(({ mode }) => {
           scope: "/",
           start_url: "/",
           categories: ["travel", "navigation", "lifestyle"],
-          icons: ICON_SIZES.map((size) => ({
-            src: `/icons/icon-${size}x${size}.png`,
-            sizes: `${size}x${size}`,
-            type: "image/png",
-            ...(MASKABLE.has(size) ? { purpose: "any maskable" as const } : {}),
-          })),
+          icons: [
+            { src: "/icons/icon-72x72.png", sizes: "72x72", type: "image/png" },
+            { src: "/icons/icon-96x96.png", sizes: "96x96", type: "image/png" },
+            { src: "/icons/icon-128x128.png", sizes: "128x128", type: "image/png" },
+            { src: "/icons/icon-144x144.png", sizes: "144x144", type: "image/png" },
+            { src: "/icons/icon-152x152.png", sizes: "152x152", type: "image/png" },
+            { src: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
+            { src: "/icons/icon-384x384.png", sizes: "384x384", type: "image/png" },
+            { src: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+          ],
           shortcuts: [
             {
               name: "Dashboard",
@@ -92,11 +87,38 @@ export default defineConfig(({ mode }) => {
               url: "/explore",
               icons: [{ src: "/icons/icon-96x96.png", sizes: "96x96" }],
             },
+            {
+              name: "Itinerary",
+              short_name: "Itinerary",
+              description: "View your itinerary",
+              url: "/itinerary",
+              icons: [{ src: "/icons/icon-96x96.png", sizes: "96x96" }],
+            },
+            {
+              name: "Profile",
+              short_name: "Profile",
+              description: "View your profile",
+              url: "/profile",
+              icons: [{ src: "/icons/icon-96x96.png", sizes: "96x96" }],
+            },
           ],
+          prefer_related_applications: false,
+          related_applications: [
+            {
+              platform: "play",
+              url: "https://play.google.com/store/apps/details?id=com.radiatorroutes",
+              id: "com.radiatorroutes",
+            },
+          ],
+          handle_links: "preferred",
+          launch_handler: { client_mode: "auto" },
+          edge_side_panel: { preferred_width: 320 },
+          clipboard_write: "default",
+          display_override: ["minimal-ui", "standalone", "browser"],
         },
         workbox: {
-          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-          globPatterns: ["**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp,woff2}"],
+          maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
+          globPatterns: ["**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp,woff2,woff,json}"],
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           navigateFallback: "index.html",
@@ -186,23 +208,39 @@ export default defineConfig(({ mode }) => {
             },
             {
               urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/.*/i,
-              handler: "NetworkFirst",
+              handler: "StaleWhileRevalidate",
               options: {
                 cacheName: "supabase-rest",
                 expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 },
-                networkTimeoutSeconds: 8,
+                cacheableResponse: { statuses: [0, 200] },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/tile\.opentopomap\.org\/.*/i,
+              handler: "CacheFirst",
+              options: {
+                cacheName: "topo-maps",
+                expiration: { maxEntries: 1000, maxAgeSeconds: 60 * 60 * 24 * 30 },
+                cacheableResponse: { statuses: [0, 200] },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/nominatim\.openstreetmap\.org\/search/i,
+              handler: "StaleWhileRevalidate",
+              options: {
+                cacheName: "nominatim-search",
+                expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 * 7 },
                 cacheableResponse: { statuses: [0, 200] },
               },
             },
           ],
         },
         devOptions: { enabled: false },
+        srcDSW: "src/sw.ts",
       }),
     ],
 
     resolve: {
-      // `import.meta.dirname` works with Vite's native config loader, which
-      // becomes the default in a future major. Needs Node >= 20.11.
       alias: { "@": path.resolve(import.meta.dirname, "./src") },
     },
   };
