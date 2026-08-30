@@ -735,6 +735,22 @@ A full findings list, including open items, is in [`AUDIT.md`](./AUDIT.md).
 
 ---
 
+## 📚 Research & Prior Art
+
+[`docs/RESEARCH.md`](./docs/RESEARCH.md) is a research dossier covering prior art, novelty analysis
+and a publication plan: 16 related patents, ~40 papers, mind maps of the research landscape, and a
+gap analysis of what is implemented versus what is not.
+
+Two things in it are worth knowing before reading the feature list above:
+
+- **The "regret score" is not computed.** `services/aiPlanner.ts` prescribes the value in the prompt
+  and the UI renders it as a metric. Documented in §3.2 of the dossier; not yet fixed in code.
+- **LLM-generated itineraries are unreliable under multiple constraints.** On the TravelPlanner
+  benchmark, GPT-4 reaches a 0.6% success rate ([Xie et al.](https://arxiv.org/abs/2402.01622)), and
+  self-critique does not close the gap. §6.2 proposes a client-side constraint verifier.
+
+---
+
 ## 🚢 Deployment
 
 ### Vercel

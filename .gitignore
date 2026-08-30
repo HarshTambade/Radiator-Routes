@@ -3,10 +3,7 @@
 .env.local
 .env.*.local
 
-# Patent-sensitive research notes. This repository is PUBLIC, and India and the
-# EPO apply absolute novelty: publishing draft claims can bar patenting outright.
-# Keep local until a patent agent clears disclosure. See docs/RESEARCH.md §9.
-docs/RESEARCH.md
+
 
 # Logs
 logs
