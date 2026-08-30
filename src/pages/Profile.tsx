@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/currency";
 import { useLanguage } from "@/hooks/useLanguage";
 import { errorMessage } from "@/lib/errors";
+import AIProviderSettings from "@/components/AIProviderSettings";
 
 export default function Profile() {
   const { user } = useAuth();
@@ -275,6 +276,9 @@ export default function Profile() {
           </div>
         </div>
       )}
+
+      {/* AI engine — hosted Groq vs on-device WebLLM */}
+      <AIProviderSettings />
 
       {/* Trip History */}
       <div className="bg-card rounded-2xl p-5 shadow-card">

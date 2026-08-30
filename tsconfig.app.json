@@ -1,9 +1,11 @@
 {
   "compilerOptions": {
-    "types": ["vitest/globals"],
-    "target": "ES2020",
+    "types": ["vitest/globals", "@webgpu/types"],
+    // Matches build.target in vite.config.ts. ES2022 also provides
+    // Error.cause, used to attach diagnostics to thrown errors.
+    "target": "ES2022",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
     "module": "ESNext",
     "skipLibCheck": true,
 

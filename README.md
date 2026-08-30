@@ -8,7 +8,7 @@
 [![Supabase](https://img.shields.io/badge/Supabase-Realtime-3ECF8E?logo=supabase)](https://supabase.com)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-06B6D4?logo=tailwindcss)](https://tailwindcss.com)
 [![PWA](https://img.shields.io/badge/PWA-Offline--Capable-5A0FC8)](https://web.dev/progressive-web-apps/)
-[![Vulnerabilities](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen)](#security)
+[![Vulnerabilities](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen)](#-security)
 
 ---
 
@@ -16,22 +16,23 @@
 
 1. [Overview](#-overview)
 2. [Key Features](#-key-features)
-3. [Offline & PWA Behaviour](#-offline--pwa-behaviour)
-4. [Tech Stack](#-tech-stack)
-5. [Architecture](#-architecture)
-6. [Getting Started](#-getting-started)
-7. [Environment Variables](#-environment-variables)
-8. [Project Structure](#-project-structure)
-9. [Pages & Routing](#-pages--routing)
-10. [Services Reference](#-services-reference)
-11. [Database Schema](#-database-schema)
-12. [Supabase Setup](#-supabase-setup)
-13. [Available Scripts](#-available-scripts)
-14. [Build & Bundle Budget](#-build--bundle-budget)
-15. [Security](#-security)
-16. [Deployment](#-deployment)
-17. [Contributing](#-contributing)
-18. [License](#-license)
+3. [AI Engines: hosted or on-device](#-ai-engines-hosted-or-on-device)
+4. [Offline & PWA Behaviour](#-offline--pwa-behaviour)
+5. [Tech Stack](#-tech-stack)
+6. [Architecture](#-architecture)
+7. [Getting Started](#-getting-started)
+8. [Environment Variables](#-environment-variables)
+9. [Project Structure](#-project-structure)
+10. [Pages & Routing](#-pages--routing)
+11. [Services Reference](#-services-reference)
+12. [Database Schema](#-database-schema)
+13. [Supabase Setup](#-supabase-setup)
+14. [Available Scripts](#-available-scripts)
+15. [Build & Bundle Budget](#-build--bundle-budget)
+16. [Security](#-security)
+17. [Deployment](#-deployment)
+18. [Contributing](#-contributing)
+19. [License](#-license)
 
 ---
 
@@ -54,18 +55,21 @@ the stack.
 
 ## ✨ Key Features
 
-### 🤖 AI core — Groq LLaMA 3.3 70B
+### 🤖 AI core — hosted Groq **or** on-device WebLLM
 | Feature | Description |
 |---|---|
-| **Voice-first planning** | Web Speech API transcribes in-browser; Groq LLaMA extracts destination, dates, budget, group size and interests |
+| **Voice-first planning** | Web Speech API transcribes in-browser; the LLM extracts destination, dates, budget, group size and interests |
 | **Jinny assistant** | Streaming chat with intent classification (`services/aiChat.ts`) |
 | **Regret-minimised itineraries** | Multiple plan variants scored by group regret (`components/RegretPlanner.tsx`) |
 | **AI reasoning transparency** | "Why This Plan" panel exposes selection criteria, budget logic and local tips |
 | **Dynamic replanning** | Weather/schedule disruptions trigger a fresh plan (`services/dynamicReplan.ts`) |
 | **Travel memory** | Learns preferences across trips and folds them into future plans |
 
-All AI calls run in Groq **JSON mode** with simplified prompts to prevent truncation. Without
-`VITE_GROQ_API_KEY` these surfaces show an "AI unavailable" notice and the rest of the app works.
+All AI calls run in **JSON mode** with simplified prompts to prevent truncation. With neither a
+Groq key nor an on-device model, these surfaces show an "AI unavailable" notice and the rest of the
+app works normally.
+
+See [AI Engines](#-ai-engines-hosted-or-on-device) for choosing a backend.
 
 ### 🗓️ Itinerary & planning
 Day-by-day timeline with categorised activities · collaborative voting · A4 PDF export via
@@ -96,6 +100,77 @@ Camera, Ask AI, Settings) · high-contrast and large-text modes.
 
 ---
 
+## 🧠 AI Engines: hosted or on-device
+
+Every AI surface runs against one of two interchangeable backends. The choice lives in
+**Profile → AI engine** and persists per browser.
+
+| | **Groq** (default) | **WebLLM** (on-device) |
+|---|---|---|
+| Model | LLaMA 3.3 70B | LLaMA 3.2 1B/3B, Qwen 2.5 1.5B/3B, Phi 3.5 Mini, LLaMA 3.1 8B |
+| API key | `VITE_GROQ_API_KEY` | **None** |
+| Network | Required per request | One-time model download only |
+| Privacy | Prompts sent to Groq | **Prompts never leave the device** |
+| Works offline | No | **Yes, once cached** |
+| Speed | Fast | Slower; depends on your GPU |
+| Quality | Highest | Lower — 1–8 B parameters vs 70 B |
+| Cost of entry | Free-tier signup | 0.7–4.3 GB download, WebGPU browser |
+
+### Requirements for on-device
+
+- **WebGPU**: Chrome/Edge 113+, Chrome for Android 121+, Safari 26+
+- **GPU memory**: roughly matching the model — 0.9 GB (1B) up to 5 GB (8B)
+- Hardware acceleration enabled and a driver that isn't blocklisted
+
+The app probes `navigator.gpu` *and* requests an adapter before offering the option, because a
+browser can expose the API and still refuse an adapter. If the probe fails, the reason is shown
+and the option is disabled.
+
+### Models
+
+All ids are verified against `prebuiltAppConfig.model_list` in `@mlc-ai/web-llm` 0.2.84, q4f16_1
+quantised, 4096-token context.
+
+| Model | Download | GPU memory | Notes |
+|---|---|---|---|
+| Llama 3.2 1B | ~0.7 GB | 0.9 GB | Fastest; weak at long itinerary JSON |
+| Qwen 2.5 1.5B | ~1.2 GB | 1.6 GB | Good multilingual coverage for its size |
+| **Llama 3.2 3B** | ~1.8 GB | 2.2 GB | **Recommended default** |
+| Qwen 2.5 3B | ~2.0 GB | 2.4 GB | Strongest multilingual at a manageable size |
+| Phi 3.5 Mini | ~2.6 GB | 3.6 GB | Strong reasoning; needs a discrete GPU |
+| Llama 3.1 8B | ~4.3 GB | 4.9 GB | Highest on-device quality; ~6 GB free VRAM |
+
+### How it's wired
+
+`services/gemini.ts` is the single dispatch point. `callGemini`, `callGeminiChat` and
+`streamGemini` keep identical signatures and route to either backend, so `aiPlanner`,
+`dynamicReplan`, `travelMemory` and `AccessibilityPanel` needed no changes. `services/aiChat.ts`
+does the same for streaming Jinny turns.
+
+Three deliberate constraints:
+
+- **`@mlc-ai/web-llm` is dynamically imported.** It is ~5.9 MB, and the worker bundles its own
+  copy. Neither is in the initial bundle, and both are excluded from the service-worker precache
+  via `globIgnores` — otherwise every visitor would pay 11.7 MB on first load. A runtime
+  `CacheFirst` rule caches them after first use so on-device AI still works offline.
+- **Inference runs in a Web Worker** (`services/webllmWorker.ts`) so token generation doesn't
+  block the UI. Falls back to the main thread if worker construction fails.
+- **Nothing downloads without an explicit click.** Multi-gigabyte weights on a metered connection
+  are not an accident to risk.
+
+If a stale `webllm` preference reaches a browser with no WebGPU, calls fall back to Groq rather
+than failing.
+
+### Trade-offs worth knowing
+
+On-device models are 10–70× smaller than LLaMA 70B. Expect shorter, less nuanced itineraries and
+occasional malformed JSON on the 1B models — `jsonMode` constrains decoding via grammar, which
+helps, but does not fully close the gap. The 3B tier is the practical floor for itinerary
+generation; 1B is fine for chat. `max_tokens` is capped at 2048 on-device to fit the 4096-token
+context.
+
+---
+
 ## 📴 Offline & PWA Behaviour
 
 Installable on Android, iOS and desktop. The service worker is generated by
@@ -117,7 +192,7 @@ Installable on Android, iOS and desktop. The service worker is generated by
 | Not available offline | Why |
 |---|---|
 | **Sign-in / sign-up** | Auth endpoints are deliberately never cached |
-| **AI features** | Groq inference is a live API call with no useful cached form |
+| **AI on the Groq backend** | Hosted inference is a live API call. **Switch to on-device AI and this works offline** — see [AI Engines](#-ai-engines-hosted-or-on-device) |
 | **Realtime chat, votes, DMs** | WebSocket transport can't be replayed from cache |
 | **New route calculation** | OpenRouteService is not runtime-cached |
 | **Writes** | A durable IndexedDB mutation queue exists in `hooks/useOfflineStorage.ts`, but it is **not yet wired into the mutation paths** — offline edits are not persisted. See the audit report. |
@@ -130,6 +205,7 @@ Installable on Android, iOS and desktop. The service worker is generated by
 | `topo-maps` | CacheFirst | 1000 entries · 30 d |
 | `google-fonts`, `gstatic-fonts` | CacheFirst | 10 entries · 365 d |
 | `wikimedia` | CacheFirst | 300 entries · 30 d |
+| `webllm-runtime` | CacheFirst | 6 entries · 90 d |
 | `supabase-rest` | StaleWhileRevalidate | 200 entries · 1 d |
 | `nominatim`, `nominatim-search` | StaleWhileRevalidate | 100 / 50 entries · 7 d |
 | `opentripmap` | StaleWhileRevalidate | 100 entries · 1 d |
@@ -177,7 +253,8 @@ Anonymous caches — tiles, fonts, Wikipedia — survive logout so the app stays
 ### AI
 | Technology | Purpose |
 |---|---|
-| **Groq — `llama-3.3-70b-versatile`** | Itinerary generation, chat, replanning, regret scoring |
+| **Groq — `llama-3.3-70b-versatile`** | Hosted itinerary generation, chat, replanning, regret scoring |
+| **WebLLM (`@mlc-ai/web-llm` 0.2.84)** | On-device inference on WebGPU — no key, private, offline |
 | **Web Speech API** | Browser-native STT and TTS — no key, no network |
 | **Groq Whisper** | Optional STT fallback when a Groq key is present |
 
@@ -191,7 +268,8 @@ Leaflet + React-Leaflet · MapLibre GL JS · Nominatim / OpenStreetMap · OpenRo
 | **Nominatim / OSM** | No | Geocoding, reverse geocoding, tiles |
 | **Wikipedia / Wikimedia REST** | No | Place context, imagery, safety advisories |
 | **MyMemory** | No | Translation (1000 req/day per IP) |
-| **Groq** | Free tier | All LLM inference |
+| **WebLLM / MLC** | No | On-device LLM inference (opt-in) |
+| **Groq** | Free tier | Hosted LLM inference |
 | **OpenRouteService** | Free tier | Routing, ETA, elevation |
 | **OpenTripMap** | Free tier | POI discovery |
 
@@ -350,6 +428,7 @@ Radiator-Routes/
 │   ├── components/
 │   │   ├── ui/                  # sonner · toast · toaster · tooltip (only)
 │   │   ├── AIAssistant.tsx      # Jinny voice + chat assistant
+│   │   ├── AIProviderSettings.tsx # Groq vs on-device picker + model manager
 │   │   ├── ARViewer.tsx         # AR attraction overlay (lazy)
 │   │   ├── AccessibilityPanel.tsx
 │   │   ├── AppSidebar.tsx
@@ -391,6 +470,7 @@ Radiator-Routes/
 │   │   └── types.ts             # Generated DB types
 │   │
 │   ├── lib/
+│   │   ├── aiProvider.ts        # Backend choice, model list, WebGPU probe
 │   │   ├── currency.ts          # ₹ INR + multi-currency formatting
 │   │   ├── date.ts
 │   │   ├── errors.ts            # Shared error taxonomy
@@ -451,11 +531,13 @@ Protected routes sit behind `ProtectedLayout`, which redirects unauthenticated u
 
 | Module | Provider | Key | Notes |
 |---|---|---|---|
-| `gemini.ts` | Groq | Optional | Base LLM wrapper — name is historical |
-| `aiChat.ts` | Groq | Optional | Streaming chat + intent classification |
-| `aiPlanner.ts` | Groq | Optional | Itinerary generation, JSON mode |
-| `dynamicReplan.ts` | Groq | Optional | Disruption-driven replanning |
-| `travelMemory.ts` | Groq | Optional | Cross-trip preference learning |
+| `gemini.ts` | Groq **or** WebLLM | Optional | Provider dispatch — name is historical |
+| `webllm.ts` | WebLLM (WebGPU) | No | On-device engine, model cache, streaming |
+| `webllmWorker.ts` | WebLLM (WebGPU) | No | Worker host so inference doesn't block the UI |
+| `aiChat.ts` | Groq **or** WebLLM | Optional | Streaming chat + intent classification |
+| `aiPlanner.ts` | via `gemini.ts` | Optional | Itinerary generation, JSON mode |
+| `dynamicReplan.ts` | via `gemini.ts` | Optional | Disruption-driven replanning |
+| `travelMemory.ts` | via `gemini.ts` | Optional | Cross-trip preference learning |
 | `groqVoice.ts` | Web Speech API | No | Groq Whisper only as fallback |
 | `climate.ts` | Open-Meteo | No | 7-day forecast, WMO code mapping |
 | `nominatim.ts` | Nominatim / OSM | No | Geocoding + reverse geocoding |
@@ -590,14 +672,22 @@ WHERE pubname = 'supabase_realtime';
 | `vendor-supabase` | 209 kB | initial |
 | `vendor-router` | 39 kB | initial |
 | `vendor-query` | 33 kB | initial |
+| `vendor-webllm` | 5.9 MB | **lazy + precache-excluded** — only when on-device AI is enabled |
+| `webllmWorker` | 5.9 MB | **lazy + precache-excluded** — worker bundles its own copy |
 | `vendor-maplibre` | 787 kB | **lazy** — only on 3D map |
 | `vendor-pdf` | 658 kB | **lazy** — only on PDF export |
 | `vendor-leaflet` | 160 kB | lazy — 2D map |
 | `vendor-markdown` | 115 kB | lazy — AI responses |
 | `Itinerary` | 131 kB | lazy — per route |
 
-**Initial gzipped payload ≈ 175 kB**, down from ~749 kB before code-splitting. The two largest
-bundles — MapLibre and jsPDF — never load unless the user opens a 3D map or exports a PDF.
+**Initial gzipped payload ≈ 171 kB**, down from ~749 kB before code-splitting. MapLibre and jsPDF
+never load unless the user opens a 3D map or exports a PDF.
+
+The two WebLLM chunks total ~11.7 MB and are handled specially: excluded from the service-worker
+precache via `globIgnores`, then cached by a runtime `CacheFirst` rule after first use. Without
+that exclusion the PWA install cost would jump from 4.3 MB to 16 MB for every visitor, including
+the majority who never enable on-device AI. Verify with the precache line in `npm run build`
+output — it should read ~4.3 MB.
 
 Chunking is declared via `build.rolldownOptions.output.advancedChunks.groups` in
 `vite.config.ts`. Vite 8 uses **Rolldown + Oxc**, not esbuild or Rollup, so the older
@@ -618,6 +708,18 @@ be split further and are already lazy-only, so the warning is expected rather th
 - **No sourcemaps in production** (`sourcemap: !isProd`)
 - **User-scoped caches purged on sign-out** so cached rows don't leak across sessions on a shared device
 - **Runtime deps reduced 57 → 20**, and 45 unused UI components removed, shrinking the attack surface
+
+### Prompt privacy
+
+On the default Groq backend, prompts — including trip details, dates and any personal context
+`aiChat.ts` loads from your profile — are sent to Groq's API. Switching to the on-device engine
+keeps every prompt local: after the one-time weight download, WebLLM makes no network calls, so no
+travel data leaves the browser. That is the stronger option for privacy-sensitive use, at the cost
+of speed and model quality.
+
+Model weights are fetched from the MLC/HuggingFace CDN on first download. Deliberately **not**
+routed through Workbox — WebLLM manages its own weight cache, and double-caching multiple
+gigabytes would waste the storage quota.
 
 ### Client-side key exposure
 
@@ -709,6 +811,9 @@ git push origin feat/your-feature
 |---|---|
 | **Supabase over Firebase** | Relational integrity, RLS, SQL expressiveness |
 | **Groq over OpenAI** | Generous free tier, no card, OpenAI-compatible API |
+| **WebLLM as an alternative backend** | Removes the API-key requirement entirely, keeps prompts on-device, and makes AI work offline — for users who accept smaller models |
+| **Dispatch inside `gemini.ts`** | One choke point; the four AI services and the accessibility panel needed no changes |
+| **WebLLM in a Worker, excluded from precache** | Keeps the UI responsive during generation and keeps 11.7 MB off every visitor's first load |
 | **Web Speech API over hosted STT** | Zero cost, zero latency, no audio leaves the device |
 | **Vite 8 / Rolldown** | Faster builds; declarative priority-based chunking |
 | **Route-level `lazy()`** | Landing visitors don't download the planner, maps or PDF engine |

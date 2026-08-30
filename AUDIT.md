@@ -1,8 +1,8 @@
 # Radiator Routes — Platform Audit
 
 **Date:** 30 August 2026
-**Commit audited:** `872c774` plus uncommitted working-tree changes
-**Scope:** dependency security, secret handling, build & bundle, PWA/offline correctness, type and lint health, accuracy of user-facing claims
+**Commit audited:** `c3032e0` plus uncommitted working-tree changes
+**Scope:** dependency security, secret handling, build & bundle, PWA/offline correctness, type and lint health, accuracy of user-facing claims, on-device AI integration
 **Toolchain observed:** Node v25.9.0 · npm 11.12.1 · Vite 8.2.2 (Rolldown + Oxc) · TypeScript 5.9.3 · Vitest 4.1.11
 
 Every number below was produced by running the command shown. Items marked **Not verified** were
@@ -14,16 +14,17 @@ not measurable in this environment and are called out as such rather than estima
 
 | Area | Status | Note |
 |---|---|---|
-| Dependency vulnerabilities | ✅ Pass | 0 of 819 packages |
+| Dependency vulnerabilities | ✅ Pass | 0 of 881 packages |
 | Hardcoded secrets in `src/` | ✅ Pass | No JWT / `sk-` / `gsk_` patterns |
 | Secrets in git history | 🔴 **Critical** | `.env` with 6 live keys committed to a public repo |
 | TypeScript | ✅ Pass | `tsc --noEmit` clean |
 | ESLint | 🟡 Partial | 0 errors, 157 warnings |
-| Tests | 🟡 Weak | 1 test, 1 file — effectively no coverage |
-| Production build | ✅ Pass | Succeeds in ~1.1 s |
-| Initial bundle | ✅ Good | ≈175 kB gzipped |
-| PWA manifest & service worker | ✅ Pass | 80 precache entries, 11 runtime caches verified in `dist/sw.js` |
+| Tests | 🟡 Improving | 20 tests across 2 files — was 1 |
+| Production build | ✅ Pass | Succeeds in ~1.5 s |
+| Initial bundle | ✅ Good | ≈171 kB gzipped |
+| PWA manifest & service worker | ✅ Pass | 82 precache entries, 12 runtime caches verified in `dist/sw.js` |
 | Offline reads | ✅ Works | App shell, saved trips, cached tiles and API responses |
+| **Offline AI** | ✅ **Now available** | On-device WebLLM backend, opt-in |
 | Offline writes | 🔴 **Not implemented** | Queue exists but is not wired to any mutation path |
 | Accuracy of user-facing claims | 🟡 Fixed this pass | Landing page and metadata advertised removed/absent tech |
 | Licensing metadata | 🟡 Missing | No `LICENSE` file, no `license` field |
@@ -111,10 +112,10 @@ Any row showing `rowsecurity = false` is world-readable with the publishable key
 
 ```
 $ npm audit
-found 0 vulnerabilities
-
-prod 310 · dev 554 · optional 81 · peer 9 · total 880 packages
+found 0 vulnerabilities        (881 packages)
 ```
+
+Still clean after adding `@mlc-ai/web-llm` (1 transitive dep: `loglevel`) and `@webgpu/types`.
 
 Clean. This is the result of the earlier hardening pass, which took the project from 30
 vulnerabilities (2 critical) to zero by:
@@ -208,16 +209,18 @@ untrusted data enters.
 
 ```
 $ npm run test
-✓ src/test/example.test.ts (1 test) 2ms
-Test Files  1 passed (1)
-     Tests  1 passed (1)
+✓ src/test/example.test.ts  (1 test)
+✓ src/test/aiProvider.test.ts (19 tests)
+Test Files  2 passed (2)
+     Tests  20 passed (20)
 ```
 
-One placeholder test. Vitest, jsdom and Testing Library are all installed and working, so the
-infrastructure is ready — there is simply nothing using it. `npm run verify` therefore gives
-false confidence: it can pass with the app completely broken.
+At the start of this audit there was **one placeholder test**, so `npm run verify` gave false
+confidence: it could pass with the app completely broken. 19 tests for the AI provider layer were
+added this pass (§12.5), which also uncovered a genuine defect in the test harness itself — jsdom's
+`localStorage` was non-functional under Node 25.
 
-Highest-value targets, in order:
+Coverage is still thin. Highest-value remaining targets, in order:
 
 1. **`lib/offlineCache.ts` / `lib/idb.ts`** — pure, dependency-free, and where two real bugs were
    found this pass (§7). Would have caught both.
@@ -226,7 +229,7 @@ Highest-value targets, in order:
 4. **Regret-scoring logic** — the product's core differentiator, currently unverified.
 5. **`ProtectedRoute` / `ProtectedLayout`** — a redirect regression here is a security issue.
 
-No coverage threshold is configured. Adding one only helps once real tests exist.
+No coverage threshold is configured. Worth adding once the list above is covered.
 
 ---
 
@@ -393,7 +396,8 @@ real screenshots is a genuine improvement — Chrome uses them for a richer inst
 | Currency, PDF export, expense maths | ✅ Full | Pure client-side |
 | SOS emergency numbers | ✅ Full | Static data |
 | Sign-in / sign-up | ❌ None | Auth deliberately never cached |
-| AI (chat, planning, replanning) | ❌ None | Live inference required |
+| AI — on-device backend | ✅ Full | WebLLM on WebGPU once weights are cached (§12) |
+| AI — Groq backend | ❌ None | Hosted inference needs the network |
 | Realtime chat, votes, DMs | ❌ None | WebSocket, not replayable |
 | New route calculation | ❌ None | ORS has no runtime cache rule |
 | **Any write or edit** | ❌ **None** | Queue exists, not wired |
@@ -487,7 +491,125 @@ had no accurate account of what does and does not work offline.
 
 ---
 
-## 12. Prioritised recommendations
+## 12. On-device AI (WebLLM) — added this pass
+
+`@mlc-ai/web-llm` 0.2.84 was added as a second, opt-in inference backend alongside hosted Groq.
+It runs quantised LLaMA / Qwen / Phi models directly on WebGPU: no API key, no network after the
+one-time weight download, and no prompt ever leaves the device.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| Package audit | 0 vulnerabilities; single transitive dep (`loglevel`) |
+| Model ids | All 6 verified present in `prebuiltAppConfig.model_list` at runtime, not from docs |
+| `response_format: json_object` | Confirmed in `openai_api_protocols/chat_completion.d.ts` — matters, since `aiPlanner`, `dynamicReplan` and `travelMemory` all depend on JSON mode |
+| Exports used | `CreateMLCEngine`, `CreateWebWorkerMLCEngine`, `WebWorkerMLCEngineHandler`, `hasModelInCache`, `deleteModelAllInfoInCache` — all confirmed present |
+| Initial bundle impact | `grep -c "mlc-ai\|MLCEngine"` returns **0** in `index`, `vendor-react`, `vendor-supabase` |
+| Initial gzip | 171 kB — unchanged from before the integration |
+| Precache size | 4357 KiB — unchanged (see the regression below) |
+| Type-check / lint / tests / build | All pass |
+
+### 12.1 Precache regression — caught and fixed
+
+The first build after wiring WebLLM in produced this:
+
+```
+precache  85 entries (16121.54 KiB)      ← was 4343 KiB
+```
+
+Two ~5.9 MB assets had been pulled into the service-worker precache manifest:
+
+```
+"assets/vendor-webllm-BbqDwU8h.js"
+"assets/webllmWorker-Ui3kH2j4.js"
+```
+
+The worker cannot share chunks with the main module graph, so it bundles its own full copy of the
+library — ~11.7 MB across the two. Being under `maximumFileSizeToCacheInBytes` (10 MB), both were
+swept in by `globPatterns`.
+
+The effect would have been that **every** visitor downloads 11.7 MB of on-device-AI code during
+service-worker install, including the majority who never enable the feature — turning a
+mobile-first PWA's install cost from 4.3 MB into 16 MB. The lazy `import()` was working correctly;
+the precache silently defeated it.
+
+Fixed with `globIgnores` for the three WebLLM chunks, plus a runtime `CacheFirst` rule
+(`webllm-runtime`, 6 entries, 90 days) so the chunks are still cached after the user opts in and
+on-device AI keeps working offline. `maximumFileSizeToCacheInBytes` also dropped from 10 MB to
+4 MB so a comparable oversized asset can't slip in unnoticed again.
+
+**Regression guard:** the precache line in `npm run build` should read ~4.3 MB. If it jumps into
+double-digit MB, something large has re-entered the precache.
+
+### 12.2 Design decisions
+
+- **Single dispatch point.** `services/gemini.ts` routes `callGemini` / `callGeminiChat` /
+  `streamGemini` to either backend with unchanged signatures, so `aiPlanner`, `dynamicReplan`,
+  `travelMemory` and `AccessibilityPanel` required no edits. `services/aiChat.ts` does the same for
+  streaming Jinny turns.
+- **Worker-hosted inference.** Token generation is a tight compute loop; on the main thread it
+  janks the UI for the whole generation. `CreateWebWorkerMLCEngine` is preferred, with a
+  main-thread fallback if worker construction fails (CSP, unusual bundling).
+- **Explicit opt-in only.** Weights are 0.7–4.3 GB. Nothing downloads without a click, and the
+  download size is shown on the button before the user commits.
+- **Graceful degradation.** A `webllm` preference that reaches a browser without WebGPU falls back
+  to Groq rather than breaking every AI surface — plausible when a preference set on a desktop
+  reaches a phone.
+- **`max_tokens` capped at 2048 on-device.** All six models have a 4096-token context, so the
+  existing 8192 default would be rejected outright.
+- **Weights are not routed through Workbox.** WebLLM manages its own weight cache; double-caching
+  gigabytes would waste the storage quota.
+
+### 12.3 WebGPU detection
+
+A browser can expose `navigator.gpu` and still refuse an adapter — hardware acceleration off,
+blocklisted driver, headless. `detectWebGPU()` therefore checks the API *and* awaits
+`requestAdapter()`, caches the result for the page lifetime, and returns a user-facing reason
+string on failure. `AIProviderSettings` disables the on-device option and displays that reason
+rather than letting the user pick something that cannot work.
+
+### 12.4 Honest limitations
+
+- On-device models are **10–70× smaller** than LLaMA 70B. Expect shorter, less nuanced itineraries.
+  The 1B models produce malformed JSON often enough that 3B is the practical floor for itinerary
+  generation; 1B is fine for chat. Grammar-constrained `json_object` decoding helps but does not
+  close the gap.
+- **Not verified:** actual inference throughput, real-device behaviour on Android/Safari, memory
+  pressure with a 5 GB model, or whether a full itinerary generation completes within the
+  4096-token context on the smaller models. All of that needs a WebGPU browser session, which
+  could not be run headlessly here.
+- The `AccessibilityPanel` camera feature calls `callGemini` with an image-description prompt.
+  Every curated on-device model is **text-only**, so that surface will degrade in quality when
+  on-device is selected. Not yet special-cased.
+
+### 12.5 Test infrastructure fix
+
+Adding tests for the provider layer surfaced a real problem with the existing test setup:
+
+```
+setItem: undefined      getItem: undefined      clear: undefined
+global Storage: function        Storage.prototype.setItem: function
+```
+
+`window.localStorage` resolved to a bare object whose prototype was `Object.prototype`, so any
+test touching storage threw — while `Storage` itself existed globally, which made the gap easy to
+miss. Root cause is the **Node 25 engine mismatch already flagged in §3.1**: Node 25 injects its
+own experimental `localStorage` global that shadows jsdom's, visible as
+`Warning: --localstorage-file was provided without a valid path` in test output.
+
+A spec-shaped in-memory `Storage` is now installed in `src/test/setup.ts`, routed through
+`Storage.prototype` so `vi.spyOn(Storage.prototype, …)` still works for tests that simulate
+storage failure. This is further evidence for moving to Node 22/24 LTS.
+
+Coverage went from 1 test to **20**: provider persistence, rejection of unknown and stale model
+ids, change notification and unsubscribe, model-list ordering and metadata invariants, all five
+WebGPU detection branches, probe memoisation, and graceful behaviour when `localStorage` throws
+(private browsing).
+
+---
+
+## 13. Prioritised recommendations
 
 ### Do now
 
@@ -505,40 +627,50 @@ had no accurate account of what does and does not work offline.
 | 5 | Wire the mutation queue into trip/activity/expense writes | Closes the biggest offline gap |
 | 6 | Add `LICENSE` and `package.json` `license: "MIT"` | Project currently reads as unlicensed |
 | 7 | Delete `bun.lockb`, `yarn.lock`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` | Deterministic installs |
-| 8 | Develop on Node 22 or 24 LTS | Clears the jsdom engine warning |
+| 8 | Develop on Node 22 or 24 LTS | Clears the jsdom engine warning and the shadowed-`localStorage` problem behind §12.5 |
 | 9 | Real tests for `offlineCache`, `idb`, `currency`, `http` | Would have caught §7.1 and §7.2 |
+| 10 | Test on-device AI on a real WebGPU browser | §12.4 lists what could not be verified headlessly |
+| 11 | Fall back to Groq for the camera/vision prompt | Every curated on-device model is text-only (§12.4) |
 
 ### Then
 
 | # | Action | Why |
 |---|---|---|
-| 10 | Type the external API response payloads | Removes most of the 157 `any` warnings at the boundary that matters |
-| 11 | Defer `vendor-supabase` past the landing page | ~30% smaller first paint |
-| 12 | Add two real PWA screenshots | Richer Chrome install dialog |
-| 13 | Consolidate the two IndexedDB databases | One offline story instead of two |
-| 14 | Run Lighthouse and a real-device install pass | The remaining unverified PWA claims |
-| 15 | Rename the `tomtom*` / `gemini` compatibility shims | Names no longer describe what they call |
+| 12 | Type the external API response payloads | Removes most of the 157 `any` warnings at the boundary that matters |
+| 13 | Defer `vendor-supabase` past the landing page | ~30% smaller first paint |
+| 14 | Add two real PWA screenshots | Richer Chrome install dialog |
+| 15 | Consolidate the two IndexedDB databases | One offline story instead of two |
+| 16 | Run Lighthouse and a real-device install pass | The remaining unverified PWA claims |
+| 17 | Rename the `tomtom*` / `gemini` compatibility shims | Names no longer describe what they call |
+| 18 | Consider `strict: true` in `tsconfig.app.json` | `strictNullChecks: false` already forced one type workaround (§12) and hides null bugs |
 
 ---
 
-## 13. Commands used
+## 14. Commands used
 
 ```bash
-npm audit --json                       # 0 vulnerabilities / 819 packages
+npm audit --json                       # 0 vulnerabilities / 881 packages
 npx tsc --noEmit -p tsconfig.app.json  # clean
 npm run lint                           # 0 errors, 157 warnings
-npm run test                           # 1/1 passing
-npm run build                          # 1.05 s, 80 precache entries
+npm run test                           # 20/20 passing
+npm run build                          # 1.5 s, 82 precache entries / 4357 KiB
 gzip -c dist/assets/<chunk>.js | wc -c # gzipped chunk sizes
 grep -oE 'cacheName:"[^"]+"' dist/sw.js        # runtime caches in the emitted SW
+grep -oE '"[^"]*webllm[^"]*"' dist/sw.js       # confirm WebLLM is NOT precached
+grep -c "mlc-ai\|MLCEngine" dist/assets/index-*.js   # 0 — not in the initial chunk
 python3 -m json.tool dist/manifest.webmanifest # manifest validation
 git ls-files --error-unmatch .env      # confirmed .env was tracked
 grep -rnoE "eyJ[A-Za-z0-9_-]{20,}|sk-…|gsk_…" src/   # secret scan
+
+# Model ids and API surface read from the installed package, not from docs:
+node -e "const w=require('@mlc-ai/web-llm'); \
+  console.log(w.prebuiltAppConfig.model_list.length)"
+grep -rn "response_format" node_modules/@mlc-ai/web-llm/lib/openai_api_protocols/*.d.ts
 ```
 
 ---
 
-## 14. Files changed during this audit
+## 15. Files changed during this audit
 
 | File | Change |
 |---|---|
@@ -557,5 +689,25 @@ grep -rnoE "eyJ[A-Za-z0-9_-]{20,}|sk-…|gsk_…" src/   # secret scan
 | `README.md` | Rewritten against actual behaviour |
 | `AUDIT.md` | This report |
 
-Post-change verification: `tsc` clean · ESLint 0 errors · 1/1 tests passing · build succeeds ·
-80 precache entries · manifest valid.
+### On-device AI (§12)
+
+| File | Change |
+|---|---|
+| `src/lib/aiProvider.ts` | **New** — backend choice, curated model list, WebGPU probe, persistence |
+| `src/services/webllm.ts` | **New** — engine lifecycle, model cache, completion/chat/stream |
+| `src/services/webllmWorker.ts` | **New** — worker host so inference doesn't block the UI |
+| `src/components/AIProviderSettings.tsx` | **New** — provider picker, model manager, download progress |
+| `src/services/gemini.ts` | Dispatches to either backend; WebLLM cases added to the error mapper |
+| `src/services/aiChat.ts` | Streaming and non-streaming turns route to either backend |
+| `src/pages/Profile.tsx` | Renders the AI engine settings panel |
+| `src/test/aiProvider.test.ts` | **New** — 19 tests |
+| `src/test/setup.ts` | In-memory `Storage` polyfill; jsdom's was non-functional under Node 25 |
+| `tsconfig.app.json` | `ES2020` → `ES2022` to match `build.target` and enable `Error.cause`; added `WebWorker` lib and `@webgpu/types` |
+| `vite.config.ts` | `vendor-webllm` chunk group; `globIgnores` for the three WebLLM chunks; `webllm-runtime` cache rule; `maximumFileSizeToCacheInBytes` 10 MB → 4 MB |
+| `.env.example` | Documents the on-device alternative to `VITE_GROQ_API_KEY` |
+| `package.json` | Added `@mlc-ai/web-llm` 0.2.84, `@webgpu/types` (dev) |
+
+Post-change verification: `npm audit` 0 vulnerabilities / 881 packages · `tsc` clean ·
+ESLint 0 errors, 157 warnings · **20/20 tests passing** · build succeeds in ~1.5 s ·
+**82 precache entries / 4357 KiB** (WebLLM correctly excluded) · initial bundle 171 kB gzipped ·
+manifest validates · no `mlc-ai` references in the initial chunks.

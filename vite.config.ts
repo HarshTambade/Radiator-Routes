@@ -29,6 +29,9 @@ export default defineConfig(({ mode }) => {
           assetFileNames: "assets/[name]-[hash][extname]",
           advancedChunks: {
             groups: [
+              // On-device AI. Large, and only reached when the user opts in —
+              // keep it in its own chunk so it never touches the main path.
+              { name: "vendor-webllm", priority: 45, test: /[\\/]node_modules[\\/]@mlc-ai[\\/]/ },
               { name: "vendor-react", priority: 40, test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
               { name: "vendor-maplibre", priority: 35, test: /[\\/]node_modules[\\/]maplibre-gl[\\/]/ },
               { name: "vendor-pdf", priority: 35, test: /[\\/]node_modules[\\/](jspdf|jspdf-autotable|html2canvas|dompurify)[\\/]/ },
@@ -109,13 +112,36 @@ export default defineConfig(({ mode }) => {
           display_override: ["minimal-ui", "standalone", "browser"],
         },
         workbox: {
-          maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
+          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
           globPatterns: ["**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp,woff2,woff,json}"],
+          // WebLLM is ~5.9 MB, and the worker bundles its own copy — together
+          // ~11.7 MB. Precaching them would push the install cost from 4.3 MB
+          // to 16 MB for every visitor, including the majority who never turn
+          // on on-device AI. They load on demand via dynamic import instead,
+          // and the runtime rule below caches them after first use so on-device
+          // AI still works offline once opted into.
+          globIgnores: [
+            "**/vendor-webllm-*.js",
+            "**/webllmWorker-*.js",
+            "**/webllm-*.js",
+          ],
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           navigateFallback: "index.html",
           navigateFallbackDenylist: [/^\/api\//],
           runtimeCaching: [
+            {
+              // Excluded from precache (see globIgnores) but cached once the
+              // user actually opts into on-device AI, so it keeps working
+              // offline afterwards. CacheFirst is safe: filenames are hashed.
+              urlPattern: /\/assets\/(vendor-webllm|webllmWorker|webllm)-[^/]+\.js$/,
+              handler: "CacheFirst",
+              options: {
+                cacheName: "webllm-runtime",
+                expiration: { maxEntries: 6, maxAgeSeconds: 60 * 60 * 24 * 90 },
+                cacheableResponse: { statuses: [0, 200] },
+              },
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: "CacheFirst",

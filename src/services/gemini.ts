@@ -1,18 +1,39 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// AI service — Groq (OpenAI-compatible) with graceful fallbacks
+// AI service — provider-agnostic LLM entry point
 // ─────────────────────────────────────────────────────────────────────────────
 // The name "gemini" is historical — this module is a drop-in replacement for
-// the previous Gemini wrapper. It targets Groq (free tier, generous quota) for
-// LLM calls, but *never* hard-fails when the key is missing: instead each
-// entry point throws a well-known error string (NO_API_KEY / RATE_LIMIT /
-// INVALID_API_KEY) that callers already handle, or returns a deterministic
-// stub for JSON-mode helpers so the app stays functional in "offline / no
-// keys" mode.
+// the previous Gemini wrapper. It now dispatches to whichever backend the user
+// has selected in Settings:
+//
+//   "groq"   → hosted Groq LLaMA 3.3 70B (default; needs VITE_GROQ_API_KEY)
+//   "webllm" → on-device WebLLM on WebGPU (no key, no network, private)
+//
+// Every exported signature is unchanged, so aiPlanner, dynamicReplan,
+// travelMemory and AccessibilityPanel work against either backend without
+// modification.
+//
+// It *never* hard-fails when a backend is unavailable: each entry point throws
+// a well-known error string (NO_API_KEY / RATE_LIMIT / INVALID_API_KEY /
+// NO_WEBGPU / WEBLLM_LOAD_FAILED) that callers already surface via
+// handleGeminiError().
 // ─────────────────────────────────────────────────────────────────────────────
+
+import { getAIProvider, hasWebGPUAPI } from "@/lib/aiProvider";
 
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
 const GROQ_BASE = "https://api.groq.com/openai/v1";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
+
+/**
+ * Resolves the backend to actually use for this call.
+ *
+ * If the user picked WebLLM but the browser has no WebGPU at all, fall back to
+ * Groq rather than failing — a stale preference (set on a capable machine, then
+ * synced to a phone) should degrade instead of breaking every AI surface.
+ */
+function activeProvider(): "groq" | "webllm" {
+  return getAIProvider() === "webllm" && hasWebGPUAPI() ? "webllm" : "groq";
+}
 
 // ── Public types (unchanged) ────────────────────────────────────────────────
 
@@ -35,12 +56,21 @@ interface OAIMessage {
 
 // ── Availability probe ─────────────────────────────────────────────────────
 
-export function isLLMAvailable(): boolean {
+/** True when a Groq key is configured. */
+export function isGroqAvailable(): boolean {
   return !!GROQ_API_KEY && GROQ_API_KEY.length > 10;
 }
 
+/**
+ * True when *some* backend can serve a request. WebLLM needs no key, so having
+ * it selected on a WebGPU browser is enough — even with no Groq key at all.
+ */
+export function isLLMAvailable(): boolean {
+  return activeProvider() === "webllm" || isGroqAvailable();
+}
+
 function assertKey(): void {
-  if (!isLLMAvailable()) throw new Error("NO_API_KEY");
+  if (!isGroqAvailable()) throw new Error("NO_API_KEY");
 }
 
 // ── Non-streaming completion ───────────────────────────────────────────────
@@ -52,6 +82,19 @@ export async function callGemini(
   maxOutputTokens = 8192,
   jsonMode = false,
 ): Promise<string> {
+  if (activeProvider() === "webllm") {
+    const { webllmComplete } = await import("./webllm");
+    // On-device context windows are 4096 tokens, so an 8192 default would be
+    // rejected. Cap it and let the prompt keep whatever room it needs.
+    return webllmComplete(
+      systemInstruction,
+      userPrompt,
+      temperature,
+      Math.min(maxOutputTokens, 2048),
+      jsonMode,
+    );
+  }
+
   assertKey();
 
   const messages: OAIMessage[] = [
@@ -98,6 +141,17 @@ export async function callGeminiChat(
   maxOutputTokens = 2048,
   jsonMode = false,
 ): Promise<string> {
+  if (activeProvider() === "webllm") {
+    const { webllmChat } = await import("./webllm");
+    return webllmChat(
+      systemInstruction,
+      messages,
+      temperature,
+      Math.min(maxOutputTokens, 2048),
+      jsonMode,
+    );
+  }
+
   assertKey();
 
   const oaiMessages: OAIMessage[] = [
@@ -146,6 +200,17 @@ export async function streamGemini(
   temperature = 0.7,
   maxOutputTokens = 2048,
 ): Promise<string> {
+  if (activeProvider() === "webllm") {
+    const { webllmStream } = await import("./webllm");
+    return webllmStream(
+      systemInstruction,
+      messages,
+      onChunk,
+      temperature,
+      Math.min(maxOutputTokens, 2048),
+    );
+  }
+
   assertKey();
 
   const oaiMessages: OAIMessage[] = [
@@ -265,14 +330,29 @@ export function extractJSON(raw: string): unknown {
 
 export function handleGeminiError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
+
+  // ── On-device (WebLLM) ──
+  if (msg === "NO_WEBGPU") {
+    const reason = err instanceof Error ? err.cause : undefined;
+    return typeof reason === "string"
+      ? `On-device AI needs WebGPU. ${reason} Switch back to Groq in Settings, or use Chrome/Edge.`
+      : "On-device AI needs WebGPU, which this browser doesn't support. Switch back to Groq in Settings.";
+  }
+  if (msg === "WEBLLM_LOAD_FAILED")
+    return "The on-device model failed to load. This is usually not enough GPU memory or an interrupted download — try a smaller model in Settings.";
+  if (msg === "WEBLLM_NOT_READY")
+    return "The on-device model isn't loaded yet. Open Settings and download a model first.";
+
+  // ── Hosted (Groq) ──
   if (msg === "NO_API_KEY")
-    return "AI features require a free Groq API key. Add VITE_GROQ_API_KEY to your .env (grab one at https://console.groq.com).";
+    return "AI features need either a free Groq API key (VITE_GROQ_API_KEY — grab one at https://console.groq.com) or on-device AI enabled in Settings.";
   if (msg === "RATE_LIMIT")
-    return "AI rate limit exceeded. Please wait a moment and try again.";
+    return "AI rate limit exceeded. Please wait a moment and try again, or switch to on-device AI in Settings.";
   if (msg === "INVALID_API_KEY")
     return "Groq API key is invalid or expired. Check your VITE_GROQ_API_KEY.";
   if (msg.startsWith("GROQ_ERROR_"))
     return "Groq service is temporarily unavailable. Please try again.";
+
   return msg;
 }
 

@@ -1,11 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Jinny AI Chat Service — Full NLP Pipeline v2
-// Groq API (llama-3.3-70b-versatile) + streaming + intent classification
+// Streaming chat + intent classification, over either backend:
+//   • Groq llama-3.3-70b-versatile (hosted, default)
+//   • WebLLM on WebGPU (on-device, private, works offline once cached)
+// The backend is the user's choice — see lib/aiProvider.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { supabase } from "@/integrations/supabase/client";
 import { cityToIATA } from "@/lib/iata";
 import { formatLocalDate } from "@/lib/date";
+import { getAIProvider, hasWebGPUAPI } from "@/lib/aiProvider";
 
 // Re-exported so existing importers of `cityToIATA` from this module keep working.
 export { cityToIATA };
@@ -874,8 +878,23 @@ function buildMessages(
 // Core fetch helper — shared by streaming + non-streaming
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * True when either backend can serve a chat turn: a Groq key is configured, or
+ * on-device WebLLM is selected on a WebGPU-capable browser (no key needed).
+ */
 export function isChatAvailable(): boolean {
+  if (getAIProvider() === "webllm" && hasWebGPUAPI()) return true;
   return !!GROQ_API_KEY && GROQ_API_KEY.length > 10;
+}
+
+/**
+ * Whether this turn should run on-device rather than against Groq.
+ *
+ * Not named `use*` — that prefix makes ESLint's react-hooks plugin treat it as
+ * a hook and reject the call from these plain async functions.
+ */
+function shouldRunOnDevice(): boolean {
+  return getAIProvider() === "webllm" && hasWebGPUAPI();
 }
 
 async function groqFetch(
@@ -947,6 +966,20 @@ export async function sendChatMessage(
     lastUser?.content ?? "",
     userLang,
   );
+
+  if (shouldRunOnDevice()) {
+    const { webllmChat } = await import("./webllm");
+    return webllmChat(
+      systemPrompt,
+      messages.map((m) => ({
+        role: m.role === "assistant" ? ("model" as const) : ("user" as const),
+        content: m.content,
+      })),
+      0.3,
+      1024,
+    );
+  }
+
   const res = await groqFetch(buildMessages(systemPrompt, messages), false);
   const data = await res.json();
   return data.choices?.[0]?.message?.content ?? "";
@@ -966,6 +999,20 @@ export async function streamChatMessage(
     lastUser?.content ?? "",
     userLang,
   );
+
+  if (shouldRunOnDevice()) {
+    const { webllmStream } = await import("./webllm");
+    return webllmStream(
+      systemPrompt,
+      messages.map((m) => ({
+        role: m.role === "assistant" ? ("model" as const) : ("user" as const),
+        content: m.content,
+      })),
+      onChunk,
+      0.3,
+      1024,
+    );
+  }
 
   const res = await groqFetch(buildMessages(systemPrompt, messages), true);
 
