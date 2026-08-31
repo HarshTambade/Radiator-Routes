@@ -199,6 +199,57 @@ jsdom's, which is why `src/test/setup.ts` needs a `Storage` polyfill at all.
 `tomtomNearbySearch` etc. over free providers. Documented as historical shims,
 but a new contributor will read them as live dependencies.
 
+### 3.10 🟠 P10 — `vendor-pdf` is preloaded despite being a dynamic-only import
+
+**Found while re-measuring the bundle for the README.** `dist/index.html` emits
+`<link rel="modulepreload" href="/assets/vendor-pdf-*.js">`. `modulepreload`
+downloads the resource at high priority — it is not a passive hint — so roughly
+188 kB gzipped ships on first load for a feature most visitors never use.
+
+This should not happen. `jspdf` and `jspdf-autotable` are imported *only* inside
+the export click handler in `pages/Itinerary.tsx`:
+
+```
+grep -rn "jspdf" src/   →  only  import("jspdf")  /  import("jspdf-autotable")
+```
+
+Nothing imports them statically, so the chunk is not in the entry's static graph
+and should not be preloaded.
+
+**Measured first load** — every asset referenced by `dist/index.html`, gzipped:
+
+| | Gzipped |
+|---|---|
+| Total (1 script + 1 stylesheet + 16 modulepreload) | ~540 kB |
+| Of which `vendor-pdf` | ~188 kB |
+| Of which `vendor-markdown` | ~34 kB |
+| Excluding both | ~319 kB |
+
+**Suspected cause:** Vite 8 runs Rolldown, and preload-hint generation for
+`build.rolldownOptions.output.advancedChunks.groups` appears not to distinguish
+chunks reached by dynamic import from those in the static graph. The older
+esbuild/Rollup behaviour of preloading only the static graph does not seem to
+hold.
+
+**Fix to try, in order:**
+
+1. Confirm the cause by inspecting whether the hint disappears when `jspdf` is
+   removed from the `advancedChunks` groups and left to default chunking.
+2. If Rolldown is emitting hints for all groups, constrain
+   `build.modulePreload` — Vite exposes `modulePreload.resolveDependencies`,
+   which can filter the emitted list.
+3. Verify by asserting `dist/index.html` contains no `modulepreload` for
+   `vendor-pdf`, and re-run the gzip measurement.
+
+`vendor-markdown` is a separate, legitimate finding: `App.tsx` statically imports
+`ProtectedLayout`, which pulls `AIAssistant` and therefore `react-markdown` into
+the eager graph. Making `ProtectedLayout` lazy would move it behind the auth
+boundary along with P6's `vendor-supabase`.
+
+**Note on the previously published figure.** The README claimed ≈171 kB initial.
+That was core JS only — it excluded CSS, icons, Radix, the route chunk and the
+preload hints. The README now states the measured number and this bug.
+
 ---
 
 ## 4. Features to add

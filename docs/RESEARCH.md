@@ -1,8 +1,12 @@
 # Radiator Routes — Research & Patent Dossier
 
-**Version:** 1.0
-**Date:** 30 August 2026
-**Codebase audited:** commit `4058b47`
+**Version:** 1.2 (pass 3)
+**Date:** 31 August 2026 (v1.0: 30 August 2026)
+**Codebase audited:** commit `db7149a`
+**What changed in pass 3:** Gaps A, B and C are closed in code — see §3.1a. §5.4a and §5.4b are new
+literature sections covering external verification versus self-critique, and the time-window
+formalism the opening-hours checks now touch. §6.6 records the gap that replaced them: everything is
+implemented and nothing is measured.
 **Purpose:** Establish what is genuinely novel in this system, map it against existing patents and
 literature, and identify what must be built before any claim is defensible.
 
@@ -74,16 +78,30 @@ is not the feature the project has been marketing.
 | **Fully-offline private trip planning** — on-device LLM + trip-scoped map tile pre-caching + durable local persistence, composed so that itinerary generation completes with zero network egress | 🟢 **Strong** | Each ingredient exists in prior art; **the composition and its purpose do not.** Implemented and verifiable in code. |
 | **Dual-backend AI dispatch with capability-gated fallback** — one call site serving hosted and on-device inference, degrading on WebGPU absence | 🟡 Moderate | Genuinely implemented and useful, but arguably an obvious engineering pattern. Better as a paper contribution than a patent. |
 | **Zero-paid-API travel stack** — systematic substitution of every commercial API with free/open equivalents behind stable interfaces | 🟡 Moderate | Strong *engineering* and *accessibility* contribution. Weak patent subject matter (it's a design discipline, not a mechanism). |
-| **Regret-aware counterfactual planning** | 🔴 **Not implemented** | The regret score is **written into the prompt as a constant**. There is no regret computation. See §3.2. |
-| **Multi-agent group negotiation / Nash equilibrium** | 🔴 **Not implemented** | No per-member preference vectors, no aggregation, no solver. Closely anticipated by IBM US11300418B2 anyway. |
+| **Client-side semantic verification with a repair pass** — 13 deterministic checks over a generated itinerary, violations fed back once, all running offline with no solver and no server | 🟢 **Strong** *(new in pass 3)* | This is the LLM-Modulo pattern the planning literature converges on (§5.4a), applied under a deployment constraint that literature has not examined: a small quantised model in a browser with no network. Implemented; **not yet evaluated.** |
+| **Computed group regret (Least Misery)** | 🟡 Moderate *(was 🔴)* | Now genuinely computed from elicited per-member preferences (`lib/groupRegret.ts`, 36 tests). The aggregation strategy itself is textbook ([Masthoff 2004](https://link.springer.com/chapter/10.1007/1-4020-2164-X_5)), so novelty is in the application, not the mechanism. Whether the score predicts satisfaction is **untested**. |
+| ~~**Regret-aware counterfactual planning**~~ | 🔴 **Terminology retired** | The prescribed constant is gone. What replaced it is Least Misery over computed utilities — deliberately **not** described as counterfactual regret minimisation, which is a different thing (§3.2). |
+| **Multi-agent group negotiation / Nash equilibrium** | 🔴 **Not implemented** | No per-member preference vectors feeding a solver, no aggregation to equilibrium. Closely anticipated by IBM US11300418B2 anyway. |
 
 ### One-line recommendation
 
-**File a narrow composition claim on the offline-private-planning pipeline (§7.1), and write the
-paper about the honest negative result: that LLM-prescribed quality scores are unfalsifiable, which
-is exactly the failure mode [TravelPlanner](https://arxiv.org/abs/2402.01622) measured at a 0.6%
-GPT-4 success rate.** That paper is publishable *because* the finding is uncomfortable. The regret
-feature as currently built is a case study in the problem, not a solution to it.
+**Pass 1 said:** file a narrow composition claim on the offline-private-planning pipeline (§7.1), and
+write the paper about the honest negative result — that LLM-prescribed quality scores are
+unfalsifiable, the failure mode [TravelPlanner](https://arxiv.org/abs/2402.01622) measured at a 0.6%
+GPT-4 success rate.
+
+**Pass 3 revises this.** The negative result was fixed rather than published: the prescribed score is
+gone and generation is now wrapped in an external verifier with a repair pass (§3.1a). The
+recommendation becomes:
+
+> **The composition claim in §7.1 still stands and is now better enabled — it describes running,
+> tested code rather than intent. But the project's binding constraint has moved from mechanism to
+> evidence.** Every contribution above is implemented and unit-tested; not one has been shown to
+> improve an outcome. The paper worth writing is no longer a confession, it is a measurement: *does
+> external verification rescue a 1–8 B model running offline in a browser, and by how much?* That
+> question is well-posed, the harness is mostly built, and the answer is unknown. Until it is
+> answered, §5.4a's claim that this architecture is "the recommended one" rests entirely on other
+> people's experiments in other domains. See §6.6.
 
 ---
 
@@ -222,10 +240,37 @@ honest.
 | Zero-paid-API substitution | `amadeus.ts` → deep links; `traffic.ts` → time-of-day + Nominatim/ORS; `gnews.ts` → Wikipedia REST; maps → OSM/MapLibre | Engineering discipline, not a mechanism |
 | Per-session cache isolation | `hooks/useAuth.tsx::signOut` purges `supabase-rest` so cached rows don't survive logout | Good hygiene; anticipated by general cache-partitioning art |
 
+### 3.1a Implemented since the first pass — the three gaps that closed
+
+Gaps A, B and C from §6 were open when this dossier was first written. All three are now in the
+codebase with unit tests. This changes the enablement position for §7 materially: the mechanisms are
+no longer proposals.
+
+| Capability | Evidence | What changed |
+|---|---|---|
+| **Computed group regret** | `lib/groupRegret.ts` (394 lines) · 36 tests in `test/groupRegret.test.ts` | Utility per member from stated category weights, review scores and personal budget cap → per-member regret against the best plan available to them → group score = worst member's regret (Least Misery) → recommend the argmin. Replaces the prescribed constant in §3.2. |
+| **Preference elicitation** | `lib/travelPreferences.ts`, `components/TravelPreferencesForm.tsx` · tests in `test/travelPreferences.test.ts` | The input side. Without it, §6.1's design had no data to run on and the score silently fell back to "not scored". |
+| **Semantic constraint verifier** | `lib/itineraryVerifier.ts` · 26 tests in `test/itineraryVerifier.test.ts` | 13 deterministic checks over a generated plan: `BUDGET_EXCEEDED`, `COST_SUM_MISMATCH`, `TIME_OVERLAP`, `TIME_INVALID`, `TIME_REVERSED`, `TRAVEL_INFEASIBLE`, `PACE_EXCEEDED`, `COORD_INVALID`, `COORD_OUT_OF_REGION`, `EMPTY_ITINERARY`, `DURATION_IMPLAUSIBLE`, `CLOSED_ON_DAY`, `OUTSIDE_OPENING_HOURS`. Runs client-side, offline, in milliseconds. |
+| **Opening-hours containment** | `lib/openingHours.ts` · tests in `test/openingHours.test.ts` · `activities.opening_hours` JSONB | Turns whatever is in the column into a decidable question: is the place open for the *whole* of this activity's window? Unknown hours are treated as unverifiable, not as closed. |
+| **Generate → verify → repair** | `lib/planRepair.ts` · tests in `test/planRepair.test.ts` | `buildRepairPrompt()` previously had no callers, so a failed plan was shown with a warning and nothing else. Violations are now fed back once. A repair only wins if it *strictly* reduces the error count, so the plan never swaps out for no measured gain. |
+| **Offline mutation queue, wired** | `lib/offlineMutation.ts::mutateWithOfflineQueue` · `hooks/useOfflineSync.ts` · 31 tests in `test/offlineMutation.test.ts` | Was Gap C: a queue called from nowhere. Now wraps activity status and edit writes. Ordering preserved by `seq`; only retriable network failures queue, so an RLS rejection still surfaces immediately. |
+| **Optimistic-concurrency stamp** | `activities.updated_at` + trigger (migration `20260831000001`) | A replayed edit matches on the stamp, so a row someone else changed in the meantime rejects the stale write instead of silently overwriting it. Turns a silent lost update into a visible rejection. |
+
+**What this does and does not buy.** It buys enablement — the claims in §7 now describe running code
+rather than intent. It does **not** buy evaluation. Nothing in the table above has been measured
+against a baseline, and §8.3 remains entirely unexecuted. See §6.6 for why that is now the binding
+constraint on both the paper and the patent.
+
 ### 3.2 Claimed but NOT implemented — do not cite these
 
-**Regret-aware counterfactual planning.** `services/aiPlanner.ts::regretCounterfactual` ends its
-prompt with:
+> **Status note (pass 3).** The first item below — the prescribed regret score — **has since been
+> fixed**. It is retained in full because it is the most instructive failure in this project's
+> history and because the *terminology* warning still stands: what replaced it is Least Misery over
+> computed utilities, which is **not** counterfactual regret minimisation. The remaining items in
+> this section were never implemented and still must not be cited. See §3.1a for what is now real.
+
+**Regret-aware counterfactual planning.** *(Fixed — see §3.1a. Preserved as the historical record.)*
+`services/aiPlanner.ts::regretCounterfactual` used to end its prompt with:
 
 ```
 - budget plan: regret_score ~0.35, total_cost ~${Math.round(budget * 0.6)}
@@ -248,8 +293,9 @@ Consequences:
   so **actual group membership and preferences are never read** — even though the database has
   `trip_memberships` and `profiles.preferences`.
 
-This is a presentation-layer feature dressed as an algorithm. It is fixable (§6.1), and the fix is
-where the second real contribution lies.
+This was a presentation-layer feature dressed as an algorithm. It was fixable (§6.1), and the fix is
+where the second real contribution lies. `lib/groupRegret.ts` now does the arithmetic; the constants
+above are gone from the prompt.
 
 **Multi-agent group negotiation / Nash equilibrium.** No per-member preference vector, no
 aggregation function, no solver, no equilibrium computation exists anywhere in `src/`. Earlier
@@ -268,7 +314,10 @@ Removed from user-facing copy during the prior audit.
 
 | Item | State |
 |---|---|
-| Offline **writes** | `hooks/useOfflineStorage.ts` has a durable IndexedDB mutation queue with `enqueue`/`sync`. **Not called from any mutation path**, so offline edits are lost. This materially weakens any "works offline" claim — see §6.2. |
+| Offline **writes** | *Upgraded from "not wired" — see §3.1a.* Activity status changes and inline activity edits queue and replay. Trip create/update, expenses, chat and community posts still write directly and fail offline. So "works offline" is now true for reading **and** for the mid-trip write path that matters most, but it is not true globally. State the scope when claiming it. |
+| Concurrency on replay | `updated_at` lets a stale replay be rejected rather than silently overwriting. That is conflict *detection*, not resolution — no merge is attempted, and the losing edit is discarded with a message. Do not describe this as CRDT-style convergence ([Kleppmann et al.](https://www.cl.cam.ac.uk/research/dtg/www/files/publications/public/mk428/local-first.pdf)); it is optimistic locking. |
+| Opening-hours provenance | The checks are real but the data is model-supplied and tagged `source: "model"`, so findings are emitted as **warnings**, not blocking errors. Nothing imports authoritative hours from OSM/Overpass yet. A claim that the planner "enforces opening hours" would overstate it; it *checks* them against self-reported data. |
+| Repair depth | Single pass by design. [Stechly et al.](https://arxiv.org/abs/2402.08115) report that merely re-prompting with a sound verifier retains most of the benefit of more elaborate schemes, which is the justification — but that result is from block-stacking and logic domains, not itinerary planning. Untested here. |
 | Traveller memory | `aiPlanner.ts::loadMemoryContext` reads `profiles.preferences`/`travel_personality` into the prompt. Real, but single-user and unweighted — it is prompt context, not a model. |
 | Vision on-device | `AccessibilityPanel` sends an image-description prompt through `callGemini`. All six curated on-device models are **text-only**, so this silently degrades when on-device is selected. |
 
@@ -391,11 +440,90 @@ weakness found in §3.2.
 - **[Revisiting the Travel Planning Capabilities of LLMs](https://arxiv.org/html/2605.03308v1)** — argues end-to-end evaluation lacks interpretability and obscures root causes.
 - **[Hierarchical Multi-Agent Planning for Long-Horizon Constrained Travel](https://arxiv.org/html/2603.04750v1)** — sequential agents drift from global constraints as context grows.
 
-**Implication — and this is the paper's thesis:** the literature says LLMs cannot reliably satisfy
-multi-constraint travel plans, and **self-critique does not fix it**. Radiator Routes asks an LLM to
-self-report a quality score. Per this literature that number carries no information. The project is
-therefore a **worked example of the field's known failure mode**, and reporting that honestly — with
-the code as evidence — is a genuine contribution.
+**Implication — restated for pass 3.** The literature says LLMs cannot reliably satisfy
+multi-constraint travel plans, and that self-critique does not fix it. When this dossier was first
+written, Radiator Routes asked the LLM to self-report a quality score, which made the project a
+worked example of the field's known failure mode. That is no longer the case: the prescribed score is
+gone (§3.1a), and generation is now wrapped in an external deterministic verifier with a repair pass.
+
+The thesis therefore moves from *"here is the failure mode, honestly reported"* to something stronger
+and more useful: **the project is a worked implementation of the remedy the literature prescribes,
+under a constraint the literature has not examined — a verifier that runs on the client, offline,
+with no solver and no server.** §5.4a establishes that the remedy is the consensus recommendation.
+What remains unearned is evidence that it works *here*; see §6.6.
+
+### 5.4a External verification versus self-critique — the mechanism this project implements
+
+This is the most load-bearing literature in the dossier, because it is the body of work that the
+architecture in §3.1a either matches or contradicts. The finding is unusually consistent across
+independent groups: **asking a model to check its own work does not help and often hurts; giving it a
+sound external check and re-prompting does help.**
+
+| Work | Finding | Bearing on this project |
+|---|---|---|
+| **Valmeekam et al., "[PlanBench](https://arxiv.org/abs/2206.10498)"** (arXiv:2206.10498, NeurIPS 2023 D&B) | Benchmark built on International Planning Competition domains. On critical capabilities including plan generation, LLM performance "falls quite short" even for SOTA models. | Establishes that the deficiency is structural, not a prompt-engineering failure. |
+| **Valmeekam et al., "[On the Planning Abilities of LLMs](https://arxiv.org/abs/2305.15771)"** (arXiv:2305.15771) | Autonomous executable-plan generation is "rather limited" — GPT-4 averages **~12%** across domains. The **LLM-Modulo** setting, where external verifiers give feedback and back-prompt the model, "shows more promise". | Names the two regimes and reports that the one this project implements is the better one. |
+| **Kambhampati et al., "[LLMs Can't Plan, But Can Help Planning in LLM-Modulo Frameworks](https://arxiv.org/abs/2402.01817)"** (arXiv:2402.01817, ICML 2024 position paper) | Argues auto-regressive LLMs cannot plan *or self-verify*, and proposes pairing them with **external model-based verifiers in a bi-directional generate–test interaction**. | This is the name for the architecture in `lib/planRepair.ts` + `lib/itineraryVerifier.ts`. The project should be described as an LLM-Modulo system. |
+| **Stechly, Valmeekam & Kambhampati, "[On the Self-Verification Limitations of LLMs on Reasoning and Planning Tasks](https://arxiv.org/abs/2402.08115)"** (arXiv:2402.08115) | Reports **performance collapse under self-critique** and **significant gains under sound external verification**. Critically: *merely re-prompting with a sound verifier retains most of the benefit* of more elaborate schemes. | Direct justification for the **single-pass** repair in `planRepair.ts`. The cheap design is the one the evidence supports; elaborate multi-round critique is not required. |
+| **Stechly et al., "[Can LLMs Really Improve by Self-Critiquing Their Own Plans?](https://arxiv.org/abs/2310.08118)"** (arXiv:2310.08118) | Casts doubt on self-critique for planning, and finds the **granularity of feedback — binary versus detailed — had minimal impact** on plan generation. | ⚠️ **Uncomfortable for this design.** `buildRepairPrompt()` composes detailed, per-violation messages on the assumption that specificity helps. This paper suggests a bare "invalid, try again" might do as well. Cheap to test and currently untested — see §6.6. |
+| **Madaan et al., "[Self-Refine](https://arxiv.org/abs/2303.17651)"** (arXiv:2303.17651) | Generate → self-feedback → refine, using one model and no supervised data. | The *self*-feedback variant. Included to mark the contrast: this project deliberately does **not** use the model as its own critic. |
+| **Hao et al., "[ISR-LLM](https://arxiv.org/abs/2308.13724)"** (arXiv:2308.13724) | Iterative self-refinement for long-horizon sequential task planning with an explicit **validator** in the loop. | Closest structural precedent: translate → plan → validate → refine. Uses a formal validator over a symbolic domain; this project's validator is arithmetic over an itinerary. |
+| **"[LLMs Can Solve Real-World Planning Rigorously with Formal Verification Tools](https://arxiv.org/abs/2404.11891)"** (arXiv:2404.11891) | LLMs fail multi-constraint plans even with self-verification; pairing with a **formal solver** fixes it. | The maximal version of the idea — an SMT/LP solver. This project's verifier is deliberately weaker: it *checks* rather than *solves*, which is what makes it viable client-side and offline. That trade is the novelty surface, and also the limitation. |
+| **Zhang et al., "[Planning with Multi-Constraints via Collaborative Language Agents](https://arxiv.org/abs/2405.16510)"** (arXiv:2405.16510) | Decomposition across collaborating agents reaches **42.68%** on TravelPlanner against GPT-4's **2.92%**. | The strongest reported TravelPlanner improvement found. Note it is a *multi-agent decomposition* result, not a verification result — and it is the honest comparison point for any future claim, not the 0.6% headline figure. |
+
+**Where this leaves the design.** Four independent conclusions matter:
+
+1. **The architecture is the recommended one.** Generate with the model, verify with code, re-prompt
+   on failure. That is LLM-Modulo, and it is what §3.1a implements. This is a defensible position to
+   write up, and it is stronger than the pass-1 framing.
+2. **Single-pass repair is a principled choice, not a shortcut.** arXiv:2402.08115 specifically finds
+   that plain re-prompting with a sound verifier captures most of the available gain.
+3. **The verifier must be sound for any of this to hold.** Every cited gain is conditional on the
+   external check being correct. A verifier with false negatives — for instance, treating absent
+   opening-hours data as "unverifiable" and passing it (§3.3) — weakens the guarantee in exactly the
+   way the literature's "sound verifier" premise assumes away. **The soundness of
+   `lib/itineraryVerifier.ts` is the load-bearing assumption of this entire design**, and it is
+   asserted by 26 unit tests rather than proved.
+4. **One assumption in the implementation is contradicted by the evidence.** Detailed violation
+   feedback may buy nothing over a binary signal (arXiv:2310.08118). This is the single cheapest
+   experiment available and it has not been run.
+
+**Gap the literature leaves open.** Every result above was obtained server-side, with a large hosted
+model, and mostly on synthetic planning domains — block-stacking, logistics, IPC benchmarks — or on
+TravelPlanner's tool-use setting. None of it examines whether external verification rescues a **1–8 B
+quantised model running in a browser with no network**. That is the specific question this codebase is
+positioned to answer, and answering it is the contribution. It is also entirely unmeasured.
+
+### 5.4b Temporal constraints: what the operations-research literature already solved
+
+`lib/openingHours.ts` and the `CLOSED_ON_DAY` / `OUTSIDE_OPENING_HOURS` checks move this project into
+territory that combinatorial optimisation formalised decades ago. Any external claim must be
+positioned against it.
+
+- **Gavalas et al., "[A survey on algorithmic approaches for solving tourist trip design problems](https://www.researchgate.net/publication/271921760_A_survey_on_algorithmic_approaches_for_solving_tourist_trip_design_problems)"** (J. Heuristics, 2014) — the TTDP is a route-planning problem over POIs respecting tourist constraints and POI attributes. The canonical survey.
+- **Vansteenwegen et al., "[Metaheuristics for Tourist Trip Planning](https://www.researchgate.net/publication/226088125_Metaheuristics_for_Tourist_Trip_Planning)"** — personalised tourist trips modelled as the **Team Orienteering Problem with Time Windows (TOPTW)**, solved with iterated local search.
+- **[Time-Dependent Tourist Tour Planning with Adjustable Profits](https://drops.dagstuhl.de/storage/01oasics/oasics-vol085-atmos2020/OASIcs.ATMOS.2020.14/OASIcs.ATMOS.2020.14.pdf)** (ATMOS 2020, DOI 10.4230/OASIcs.ATMOS.2020.14) — extends TDTOPTW, gives the first MILP formulation, and motivates it in exactly these terms: selecting POIs "while keeping in mind their opening hours as well as the alternatives to get from one point of interest to the next". Evaluated on Berlin.
+- **[Efficient Metaheuristics for the Mixed Team Orienteering Problem with Time Windows](https://www.mdpi.com/1999-4893/9/1/6)** (Algorithms 9(1):6) — admittance time windows on both nodes and edges.
+
+**Implication, stated bluntly.** Opening hours, travel-time feasibility and per-day budgets are the
+defining constraints of TOPTW, and there are exact MILP formulations and mature metaheuristics that
+*optimise* under them. This project does not solve TOPTW. It asks a language model to guess a plan and
+then checks a subset of the TOPTW constraint set arithmetically.
+
+Two honest readings follow, and the dossier should carry both:
+
+- **Against the OR literature, this is strictly weaker.** A solver would return an optimal feasible
+  tour; this returns "the model's guess, with 13 checks applied, repaired once". Any framing that
+  implies optimisation would be false.
+- **The trade is deliberate and defensible.** TOPTW solvers need a complete, curated POI graph with
+  reliable hours, travel matrices and profit values. This project has none of that — it has whatever
+  the model produced plus sparse, self-reported hours (§3.3). Under those conditions a verifier that
+  rejects the clearly impossible is achievable client-side in milliseconds, and a MILP is not. The
+  contribution is the *deployment envelope*, not the algorithm.
+
+The comparison to draw in a paper is therefore **not** "we beat TOPTW heuristics". It is: given no
+curated POI graph and no server, how much of TOPTW's feasibility guarantee can be recovered by
+verification alone? That is a measurable question and nobody appears to have asked it.
 
 ### 5.5 On-device inference
 
@@ -440,9 +568,14 @@ supports the offline-first motivation with market data rather than assertion.
 
 ## 6. Gap analysis: where the white space is
 
-### 6.1 Gap A — a regret metric that is actually computed
+> **Pass-3 status.** Gaps A, B and C below are **closed in code** (§3.1a). Their designs are retained
+> because they document what was built and why. Gap D remains open. §6.6 adds the gap that now
+> dominates all of them: none of it has been measured.
 
-**Current:** prescribed constant (§3.2).
+### 6.1 Gap A — a regret metric that is actually computed ✅ CLOSED
+
+**Was:** prescribed constant (§3.2). **Now:** `lib/groupRegret.ts`, 36 tests. The design below is
+what shipped.
 **Literature says:** Least Misery is the established primitive (§5.3); anticipated regret is
 formalised by Loomes–Sugden (§5.2).
 
@@ -470,11 +603,19 @@ grounded in cited literature. The LLM's role shrinks to *generating candidate pl
 it is actually good at — while scoring becomes deterministic.
 
 Cost: needs a real preference-elicitation UI. The DB schema (`trip_memberships`, `profiles.preferences`)
-already supports it.
+already supports it. **Delivered** as `components/TravelPreferencesForm.tsx` +
+`lib/travelPreferences.ts`.
 
-### 6.2 Gap B — a semantic constraint verifier
+**What shipped that this design did not anticipate:** when a member has stated no preferences there is
+nothing to score, and the planner reports "not scored" rather than substituting a default. That keeps
+the metric honest but means the feature is invisible until a group fills the form in — an adoption
+problem the design above did not consider.
 
-**Current:** `response_format: json_object` gives syntactic validity only (§5.6).
+### 6.2 Gap B — a semantic constraint verifier ✅ CLOSED
+
+**Was:** `response_format: json_object` gives syntactic validity only (§5.6). **Now:**
+`lib/itineraryVerifier.ts` with 13 checks and 26 tests, plus `lib/planRepair.ts` for the feedback
+pass. §5.4a establishes that this is the LLM-Modulo pattern the literature recommends.
 **Literature says:** LLMs fail multi-constraint plans; **formal verification tools fix it**
 ([arXiv:2404.11891](https://arxiv.org/abs/2404.11891)); failure sets in around **10 constraints**
 ([WorldTravel](https://arxiv.org/html/2602.08367v1)).
@@ -496,13 +637,34 @@ turns an unreliable local generator into a *bounded-correctness* local planner. 
 itinerary patents (§4.1, all server-side) nor the offline-map patents (§4.2, no generation) cover
 that.
 
-### 6.3 Gap C — wire the offline mutation queue
+**Delivered, with two deviations from this design worth recording:**
 
-**Current:** queue exists, is called from nowhere (§3.3). Offline edits are **lost**.
+- The accessibility check in the table above was **not** implemented. Wheelchair-required members are
+  not yet cross-referenced against POI accessibility, so that row remains aspirational.
+- Two checks were added that the design did not list: `COST_SUM_MISMATCH` (per-activity costs must sum
+  to the stated total — catches the model contradicting itself) and `COORD_OUT_OF_REGION` (coordinates
+  outside the destination's plausible bounding box — catches the model hallucinating a POI on another
+  continent). Both came from observed failures rather than from the design.
 
-Until this is fixed, "works offline" is only true for reading. A paper claiming offline capability
-would be overclaiming, and a patent claim reciting offline editing would lack enablement. This is
-the **single highest-priority code fix** before any external claim.
+"Bounded correctness" also needs qualifying: the bound is only as strong as the check set, and
+`OUTSIDE_OPENING_HOURS` currently degrades to a warning on model-sourced data (§3.3). The honest
+phrasing is *checked against a stated constraint set*, not *bounded-correct*.
+
+### 6.3 Gap C — wire the offline mutation queue ✅ CLOSED
+
+**Was:** queue exists, is called from nowhere (§3.3). Offline edits were **lost**. **Now:**
+`lib/offlineMutation.ts::mutateWithOfflineQueue` wraps activity status and edit writes,
+`hooks/useOfflineSync.ts` drains on reconnect, 31 tests cover ordering, retriability and replay.
+
+Two things the original framing got wrong:
+
+- **Scope.** Wiring "the mutation path" implied one path. There are many, and only the activity path
+  is wired. Trip creation, expenses, chat and community posts still fail offline. "Works offline" is
+  now defensible for reading and for mid-trip activity edits — the case where signal is genuinely
+  worst — and nothing more. State that scope explicitly in any claim.
+- **Conflicts.** The original text did not mention concurrency at all. Replay needed a staleness
+  guard, which arrived as `activities.updated_at` plus a trigger. That is optimistic locking, not
+  merge: the losing write is rejected and reported, not reconciled.
 
 ### 6.4 Gap D — connectivity-aware degradation policy
 
@@ -515,7 +677,7 @@ preference, not a function of observed conditions.
 
 ```mermaid
 quadrantChart
-    title Novelty vs. Implementation Effort
+    title Novelty vs. Implementation Effort — pass 3
     x-axis "Low effort" --> "High effort"
     y-axis "Weak novelty" --> "Strong novelty"
     quadrant-1 "Build next"
@@ -523,14 +685,51 @@ quadrantChart
     quadrant-3 "Deprioritise"
     quadrant-4 "Long bets"
     "Offline pipeline (done)": [0.15, 0.82]
-    "Wire mutation queue": [0.3, 0.4]
-    "Semantic verifier": [0.55, 0.88]
-    "Real regret metric": [0.62, 0.7]
+    "Mutation queue (done)": [0.3, 0.4]
+    "Semantic verifier (done)": [0.55, 0.88]
+    "Computed regret (done)": [0.62, 0.7]
+    "Repair loop (done)": [0.32, 0.78]
+    "Binary vs detailed feedback test": [0.1, 0.6]
+    "Evaluate on TravelPlanner": [0.45, 0.92]
     "Connectivity-aware policy": [0.72, 0.8]
+    "Authoritative opening hours": [0.5, 0.3]
     "Dual-backend dispatch (done)": [0.12, 0.45]
-    "Zero-paid-API stack (done)": [0.35, 0.35]
     "Multi-agent negotiation": [0.85, 0.18]
 ```
+
+### 6.6 Gap E — the binding constraint is now measurement, not mechanism
+
+This is the gap that supersedes the others. Gaps A–C were *"the code does not do this"*. They are
+closed. What replaces them is harder to fix and easier to ignore:
+
+> Every mechanism in §3.1a is implemented and unit-tested. **Not one of them has been shown to
+> improve an outcome.**
+
+Specifically, none of the following is known:
+
+| Question | Status | Cost to answer |
+|---|---|---|
+| What fraction of generated plans fail verification at all? | Unknown. No instrumentation counts violations by code in production. | Low — log `verifyItinerary` results. |
+| Does the repair pass actually fix them? | Unknown. `planRepair` requires a *strict* reduction in error count to accept a repair, so the data to answer this is computed and then discarded. | Low — persist the before/after counts. |
+| Does detailed feedback beat a binary signal? | Unknown, and [arXiv:2310.08118](https://arxiv.org/abs/2310.08118) suggests it may not. | Low — one A/B over a fixed prompt set. |
+| Does computed group regret track real member satisfaction? | Unknown. This is the claim that matters most and is the hardest to test — it needs human subjects, not logs. | High. |
+| Do 1–8 B on-device models benefit from verification as much as a 70 B hosted model? | Unknown. This is the actual research question (§5.4a). | Medium — same harness, two backends. |
+| What does on-device inference cost in load time, tokens/sec and GPU memory? | Unknown. Never benchmarked on real hardware. | Low. |
+
+**Why this matters more than the next feature.** The first three rows are hours of work and would turn
+"we built a verifier" into "the verifier rejects N% of plans and the repair pass recovers M% of them",
+which is the difference between a system description and a result. Until at least those exist:
+
+- **The paper in §8 cannot make its central claim.** §8.3's protocol is written and unexecuted.
+- **The patent position in §7 is enabled but not evidenced.** Enablement is satisfied by working code;
+  non-obviousness arguments are much stronger with data showing the mechanism does something a skilled
+  practitioner would not have predicted.
+- **Any comparison to the literature is currently rhetorical.** §5.4a's claim that this architecture is
+  "the recommended one" rests entirely on other people's experiments in other domains.
+
+**Recommendation:** stop adding mechanisms. Instrument the three cheap rows above before the next
+feature. The single most valuable artefact this project could produce next is a table with numbers in
+it.
 
 ---
 
@@ -584,9 +783,21 @@ data egress — rather than an abstract planning idea. The claims below are writ
 | Google US8812031B2, §4.2 tile art | Those pre-fetch tiles for **display/navigation**. Element (a)(iii)–(iv) ties tile scope to a **persisted itinerary**, and (x) consumes them as context for a locally generated plan. |
 | WebLLM, LlamaWeb (§5.5) | Provide the **engine**. They do not recite geospatial pre-caching, itinerary schemas, or constraint verification. |
 
-⚠️ **Element (ix) is not yet implemented** (§6.2), and element (b) is incomplete without the
-mutation queue (§6.3). **Both must be built before filing** — §112 requires the specification to
-enable what is claimed.
+✅ **Enablement update (pass 3).** Element (ix) is now implemented — `lib/itineraryVerifier.ts`
+(13 checks) with `lib/planRepair.ts` supplying the "regenerating … responsive to the evaluating"
+limb. Element (b)'s offline write path is implemented for activity mutations via
+`lib/offlineMutation.ts` (§3.1a). The §112 enablement objection that stood here is substantially
+answered: the specification can now point at running, tested code rather than intent.
+
+Two caveats a drafter must still handle:
+
+- **Element (b)(ix) "using only data resident on the client device"** holds for the verifier, but
+  opening-hours data is model-supplied rather than authoritative (§3.3). That does not break the
+  claim — the data *is* resident — but it weakens any argument built on the checks being conclusive.
+- **"without transmitting"** in the final wherein-clause is satisfied on the read-and-revise path.
+  It is *not* satisfied for trip creation, expenses, chat or community writes, which still require
+  the network. Claim 1 is scoped to generation and revision, so this is consistent — but the
+  specification must not describe the application as wholly offline.
 
 ### 7.2 Dependent claims
 
@@ -665,13 +876,18 @@ context). Alternatively a systems track if the benchmark in §8.3 is strong.
 
 1. **A system architecture** enabling itinerary generation with zero network egress, and a
    characterisation of its cost: model download, tile payload, GPU memory floor, latency vs. hosted.
-2. **A negative result with code as evidence** — that LLM self-reported plan-quality scores are
-   unfalsifiable, demonstrated by an implementation that prescribed them in the prompt and rendered
-   them as computed metrics. Corroborates [TravelPlanner](https://arxiv.org/abs/2402.01622) and
-   [arXiv:2404.11891](https://arxiv.org/abs/2404.11891) from the deployment side rather than the
-   benchmark side. **This is the most honest and most useful contribution.**
-3. **A client-side verifier** (§6.2) showing that a small on-device model plus a deterministic
-   verifier beats a larger unverified model on constraint satisfaction.
+2. **A client-side LLM-Modulo verifier** — a small on-device model plus a deterministic external
+   verifier and a single repair pass, tested against a larger unverified model on constraint
+   satisfaction. §5.4a establishes that external verification is the literature's consensus remedy;
+   what nobody has tested is whether it rescues a **1–8 B quantised model with no network**.
+   **This is now the strongest contribution, and it is entirely contingent on running Study 2.**
+   Implemented (§3.1a); unmeasured (§6.6).
+3. **A methodological case study on unfalsifiable metrics** — the project shipped a "regret score"
+   that the prompt prescribed and the UI rendered as computed, then replaced it with arithmetic over
+   elicited preferences. The before/after is preserved in §3.2 and §10.1–10.2 with the prompt
+   excerpt. Weaker than contribution 2 as a result, but unusually well documented as a case study,
+   and it corroborates [TravelPlanner](https://arxiv.org/abs/2402.01622) and
+   [arXiv:2404.11891](https://arxiv.org/abs/2404.11891) from the deployment side.
 4. **Deployment engineering findings** — including the precache regression where 11.7 MB of
    inference runtime silently entered the service-worker install because it fell under the size
    threshold. Concrete, reusable, and the sort of thing papers usually omit.
@@ -729,7 +945,7 @@ Misery per Masthoff. Requires ethics approval.
 
 ```mermaid
 flowchart TB
-    A["Fix the blockers<br/>• wire mutation queue §6.3<br/>• build verifier §6.2<br/>• remove prescribed regret §3.2"] --> B[Professional prior-art search<br/>registered agent]
+    A["✅ Blockers cleared (pass 3)<br/>• mutation queue wired §6.3<br/>• verifier + repair built §6.2<br/>• prescribed regret removed §3.2"] --> B[Professional prior-art search<br/>registered agent]
     B --> C{Claim 1 clear<br/>of prior art?}
     C -->|No| D[Narrow, or publish only]
     C -->|Yes| E[Provisional / Indian<br/>provisional application]
@@ -764,11 +980,11 @@ What remains actionable:
 
 ## 10. Worked examples
 
-### 10.1 Current behaviour — regret score is a constant
+### 10.1 Former behaviour — regret score was a constant *(fixed; retained as the record)*
 
 Request: Goa, 5 days, ₹40,000, 2 travellers.
 
-The prompt sent to the model ends with (`aiPlanner.ts`):
+The prompt sent to the model **used to end** with (`aiPlanner.ts`, before pass 2):
 
 ```
 - budget plan: regret_score ~0.35, total_cost ~24000
@@ -787,7 +1003,7 @@ Moderate regret — some trade-offs to consider
 template.** Note also that the ordering embeds an assumption — that spending more always means less
 regret — which is exactly the kind of claim a real metric would test rather than assume.
 
-### 10.2 What §6.1 would produce instead
+### 10.2 What `lib/groupRegret.ts` produces now
 
 Group: Asha (beaches 0.9, heritage 0.2, food 0.5), Bikram (beaches 0.3, heritage 0.9, food 0.6),
 Chitra (beaches 0.4, heritage 0.4, food 0.95).
@@ -850,13 +1066,20 @@ Day 2, no signal, Dudhsagar trail
   → Map renders                 → cached tiles, CacheFirst           ✅
   → "Drop the 4pm spice tour, I'm tired"
       → on-device LLM, WebGPU, grammar-constrained                   ✅
-      → verifier revalidates budget + timing + geography  [§6.2 TODO]
-      → persist revision locally                          [§6.3 TODO]
+      → verifier revalidates budget + timing + geography         ✅ §6.2 done
+      → repair pass if it fails, once                            ✅ planRepair.ts
+      → persist revision locally + queue for replay              ✅ §6.3 done
   → Network bytes used: 0
   → Data sent to any server: none
+
+Day 3, signal returns
+  → Queued activity edits replay in order                        ✅
+  → A row changed by another member meanwhile → stale write rejected, reported ✅
 ```
 
-The two TODOs are exactly the gaps in §6.2 and §6.3. Everything above them works today.
+Both TODOs that stood here are closed. What remains unverified is not the mechanism but its
+effect: no measurement exists of how often the verifier fires or whether the repair pass helps
+(§6.6).
 
 ---
 
@@ -915,6 +1138,34 @@ The two TODOs are exactly the gaps in §6.2 and §6.3. Everything above them wor
 37. *Revisiting the Travel Planning Capabilities of Large Language Models.* arXiv:2605.03308. https://arxiv.org/html/2605.03308v1
 38. *Hierarchical Multi-Agent Planning for Long-Horizon Constrained Travel.* arXiv:2603.04750. https://arxiv.org/html/2603.04750v1
 39. *Constraints-Aware Multi-Agent Collaboration for Real-World Travel Planning.* arXiv:2509.25586. https://arxiv.org/html/2509.25586v1
+
+### Verification, self-critique and repair loops
+
+*Added in pass 3 (§5.4a). This is the literature the current architecture is answerable to.*
+
+39a. Valmeekam, K., Marquez, M., Olmo, A., Sreedharan, S. & Kambhampati, S. (2023). *PlanBench: An Extensible Benchmark for Evaluating Large Language Models on Planning and Reasoning about Change.* NeurIPS 2023 Datasets & Benchmarks. arXiv:2206.10498. https://arxiv.org/abs/2206.10498
+39b. Valmeekam, K., Marquez, M., Sreedharan, S. & Kambhampati, S. (2023). *On the Planning Abilities of Large Language Models: A Critical Investigation.* arXiv:2305.15771. https://arxiv.org/abs/2305.15771 — GPT-4 ~12% autonomous; LLM-Modulo setting more promising.
+39c. Kambhampati, S. et al. (2024). *LLMs Can't Plan, But Can Help Planning in LLM-Modulo Frameworks.* ICML 2024 (position paper). arXiv:2402.01817. https://arxiv.org/abs/2402.01817 — **names the architecture this project implements.**
+39d. Stechly, K., Valmeekam, K. & Kambhampati, S. (2024). *On the Self-Verification Limitations of Large Language Models on Reasoning and Planning Tasks.* arXiv:2402.08115. https://arxiv.org/abs/2402.08115 — performance collapse under self-critique, gains under sound external verification; **re-prompting alone retains most of the benefit.**
+39e. Stechly, K., Marquez, M. & Kambhampati, S. (2023). *Can Large Language Models Really Improve by Self-critiquing Their Own Plans?* arXiv:2310.08118. https://arxiv.org/abs/2310.08118 — ⚠️ binary vs detailed feedback showed minimal impact; contradicts an assumption in `buildRepairPrompt`.
+39f. Valmeekam, K., Stechly, K. & Kambhampati, S. (2024). *LLMs Still Can't Plan; Can LRMs? A Preliminary Evaluation of OpenAI's o1 on PlanBench.* arXiv:2409.13373. https://arxiv.org/abs/2409.13373
+39g. Madaan, A. et al. (2023). *Self-Refine: Iterative Refinement with Self-Feedback.* arXiv:2303.17651. https://arxiv.org/abs/2303.17651 — the *self*-critique variant this project deliberately avoids.
+39h. Zhou, Z. et al. (2023). *ISR-LLM: Iterative Self-Refined Large Language Model for Long-Horizon Sequential Task Planning.* arXiv:2308.13724. https://arxiv.org/abs/2308.13724 — closest structural precedent: plan → validate → refine.
+39i. Zhang, H. et al. (2024). *Planning with Multi-Constraints via Collaborative Language Agents.* arXiv:2405.16510. https://arxiv.org/abs/2405.16510 — 42.68% on TravelPlanner vs GPT-4's 2.92%; **the honest comparison point.**
+
+### Tourist trip design and time windows
+
+*Added in pass 3 (§5.4b). The operations-research formalism that already solves, optimally, the
+constraints `lib/itineraryVerifier.ts` merely checks.*
+
+39j. Gavalas, D., Konstantopoulos, C., Mastakas, K. & Pantziou, G. (2014). *A survey on algorithmic approaches for solving tourist trip design problems.* Journal of Heuristics 20(3). https://www.researchgate.net/publication/271921760_A_survey_on_algorithmic_approaches_for_solving_tourist_trip_design_problems
+39k. Vansteenwegen, P., Souffriau, W., Vanden Berghe, G. & Van Oudheusden, D. *Metaheuristics for Tourist Trip Planning.* — TOPTW via iterated local search. https://www.researchgate.net/publication/226088125_Metaheuristics_for_Tourist_Trip_Planning
+39l. *Time-Dependent Tourist Tour Planning with Adjustable Profits.* ATMOS 2020, OASIcs vol. 85. DOI 10.4230/OASIcs.ATMOS.2020.14. https://drops.dagstuhl.de/storage/01oasics/oasics-vol085-atmos2020/OASIcs.ATMOS.2020.14/OASIcs.ATMOS.2020.14.pdf — first MILP for TDTOPTW; motivated explicitly by POI opening hours.
+39m. Gavalas, D. et al. (2016). *Efficient Metaheuristics for the Mixed Team Orienteering Problem with Time Windows.* Algorithms 9(1):6. https://www.mdpi.com/1999-4893/9/1/6
+
+### Local-first and offline data
+
+39n. Kleppmann, M., Wiggins, A., van Hardenberg, P. & McGranaghan, M. (2019). *Local-First Software: You Own Your Data, in spite of the Cloud.* Onward! 2019. https://www.cl.cam.ac.uk/research/dtg/www/files/publications/public/mk428/local-first.pdf — the seven ideals; note this project implements optimistic locking, **not** CRDT convergence (§3.3).
 
 ### On-device inference
 
@@ -992,16 +1243,23 @@ native-performance retention, is preserved as stated by the original authors.
 Before contacting a patent agent or submitting a paper:
 
 **Code**
-- [ ] Wire the offline mutation queue into trip/activity/expense writes (§6.3)
-- [ ] Implement the client-side semantic verifier (§6.2) — required for claim 1 element (ix)
-- [ ] Replace the prescribed `regret_score` with a computed metric, or **remove the regret UI
-      entirely** (§3.2). Shipping a constant labelled as a computed score is a
-      misrepresentation to users, independent of any patent question.
-- [ ] Read actual `trip_memberships` instead of `travelers: 2` in `RegretPlanner.tsx`
+- [x] Wire the offline mutation queue — **done for activity writes** (`lib/offlineMutation.ts`).
+      Trip create/update, expenses, chat and community posts still write directly (§3.3).
+- [x] Implement the client-side semantic verifier (§6.2) — `lib/itineraryVerifier.ts`, 13 checks,
+      26 tests. Satisfies claim 1 element (ix).
+- [x] Replace the prescribed `regret_score` with a computed metric — `lib/groupRegret.ts`, 36 tests.
+- [x] Read actual `trip_memberships` instead of `travelers: 2` — `hooks/useGroupPreferences.ts`.
 - [ ] Route the vision prompt to a hosted model when on-device is selected (§3.3)
+- [ ] Backfill authoritative opening hours from OSM/Overpass so `OUTSIDE_OPENING_HOURS` can block
+      rather than warn (§3.3)
+- [ ] Extend offline writes beyond activities (§6.3)
 
-**Measurement**
-- [ ] Run Studies 1–4 (§8.3) — no performance claim is currently substantiated
+**Measurement — now the critical path (§6.6)**
+- [ ] Instrument `verifyItinerary`: violation counts by code, in production
+- [ ] Persist `planRepair` before/after error counts — currently computed then discarded
+- [ ] A/B detailed versus binary repair feedback — [arXiv:2310.08118](https://arxiv.org/abs/2310.08118)
+      suggests the detail may buy nothing
+- [ ] Run Studies 1–4 (§8.3) — **no performance claim is currently substantiated**
 - [ ] Ethics approval before Study 5
 
 **Legal**
@@ -1013,6 +1271,13 @@ Before contacting a patent agent or submitting a paper:
       intended commercialisation route
 
 **Writing**
-- [ ] Do not cite §3.2 items as implemented
-- [ ] Do not use "counterfactual regret" for the current feature (§5.2)
+- [ ] Do not cite the remaining §3.2 items (Nash negotiation, pgvector, LangGraph) as implemented
+- [ ] Do not use "counterfactual regret" for the current feature (§5.2) — it is Least Misery
+- [ ] Do not call the system "bounded-correct"; say *checked against a stated constraint set* (§6.2)
+- [ ] Do not describe replay as CRDT convergence; it is optimistic locking (§3.3)
+- [ ] Do not claim the app "works offline" without stating the scope — reads and activity edits, not
+      trip creation, expenses or chat (§3.3)
+- [ ] Do not imply optimisation; the system checks a subset of TOPTW constraints, it does not solve
+      TOPTW (§5.4b)
+- [ ] Compare against PMC's 42.68% on TravelPlanner, not GPT-4's 0.6% headline (§5.4a)
 - [ ] State the WebGPU selection-effect tension explicitly (§8.4)
