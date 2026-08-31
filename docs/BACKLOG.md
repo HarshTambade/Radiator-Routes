@@ -18,7 +18,7 @@ Measured this pass, not asserted.
 |---|---|---|
 | Type safety | `tsc --noEmit -p tsconfig.app.json` | ✅ clean |
 | Lint | `npm run lint` | ✅ 0 errors, 155 warnings |
-| Tests | `npm run test` | ✅ **82 passed** / 4 files |
+| Tests | `npm run test` | ✅ **104 passed** / 5 files |
 | Dependency audit | `npm audit` | ✅ 0 vulnerabilities / 881 packages |
 | Production build | `npm run build` | ✅ 1.35 s |
 | Service worker | build output | ✅ 82 precache entries, 4367 KiB |
@@ -49,6 +49,11 @@ Measured this pass, not asserted.
 | F5 | **Fake risk meters.** `fatigue_level`, `budget_overrun_risk`, `experience_quality` were free-form LLM outputs shown as `0-100` gauges with no measurement procedure. Removed along with the dead `RiskMeter` component. | 🟠 High | −2 lint warnings |
 | F6 | **Project read as unlicensed.** No `LICENSE`, no `license` field. Added MIT plus third-party notices for WebLLM (Apache-2.0), OSM (ODbL), Open-Meteo (CC BY), Wikipedia (CC BY-SA). | 🟡 Medium | |
 | F7 | **Four competing lockfiles.** `bun.lockb`, `yarn.lock`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` all tracked alongside `package-lock.json`; different CI providers would resolve different trees from one commit. Removed all four, pinned `packageManager`. | 🟡 Medium | |
+| F8 | **Offline writes were discarded.** The mutation queue existed but had no callers, so an edit made with no signal was attempted, failed and vanished. Added `lib/offlineMutation.ts` (queue-on-network-failure wrapper + FIFO replay) and `hooks/useOfflineSync.ts` (drains on reconnect), wired into activity status and edit paths. Pending count is now surfaced in `OfflineIndicator`. | 🔴 Critical | 22 tests |
+| F9 | **Main planner shipped unverified plans.** `planItinerary` in `Itinerary.tsx` did not call the verifier. Now verifies and surfaces blocking issues before the plan is applied. | 🟠 High | |
+| F10 | **Second hardcoded quality score.** `Itinerary.tsx` wrote `regret_score: 0.15` to the database on every generated itinerary — the same anti-pattern as F1, in a different file. Now left null, since a single-plan path has no candidate set to compare against. | 🟠 High | |
+| F11 | **FIFO ordering bug in the replay queue**, found by its own tests. Ordering sorted on `createdAt` (millisecond precision), so a burst of edits replayed in arbitrary IndexedDB index order — wrong when an insert must precede its update. Replaced with a monotonic `seq` that survives reload. | 🟠 High | 2 regression tests |
+| F12 | **IndexedDB was untestable.** jsdom implements no IndexedDB, so anything touching the offline layer threw `indexedDB is not defined`. Added `fake-indexeddb` to `src/test/setup.ts`, which also unblocks the previously-impossible `idb`/`offlineCache` tests. | 🟡 Medium | |
 
 ### 2.1 On F4 — why this was the most serious finding
 
@@ -74,31 +79,31 @@ were measured.
 
 ## 3. Patches still needed
 
-### 3.1 🔴 P1 — Offline writes are silently discarded
+### 3.1 🟠 P1 — Extend offline writes to the remaining paths
 
-**Where:** `hooks/useOfflineStorage.ts` provides `enqueue`/`sync` over an IndexedDB `offlineQueue`
-store. `grep` confirms **no caller anywhere in `src/`**.
+**Done:** `lib/offlineMutation.ts` + `hooks/useOfflineSync.ts` are live and wired into activity
+status changes and activity edits in `CollaborativePlanner.tsx` — the mid-trip editing case, which is
+when signal is worst.
 
-**Effect:** edit a trip offline and the change is gone. The README claims offline capability; that is
-true for reading only.
+**Remaining:** trip create/update (`useTrips`), expense writes (`TripMoneyExpenses.tsx`), chat
+messages, and community posts still write directly and will fail offline.
 
-**Fix:** route mutations in `useTrips`, the activity CRUD in `Itinerary.tsx`, and expense writes in
-`TripMoneyExpenses.tsx` through `enqueue()` when `navigator.onLine` is false, and drain via `sync()`
-on the `online` event. Needs conflict handling: last-write-wins is acceptable for single-user edits
-but wrong for a shared trip, so per-field merge or a server-side `updated_at` check is required.
+**Also unresolved — conflict handling.** Replay is **last-write-wins**. Correct for one person
+editing their own trip, wrong for two members editing the same activity concurrently: the later
+replay silently overwrites. Needs a server-side `updated_at` precondition or field-level merge.
+Documented rather than hidden.
 
-**Effort:** moderate — touches every write path. **This is the single highest-value remaining fix.**
+### 3.2 🟠 P2 — Add the verifier repair loop
 
-### 3.2 🟠 P2 — Verifier is not wired into the main planner
+**Done:** `planItinerary` results are now verified in `Itinerary.tsx` and blocking issues are shown
+before the plan is applied. `RegretPlanner` verifies all three candidates.
 
-`verifyItinerary` runs inside `RegretPlanner`, but `planItinerary` (the primary generation path, used
-from `Itinerary.tsx` and `TripCreationChat.tsx`) does not call it. Those plans reach the user
-unchecked.
+**Remaining:** `TripCreationChat.tsx` still generates unverified, and nothing yet uses
+`buildRepairPrompt()` to feed violations back for one regeneration attempt. The repair loop is the
+part with published evidence behind it — external checking fixes LLM plan errors where self-critique
+does not.
 
-**Fix:** verify after `extractJSON`, and on failure feed `buildRepairPrompt(result)` back for one
-regeneration attempt before surfacing the plan with warnings attached.
-
-### 3.3 🟠 P3 — No preference-elicitation UI
+### 3.3 🔴 P3 — No preference-elicitation UI
 
 `useGroupPreferences` reads `profiles.preferences`, but nothing in the app **writes**
 `category_weights`, `preferred_pace` or `trip_budget_ceiling`. Members with empty preferences score
@@ -195,14 +200,14 @@ Ordered by value per unit of effort.
 ```mermaid
 flowchart LR
     subgraph NOW["Now — correctness"]
-        P1["P1 Offline write sync"]
-        P2["P2 Verify main planner"]
-        P3["P3 Preference UI"]
+        P3["P3 Preference UI<br/>unblocks fairness"]
+        P1["P1 Remaining write paths<br/>+ conflict handling"]
+        A3["A3 Verifier repair loop"]
     end
     subgraph NEXT["Next — substance"]
-        A3["A3 Repair loop"]
         A5["A5 Votes to utilities"]
         P5["P5 Opening hours"]
+        A4["A4 Connectivity-aware policy"]
     end
     subgraph LATER["Later — polish"]
         P4["P4 Merge IndexedDB"]
@@ -217,26 +222,31 @@ flowchart LR
     style LATER fill:#e8f5e9,stroke:#2e7d32
 ```
 
-**P3 before P1.** The fairness metric shipped this pass is inert until members can state
-preferences; shipping it without P3 means users see "fairness was not scored" on every plan.
+**P3 is now the top item.** The fairness metric shipped this pass is inert until members can state
+preferences — without it users see "fairness was not scored" on every plan. It is machinery with no
+fuel.
 
 ---
 
 ## 6. Test coverage
 
-82 tests, up from 1 at the start of the audit series.
+**104 tests**, up from 1 at the start of the audit series.
 
 | Module | Tests | Covers |
 |---|---|---|
-| `lib/itineraryVerifier.ts` | 26 | All 11 violation codes, haversine, error/warning split, repair prompt |
 | `lib/groupRegret.ts` | 36 | Utility model, pace fit, Least Misery invariants, profile extraction, malformed input |
+| `lib/itineraryVerifier.ts` | 26 | All 11 violation codes, haversine, error/warning split, repair prompt |
+| `lib/offlineMutation.ts` | 22 | Failure classification, queue-on-offline, FIFO replay, concurrency lock, round trip |
 | `lib/aiProvider.ts` | 19 | Persistence, stale-id rejection, all 5 WebGPU branches, storage failure |
 | placeholder | 1 | — |
 
+Two of these suites found real bugs in the code they were written for — the FIFO ordering defect
+(F11) and the non-expiring TTL fixed in an earlier pass. That is the argument for the list below.
+
 **Still untested:** `lib/currency.ts` (pure, user-visible), `lib/http.ts` (timeout/retry with mocked
-`fetch`), `lib/offlineCache.ts` and `lib/idb.ts` (where two real bugs were previously found),
-`ProtectedRoute`/`ProtectedLayout` (a redirect regression here is a security issue). No coverage
-threshold is configured — worth adding once these land.
+`fetch`), `lib/offlineCache.ts` and `lib/idb.ts` (where two real bugs were previously found — now
+testable thanks to F12), `ProtectedRoute`/`ProtectedLayout` (a redirect regression here is a security
+issue). No coverage threshold is configured — worth adding once these land.
 
 ---
 
@@ -245,11 +255,17 @@ threshold is configured — worth adding once these land.
 **Solid:** dependency hygiene (0 vulns), type safety, bundle discipline (171 kB gzipped initial, 11.7
 MB of WebLLM correctly excluded from precache), and the offline read path.
 
-**Fixed this pass:** the two features most prominently advertised — regret scoring and plan quality
-metrics — were presentation over prompt constants. They now compute real values from real
-preferences, with 62 tests behind them. A fabricated-scene-description path aimed at blind users was
-removed.
+**Fixed this pass (12 items):** the two features most prominently advertised — regret scoring and plan
+quality metrics — were presentation over prompt constants in **two separate files**. They now compute
+real values from real preferences. Offline writes no longer vanish. Generated plans are verified
+before they reach the user. A fabricated-scene-description path aimed at blind users was removed.
+Tests went 1 → 104, and writing them surfaced two further defects (F11, F12) that would otherwise
+have shipped.
 
-**Weakest remaining:** offline **writes** silently discard data (P1), the new fairness metric has no
-input UI (P3), and the primary planner still ships unverified plans (P2). Runtime behaviour of
-on-device inference remains entirely unmeasured.
+**Weakest remaining:** the fairness metric has no input UI, so it is inert for most groups (P3 — now
+top priority). Offline write coverage is partial and conflict resolution is last-write-wins (P1).
+Runtime behaviour of on-device inference remains **entirely unmeasured** — no load times, no
+throughput, no memory figures, no real-device install test.
+
+**Pattern worth noting:** three of the twelve fixes were the same mistake — a generated or constant
+value presented to the user as a measurement. Worth watching for in review.

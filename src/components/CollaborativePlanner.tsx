@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { errorMessage } from "@/lib/errors";
+import { mutateWithOfflineQueue } from "@/lib/offlineMutation";
 
 interface Activity {
   id: string;
@@ -145,10 +146,36 @@ export default function CollaborativePlanner({ tripId, activities, onActivityUpd
 
   const handleMarkStatus = async (activityId: string, status: string) => {
     try {
-      const { error } = await supabase.from("activities").update({ status }).eq("id", activityId);
-      if (error) throw error;
+      // Ticking activities off happens mid-trip, which is exactly when signal is
+      // worst — so this write queues rather than failing.
+      const result = await mutateWithOfflineQueue(
+        async () => {
+          const { error } = await supabase
+            .from("activities")
+            .update({ status })
+            .eq("id", activityId);
+          if (error) throw error;
+        },
+        {
+          table: "activities",
+          action: "update",
+          payload: { status },
+          matchValue: activityId,
+          description: `Mark activity ${status}`,
+          invalidate: [["activities"], ["itineraries", tripId]],
+        },
+      );
+
       onActivityUpdated();
-      toast({ title: status === "done" ? "Marked done ✅" : status === "skipped" ? "Skipped ⏭️" : "Reset to pending" });
+      toast({
+        title: result.queued
+          ? "Saved offline — will sync"
+          : status === "done"
+            ? "Marked done ✅"
+            : status === "skipped"
+              ? "Skipped ⏭️"
+              : "Reset to pending",
+      });
     } catch (e: unknown) {
       toast({ title: "Error", description: errorMessage(e), variant: "destructive" });
     }
@@ -167,18 +194,38 @@ export default function CollaborativePlanner({ tripId, activities, onActivityUpd
 
   const saveEdit = async () => {
     if (!editingId) return;
+    const payload = {
+      name: editForm.name,
+      description: editForm.description,
+      cost: editForm.cost,
+      notes: editForm.notes,
+      location_name: editForm.location_name,
+    };
+
     try {
-      const { error } = await supabase.from("activities").update({
-        name: editForm.name,
-        description: editForm.description,
-        cost: editForm.cost,
-        notes: editForm.notes,
-        location_name: editForm.location_name,
-      }).eq("id", editingId);
-      if (error) throw error;
+      const result = await mutateWithOfflineQueue(
+        async () => {
+          const { error } = await supabase
+            .from("activities")
+            .update(payload)
+            .eq("id", editingId);
+          if (error) throw error;
+        },
+        {
+          table: "activities",
+          action: "update",
+          payload,
+          matchValue: editingId,
+          description: `Edit "${editForm.name ?? "activity"}"`,
+          invalidate: [["activities"], ["itineraries", tripId]],
+        },
+      );
+
       setEditingId(null);
       onActivityUpdated();
-      toast({ title: "Activity updated ✏️" });
+      toast({
+        title: result.queued ? "Saved offline — will sync" : "Activity updated ✏️",
+      });
     } catch (e: unknown) {
       toast({ title: "Error", description: errorMessage(e), variant: "destructive" });
     }

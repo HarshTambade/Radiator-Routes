@@ -1,7 +1,8 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { RefreshCw, WifiOff } from "lucide-react";
+import { CloudUpload, Loader2, RefreshCw, WifiOff } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/useOfflineTrip";
 import { useServiceWorkerUpdate } from "@/hooks/useOfflineStorage";
+import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { useToast } from "@/hooks/use-toast";
 
 /**
@@ -14,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 export function OfflineIndicator() {
   const isOnline = useOnlineStatus();
   const { hasUpdate, update } = useServiceWorkerUpdate();
+  const { pending, phase, hasPending, syncNow } = useOfflineSync();
   const { toast } = useToast();
   const wasOffline = useRef(false);
 
@@ -38,6 +40,61 @@ export function OfflineIndicator() {
     }
   }, [isOnline, toast]);
 
+  // Offline banner takes priority: it explains why edits aren't reaching the
+  // server, which matters more than an available update.
+  if (!isOnline) {
+    return (
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 bg-destructive p-3 text-sm text-destructive-foreground md:text-base"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="mx-auto flex max-w-7xl items-center justify-center gap-2">
+          <WifiOff className="h-5 w-5 flex-shrink-0 md:h-6 md:w-6" aria-hidden="true" />
+          <span className="font-medium">
+            Offline — showing saved trips and cached maps.
+            {hasPending &&
+              ` ${pending} change${pending === 1 ? "" : "s"} will sync when you reconnect.`}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // Online with work outstanding — surface it so unsynced edits are never silent.
+  if (hasPending || phase === "syncing") {
+    const syncing = phase === "syncing";
+    return (
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 bg-warning p-3 text-sm text-warning-foreground md:text-base"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="mx-auto flex max-w-7xl items-center justify-center gap-3">
+          {syncing ? (
+            <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" aria-hidden="true" />
+          ) : (
+            <CloudUpload className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+          )}
+          <span className="font-medium">
+            {syncing
+              ? "Syncing your offline changes…"
+              : `${pending} offline change${pending === 1 ? "" : "s"} waiting to sync.`}
+          </span>
+          {!syncing && (
+            <button
+              type="button"
+              onClick={syncNow}
+              className="rounded-full bg-warning-foreground/15 px-3 py-1 font-semibold transition-colors hover:bg-warning-foreground/25"
+            >
+              Sync now
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (hasUpdate) {
     return (
       <div
@@ -60,20 +117,8 @@ export function OfflineIndicator() {
     );
   }
 
-  if (isOnline) return null;
-
-  return (
-    <div
-      className="fixed bottom-0 left-0 right-0 z-50 bg-destructive p-3 text-sm text-destructive-foreground md:text-base"
-      role="status"
-      aria-live="polite"
-    >
-      <div className="mx-auto flex max-w-7xl items-center justify-center gap-2">
-        <WifiOff className="h-5 w-5 flex-shrink-0 md:h-6 md:w-6" aria-hidden="true" />
-        <span className="font-medium">Offline — showing saved trips and cached maps.</span>
-      </div>
-    </div>
-  );
+  // Online, nothing queued, no update waiting — stay out of the way.
+  return null;
 }
 
 /**

@@ -1,5 +1,12 @@
 import "@testing-library/jest-dom";
 
+// ── IndexedDB ───────────────────────────────────────────────────────────────
+// jsdom does not implement IndexedDB at all, so anything touching
+// `lib/idb.ts`, `lib/offlineCache.ts` or `lib/offlineMutation.ts` throws
+// "indexedDB is not defined". This in-memory implementation makes the offline
+// layer testable.
+import "fake-indexeddb/auto";
+
 // ── matchMedia ──────────────────────────────────────────────────────────────
 // jsdom doesn't implement it; several components query it on mount.
 Object.defineProperty(window, "matchMedia", {

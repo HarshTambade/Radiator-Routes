@@ -19,7 +19,8 @@ not measurable in this environment and are called out as such rather than estima
 | Secrets in git history | 🔴 **Critical** | `.env` with 6 live keys committed to a public repo |
 | TypeScript | ✅ Pass | `tsc --noEmit` clean |
 | ESLint | 🟡 Partial | 0 errors, 157 warnings |
-| Tests | 🟡 Improving | **82 tests across 4 files** — was 1 |
+| Tests | 🟡 Improving | **104 tests across 5 files** — was 1 |
+| Offline writes | ✅ Fixed (partial) | Queue wired + FIFO replay (`lib/offlineMutation.ts`); some paths remain — BACKLOG §3.1 |
 | Licensing metadata | ✅ Fixed | `LICENSE` + `license` field + third-party notices added |
 | Lockfile determinism | ✅ Fixed | 4 competing lockfiles removed; `packageManager` pinned |
 | Computed plan quality | ✅ Fixed | Prescribed regret score replaced by Least Misery (`lib/groupRegret.ts`) |
@@ -30,7 +31,6 @@ not measurable in this environment and are called out as such rather than estima
 | PWA manifest & service worker | ✅ Pass | 82 precache entries, 12 runtime caches verified in `dist/sw.js` |
 | Offline reads | ✅ Works | App shell, saved trips, cached tiles and API responses |
 | **Offline AI** | ✅ **Now available** | On-device WebLLM backend, opt-in |
-| Offline writes | 🔴 **Not implemented** | Queue exists but is not wired to any mutation path |
 | Accuracy of user-facing claims | ✅ Fixed | Landing page and metadata no longer advertise absent tech |
 
 **Headline:** the codebase is in good shape technically — clean types, zero vulnerabilities, a

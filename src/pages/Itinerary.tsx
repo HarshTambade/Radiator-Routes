@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
 import { errorMessage } from "@/lib/errors";
+import { verifyItinerary } from "@/lib/itineraryVerifier";
 import {
   getWeatherForecast,
   geocodeDestination,
@@ -407,6 +408,30 @@ export default function Itinerary() {
         tripType: (trip as any).trip_type || "leisure",
       })) as any;
 
+      // Verify feasibility before this reaches the user. Grammar-constrained
+      // JSON guarantees shape, not possibility, so check budget, timing, travel
+      // distances and pace deterministically.
+      const verification = verifyItinerary(
+        { activities: plan.activities, total_cost: plan.total_cost },
+        {
+          budget: Number(trip.budget_total) || undefined,
+          days,
+          maxActivitiesPerDay: 6,
+        },
+      );
+      if (!verification.ok) {
+        toast({
+          title: `Plan has ${verification.errors.length} feasibility issue${
+            verification.errors.length === 1 ? "" : "s"
+          }`,
+          description: verification.errors
+            .slice(0, 2)
+            .map((v) => v.message)
+            .join(" "),
+          variant: "destructive",
+        });
+      }
+
       // Store reasoning from AI response
       if (plan.reasoning) {
         setItineraryReasoning(plan.reasoning as ItineraryReasoning);
@@ -461,13 +486,13 @@ export default function Itinerary() {
         if (actErr) throw actErr;
       }
 
-      // Update itinerary with cost breakdown and regret score
+      // Cost breakdown only. `regret_score` is deliberately left null here:
+      // it is a computed group metric (lib/groupRegret.ts) and this single-plan
+      // path has no candidate set to compare against. It previously wrote a
+      // hardcoded 0.15, which the UI then presented as a measurement.
       await supabase
         .from("itineraries")
-        .update({
-          cost_breakdown: { total: plan.total_cost },
-          regret_score: 0.15,
-        })
+        .update({ cost_breakdown: { total: plan.total_cost } })
         .eq("id", itineraryId);
 
       queryClient.invalidateQueries({ queryKey: ["itineraries", tripId] });
