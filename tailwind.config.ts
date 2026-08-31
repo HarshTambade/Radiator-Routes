@@ -17,6 +17,10 @@ export default {
     extend: {
       fontFamily: {
         sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+        // Display serif used for headings on the landing page. Previously applied
+        // via an inline `style={{ fontFamily: ... }}` on every heading; aliasing it
+        // here lets those become a single `font-display` class.
+        display: ['"Playfair Display"', 'serif'],
       },
       colors: {
         border: "hsl(var(--border))",

@@ -195,6 +195,21 @@ html {
     text-size-adjust: 100%;
 }
 
+/* Smooth in-page anchor navigation (landing page section links).
+   Deliberately scoped to scroll-behaviour only — a blanket
+   `animation-duration: 0` reduced-motion override would also freeze the
+   route-loading spinner and the offline indicator. Component-level motion
+   opts out via Tailwind's `motion-reduce:` variants instead. */
+html {
+    scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
+    }
+}
+
 /* Smooth momentum scrolling on iOS */
 .overflow-y-auto,
 .overflow-auto {
