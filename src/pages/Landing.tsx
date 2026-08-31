@@ -1,29 +1,43 @@
 import { Link } from "react-router-dom";
 import {
   Accessibility,
+  AlertTriangle,
+  ArrowDown,
   ArrowRight,
   BarChart3,
   Bell,
   BookOpen,
   Bot,
   Brain,
+  Calculator,
   Camera,
   Car,
   CheckCircle,
   ChevronRight,
+  CircleDot,
+  ClipboardCheck,
   Clock,
   CloudSun,
   CloudUpload,
   Compass,
+  Copy,
   Cpu,
   CreditCard,
+  Database,
   Eye,
   FileDown,
+  FlaskConical,
+  Gauge,
+  GitBranch,
   Github,
   Globe,
   HeartHandshake,
+  HelpCircle,
   IndianRupee,
+  Info,
+  KeyRound,
   Languages,
+  Layers,
   ListChecks,
   Locate,
   Lock,
@@ -34,27 +48,35 @@ import {
   Menu,
   MessageSquare,
   Mic,
+  Minus,
   Navigation,
   Pause,
   Plane,
   Play,
+  Plus,
   Quote,
   Radio,
   RefreshCw,
   Route,
   Scale,
   ScanLine,
+  Server,
   Share2,
   Shield,
   ShieldCheck,
+  Signal,
   Smartphone,
   Sparkles,
+  Terminal,
   Timer,
+  TrendingDown,
   Users,
   Volume2,
   Wallet,
   WifiOff,
+  Wrench,
   X,
+  XCircle,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -62,6 +84,14 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { WEBLLM_MODELS, DEFAULT_WEBLLM_MODEL } from "@/lib/aiProvider";
 import { SUPPORTED_LANGUAGES } from "@/services/translate";
+import { Seo } from "@/components/Seo";
+import { destinations, beyondIndia } from "@/data/destinations";
+import {
+  canonicalUrl,
+  destinationListJsonLd,
+  faqPageJsonLd,
+  type JsonLd,
+} from "@/lib/seo";
 
 // Image imports
 import heroOcean from "@/assets/hero-ocean.jpg";
@@ -77,12 +107,6 @@ import travelSummit from "@/assets/travel-summit.jpg";
 import destinationGoa from "@/assets/destination-goa.jpg";
 import destinationAgra from "@/assets/destination-agra.jpg";
 import destinationKerala from "@/assets/destination-kerala.jpg";
-import bangkok from "@/assets/bangkok.jpg";
-import tokyo from "@/assets/tokyo.jpg";
-import hanoi from "@/assets/hanoi.jpg";
-import kualaLumpur from "@/assets/kuala-lumpur.jpg";
-import sapa from "@/assets/sapa.jpg";
-import malacca from "@/assets/malacca.jpg";
 
 /* ────────────────────────────────────────────────────────────────────────────
    Copy policy for this file
@@ -125,26 +149,42 @@ const FEASIBILITY_CHECK_COUNT = 13;
 const navLinks = [
   { href: "#about", label: "About" },
   { href: "#whats-new", label: "What's New" },
-  { href: "#engines", label: "AI Engines" },
-  { href: "#how", label: "How It Works" },
+  { href: "#pipeline", label: "Pipeline" },
+  { href: "#verification", label: "Verification" },
+  { href: "#fairness", label: "Fairness" },
   { href: "#features", label: "Features" },
   { href: "#tech", label: "Tech" },
+  { href: "#faq", label: "FAQ" },
 ];
 
 const mobileOnlyLinks = [
+  { href: "#engines", label: "AI Engines" },
+  { href: "#how", label: "How It Works" },
+  { href: "#offline", label: "Offline" },
   { href: "#languages", label: "Languages" },
   { href: "#destinations", label: "Destinations" },
+  { href: "#roadmap", label: "Roadmap" },
 ];
 
 /* ─── Hero stats — each one is checkable against the codebase ─── */
 
 const stats = [
-  { value: "2", label: "AI engines — hosted or on-device" },
-  { value: String(LANGUAGE_COUNT), label: `Languages, ${INDIAN_LANGUAGE_COUNT} Indian` },
-  { value: String(FEASIBILITY_CHECK_COUNT), label: "Feasibility checks per plan" },
-  { value: "₹0", label: "In API costs, no paid keys" },
-  { value: "5s", label: "Live location refresh" },
-  { value: "0", label: "Forms to plan a trip" },
+  { value: 2, prefix: "", suffix: "", label: "AI engines — hosted or on-device" },
+  {
+    value: LANGUAGE_COUNT,
+    prefix: "",
+    suffix: "",
+    label: `Languages, ${INDIAN_LANGUAGE_COUNT} Indian`,
+  },
+  {
+    value: FEASIBILITY_CHECK_COUNT,
+    prefix: "",
+    suffix: "",
+    label: "Feasibility checks per plan",
+  },
+  { value: 0, prefix: "₹", suffix: "", label: "In API costs, no paid keys" },
+  { value: 5, prefix: "", suffix: "s", label: "Live location refresh" },
+  { value: 0, prefix: "", suffix: "", label: "Forms to plan a trip" },
 ];
 
 /* ─── Hero slideshow ───
@@ -284,7 +324,7 @@ const updates: Update[] = [
       { icon: ShieldCheck, text: "Only network failures queue — a rejected write still tells you" },
       { icon: ListChecks, text: "Pending count shown in the offline banner" },
     ],
-    footnote: "Wired into activity status and inline edits · 22 tests cover the queue",
+    footnote: "Wired into activity status and inline edits · 31 tests cover the queue",
   },
   {
     icon: Languages,
@@ -793,37 +833,11 @@ const techCategoryColors: Record<string, string> = {
   Quality: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
 };
 
-/* ─── Destinations ─── */
-
-const destinations = [
-  {
-    name: "Goa Beaches",
-    desc: "Sun, sand and serenity on India's finest coastline",
-    image: destinationGoa,
-    tag: "Weekend Getaway",
-  },
-  {
-    name: "Agra Heritage",
-    desc: "Walk through centuries of Mughal grandeur",
-    image: destinationAgra,
-    tag: "Cultural Trip",
-  },
-  {
-    name: "Kerala Backwaters",
-    desc: "Cruise tranquil palm-fringed waterways",
-    image: destinationKerala,
-    tag: "Nature & Wellness",
-  },
-];
-
-const beyondIndia = [
-  { name: "Bangkok", image: bangkok },
-  { name: "Tokyo", image: tokyo },
-  { name: "Hanoi", image: hanoi },
-  { name: "Kuala Lumpur", image: kualaLumpur },
-  { name: "Sapa", image: sapa },
-  { name: "Malacca", image: malacca },
-];
+/* ─── Destinations ───
+   `destinations` and `beyondIndia` live in @/data/destinations so the cards
+   below and the TouristDestination ItemList in this page's structured data are
+   generated from one array. Markup that describes content the visitor can't see
+   is a policy violation, and sharing the source makes that impossible. ─── */
 
 const tripTypes = [
   { title: "Beach & Relaxation", image: travelBeach },
@@ -870,6 +884,712 @@ const principles = [
     title: "Locked down by default",
     desc: "Row-Level Security on every table, PKCE auth, and the request cache purged on sign-out so one session can't read another's data.",
     color: "text-blue-600 bg-blue-600/10",
+  },
+];
+
+/* ─── The request pipeline ───
+   Every parameter below is read off the implementation: services/groqVoice.ts,
+   lib/aiPlanner.ts, lib/itineraryVerifier.ts, lib/planRepair.ts,
+   lib/groupRegret.ts and components/RegretPlanner.tsx. If one of those changes,
+   change it here too — this section is the page's most falsifiable claim. */
+
+interface PipelineStage {
+  id: string;
+  step: string;
+  icon: LucideIcon;
+  title: string;
+  headline: string;
+  detail: string;
+  meta: { k: string; v: string }[];
+  source: string;
+  accent: string;
+  bar: string;
+}
+
+const pipelineStages: PipelineStage[] = [
+  {
+    id: "capture",
+    step: "01",
+    icon: Mic,
+    title: "Capture",
+    headline: "Your sentence is transcribed in the browser",
+    detail:
+      "The Web Speech API handles this with no key and no upload. Only when a browser doesn't expose SpeechRecognition — and a Groq key is present — does it fall back to recording audio and sending it to Whisper. Read-aloud uses the browser's own speech synthesis.",
+    meta: [
+      { k: "Primary", v: "Web Speech API, on-device" },
+      { k: "Alternatives kept", v: "3" },
+      { k: "Interim results", v: "Streamed while you talk" },
+      { k: "Fallback", v: "whisper-large-v3-turbo" },
+    ],
+    source: "src/services/groqVoice.ts",
+    accent: "text-primary bg-primary/10 border-primary/20",
+    bar: "from-orange-400 to-primary",
+  },
+  {
+    id: "intent",
+    step: "02",
+    icon: ListChecks,
+    title: "Intent",
+    headline: "Eight fields are pulled out of one sentence",
+    detail:
+      "Destination, start date, duration, traveller count, budget range, interests, trip type and a confidence score. Temperature is pinned to zero because this step should not be creative. If it fails for any reason it returns nulls with confidence 0 rather than throwing — you get asked, not an error page.",
+    meta: [
+      { k: "Temperature", v: "0.0" },
+      { k: "Token budget", v: "512" },
+      { k: "Output", v: "Strict JSON mode" },
+      { k: "On failure", v: "Nulls, confidence 0" },
+    ],
+    source: "extractIntent · src/lib/aiPlanner.ts",
+    accent: "text-sky-500 bg-sky-500/10 border-sky-500/20",
+    bar: "from-sky-400 to-blue-500",
+  },
+  {
+    id: "draft",
+    step: "03",
+    icon: Brain,
+    title: "Draft",
+    headline: "Three candidate plans come back in a single call",
+    detail:
+      "One request returns all three variants, each biased to a different share of your budget, so the options are comparable rather than three separate rolls of the dice. Every activity carries coordinates, timestamps with a +05:30 offset, a category, a cost and a review score — which is exactly what the next two stages need to do their job.",
+    meta: [
+      { k: "Variants", v: "budget · balanced · experience" },
+      { k: "Cost bias", v: "0.6× · 0.8× · 1.0× budget" },
+      { k: "Activities each", v: "min(days × 3, 12)" },
+      { k: "Temperature", v: "0.7 · 8192 tokens" },
+    ],
+    source: "regretCounterfactual · src/lib/aiPlanner.ts",
+    accent: "text-violet-500 bg-violet-500/10 border-violet-500/20",
+    bar: "from-violet-400 to-purple-500",
+  },
+  {
+    id: "verify",
+    step: "04",
+    icon: ShieldCheck,
+    title: "Verify",
+    headline: `${FEASIBILITY_CHECK_COUNT} deterministic checks, no model involved`,
+    detail:
+      "Pure functions, no network, no inference — which is why this runs offline in milliseconds and returns the same answer every time. Errors block a plan; warnings annotate it. Findings are prefixed with the variant they came from so you can tell which candidate broke.",
+    meta: [
+      { k: "Checks", v: String(FEASIBILITY_CHECK_COUNT) },
+      { k: "Blocking", v: "7 errors" },
+      { k: "Annotating", v: "4 warnings" },
+      { k: "Source-dependent", v: "2 opening-hours checks" },
+    ],
+    source: "src/lib/itineraryVerifier.ts",
+    accent: "text-emerald-500 bg-emerald-500/10 border-emerald-500/20",
+    bar: "from-emerald-400 to-teal-500",
+  },
+  {
+    id: "repair",
+    step: "05",
+    icon: Wrench,
+    title: "Repair",
+    headline: "One retry, and it has to actually be better",
+    detail:
+      "Failures are turned into a numbered instruction and sent back once. Warnings are deliberately left out of that prompt, so a nudge about pace never triggers a regeneration. The second plan only wins if it has strictly fewer errors — a tie keeps the original, because a model rewriting a plan sideways is not progress.",
+    meta: [
+      { k: "Retries", v: "1 (two model calls at most)" },
+      { k: "Prompt contains", v: "Errors only" },
+      { k: "Tie-break", v: "Original plan is kept" },
+      { k: "If the retry throws", v: "First plan, error surfaced" },
+    ],
+    source: "generateWithRepair · src/lib/planRepair.ts",
+    accent: "text-amber-500 bg-warning/10 border-warning/20",
+    bar: "from-yellow-400 to-amber-500",
+  },
+  {
+    id: "score",
+    step: "06",
+    icon: Scale,
+    title: "Score",
+    headline: "Feasibility first, then fairness",
+    detail:
+      "Each traveller's utility is computed from their own stated preferences, and a plan's group score is the worst member's regret. The recommendation minimises that — but only among plans that passed verification. A beautifully fair impossible plan still loses to a feasible one.",
+    meta: [
+      { k: "Strategy", v: "Least Misery" },
+      { k: "Utility", v: "0.6 interest · 0.2 quality · 0.2 affordability" },
+      { k: "Tie-break", v: "Average regret, then order" },
+      { k: "Skipped when", v: "No member has stated preferences" },
+    ],
+    source: "src/lib/groupRegret.ts",
+    accent: "text-blue-500 bg-blue-500/10 border-blue-500/20",
+    bar: "from-blue-400 to-indigo-500",
+  },
+  {
+    id: "save",
+    step: "07",
+    icon: Database,
+    title: "Save",
+    headline: "Written with the score it was chosen on",
+    detail:
+      "The itinerary row is created or updated, activities are written with their coordinates and opening-hours provenance, and the computed group regret is stored alongside. A single-plan generation leaves that score null on purpose: regret is measured against alternatives, and one plan has none.",
+    meta: [
+      { k: "Stored", v: "Itinerary, activities, cost breakdown" },
+      { k: "Group score", v: "Persisted as regret_score" },
+      { k: "Single plan", v: "Score left null, honestly" },
+      { k: "Offline", v: "Trip creation queues and replays" },
+    ],
+    source: "applyPlan · src/components/RegretPlanner.tsx",
+    accent: "text-slate-500 bg-slate-500/10 border-slate-500/20",
+    bar: "from-slate-400 to-slate-500",
+  },
+];
+
+const pipelineNumbers = [
+  { value: "1–2", label: "Model calls per plan request", icon: Cpu },
+  { value: "3", label: "Candidate plans, one call", icon: Layers },
+  { value: String(FEASIBILITY_CHECK_COUNT), label: "Checks before you see it", icon: ShieldCheck },
+  { value: "0", label: "Checks that need the network", icon: WifiOff },
+];
+
+/** What is actually doing the work at each stage. Three of seven are the model. */
+const stageKind: Record<string, { label: string; chip: string }> = {
+  capture: { label: "Browser", chip: "bg-primary/10 text-primary border-primary/20" },
+  intent: { label: "Model", chip: "bg-violet-500/10 text-violet-600 border-violet-500/20" },
+  draft: { label: "Model", chip: "bg-violet-500/10 text-violet-600 border-violet-500/20" },
+  verify: { label: "Code", chip: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" },
+  repair: { label: "Model", chip: "bg-violet-500/10 text-violet-600 border-violet-500/20" },
+  score: { label: "Code", chip: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" },
+  save: { label: "Database", chip: "bg-slate-500/10 text-slate-600 border-slate-500/20" },
+};
+
+/** The activity shape the model is required to return, field by field. */
+const activityFields = [
+  { field: "name · description", note: "What it is, in plain language" },
+  { field: "location_name · lat · lng", note: "Enough to route to it and sanity-check the region" },
+  { field: "start_time · end_time", note: "Timestamps with a +05:30 offset" },
+  { field: "category", note: "One of seven — this drives the interest score" },
+  { field: "cost", note: "₹, summed and checked against the budget" },
+  { field: "review_score", note: "Feeds the quality component of each utility" },
+  { field: "estimated_steps", note: "Used for pace and accessibility context" },
+  { field: "opening_hours", note: "Carries a source flag: model, or verified" },
+  {
+    field: "reasoning — per plan",
+    note: "Selection criteria, budget strategy and local tips for the whole plan",
+  },
+];
+
+/* ─── The verifier, check by check ───
+   Mirrors the ViolationCode union in lib/itineraryVerifier.ts. */
+
+type CheckSeverity = "error" | "warning" | "conditional";
+
+interface VerificationCheck {
+  code: string;
+  severity: CheckSeverity;
+  icon: LucideIcon;
+  what: string;
+  detail: string;
+}
+
+const verificationChecks: VerificationCheck[] = [
+  {
+    code: "BUDGET_EXCEEDED",
+    severity: "error",
+    icon: Wallet,
+    what: "Costs add up to more than the budget",
+    detail:
+      "Summed activity costs against the budget with a 2% tolerance, so rounding doesn't trip it but ₹80,000 of plans on ₹40,000 does.",
+  },
+  {
+    code: "TIME_OVERLAP",
+    severity: "error",
+    icon: Timer,
+    what: "Two activities booked over each other",
+    detail:
+      "Activities are sorted by start time, then each start is compared against the previous end. Two things at 3 pm is the classic model failure.",
+  },
+  {
+    code: "TRAVEL_INFEASIBLE",
+    severity: "error",
+    icon: Route,
+    what: "A gap too short to cover the distance",
+    detail:
+      "Straight-line distance between consecutive stops has to fit inside the scheduled gap at 45 km/h plus 15 minutes of slack. Hops under 1 km are ignored.",
+  },
+  {
+    code: "TIME_REVERSED",
+    severity: "error",
+    icon: Clock,
+    what: "An activity that ends before it starts",
+    detail: "end <= start. Rare, and unambiguous when it happens.",
+  },
+  {
+    code: "TIME_INVALID",
+    severity: "error",
+    icon: AlertTriangle,
+    what: "A timestamp that isn't a real time",
+    detail:
+      "Unparseable or missing start or end. That activity is then excluded from the overlap and travel checks rather than corrupting them.",
+  },
+  {
+    code: "COORD_INVALID",
+    severity: "error",
+    icon: MapPin,
+    what: "Coordinates that aren't on Earth",
+    detail: "Latitude outside ±90 or longitude outside ±180.",
+  },
+  {
+    code: "EMPTY_ITINERARY",
+    severity: "error",
+    icon: XCircle,
+    what: "A plan with no activities in it",
+    detail:
+      "Short-circuits the whole run — none of the other checks have anything to say about nothing.",
+  },
+  {
+    code: "CLOSED_ON_DAY",
+    severity: "conditional",
+    icon: Lock,
+    what: "Booked on a day the place is shut",
+    detail:
+      "Blocks when the opening hours came from OpenStreetMap or a person. Only warns when the model supplied them, because that isn't evidence.",
+  },
+  {
+    code: "OUTSIDE_OPENING_HOURS",
+    severity: "conditional",
+    icon: Clock,
+    what: "Booked outside that day's open hours",
+    detail:
+      "Same provenance rule. Where hours are missing entirely, no check runs at all — absence of data isn't evidence of closure.",
+  },
+  {
+    code: "PACE_EXCEEDED",
+    severity: "warning",
+    icon: Gauge,
+    what: "More than 6 activities in one day",
+    detail:
+      "Counted per local calendar day. Some people genuinely want that, so it annotates instead of blocking.",
+  },
+  {
+    code: "COST_SUM_MISMATCH",
+    severity: "warning",
+    icon: Calculator,
+    what: "The stated total doesn't match the parts",
+    detail: "Difference of more than ₹1 between total_cost and the sum of activity costs.",
+  },
+  {
+    code: "DURATION_IMPLAUSIBLE",
+    severity: "warning",
+    icon: Clock,
+    what: "A single activity longer than 14 hours",
+    detail: "Usually a timestamp error rather than an ambitious afternoon.",
+  },
+  {
+    code: "COORD_OUT_OF_REGION",
+    severity: "warning",
+    icon: Compass,
+    what: "A stop far outside the destination",
+    detail:
+      "Implemented and tested, but it needs an anchor point to arm and neither caller passes one today. Listed because it's in the union, not because it's protecting you.",
+  },
+];
+
+const severityMeta: Record<
+  CheckSeverity,
+  { label: string; chip: string; dot: string; blurb: string }
+> = {
+  error: {
+    label: "Blocks the plan",
+    chip: "bg-red-500/10 text-red-600 border-red-500/20",
+    dot: "bg-red-500",
+    blurb: "A plan is only ok when there are zero of these.",
+  },
+  warning: {
+    label: "Annotates it",
+    chip: "bg-warning/10 text-amber-600 border-warning/20",
+    dot: "bg-warning",
+    blurb: "Shown to you, never hidden, but they don't reject a plan.",
+  },
+  conditional: {
+    label: "Depends on the source",
+    chip: "bg-violet-500/10 text-violet-600 border-violet-500/20",
+    dot: "bg-violet-500",
+    blurb: "Blocks on verified data, warns on model-supplied data.",
+  },
+};
+
+const severityFilters: ("All" | CheckSeverity)[] = ["All", "error", "conditional", "warning"];
+
+const verifierConstants = [
+  { label: "Assumed road speed", value: "45 km/h", note: "Applied to straight-line distance, so a real route is longer" },
+  { label: "Travel slack", value: "+15 min", note: "Added to every leg before it's called infeasible" },
+  { label: "Budget tolerance", value: "2%", note: "Rounding room before a plan is rejected on cost" },
+  { label: "Cost sum tolerance", value: "₹1", note: "Before the stated total is flagged as wrong" },
+  { label: "Max activity length", value: "14 h", note: "Longer reads as a timestamp bug" },
+  { label: "Default pace ceiling", value: "6 / day", note: "Per local calendar day" },
+];
+
+const repairSteps = [
+  {
+    icon: XCircle,
+    title: "Collect the errors",
+    desc: "Only errors. A pace warning never causes a regeneration.",
+  },
+  {
+    icon: RefreshCw,
+    title: "Ask once, specifically",
+    desc: "A numbered list of what failed, with the same JSON shape required back.",
+  },
+  {
+    icon: Scale,
+    title: "Keep the better plan",
+    desc: "Strictly fewer errors wins. A tie keeps the original.",
+  },
+  {
+    icon: Info,
+    title: "Say what happened",
+    desc: '"Second pass fixed 2 of 3 issues; 1 remains" — not a silent swap.',
+  },
+];
+
+/* ─── Fairness, with a worked example ───
+   Component values below are the inputs; every utility, regret and group score
+   rendered on the page is computed from them with the same weights the app
+   uses, so the arithmetic on screen can't drift from lib/groupRegret.ts. */
+
+const UTILITY_WEIGHTS = { interest: 0.6, quality: 0.2, affordability: 0.2 };
+
+const fairnessMembers = [
+  {
+    id: "asha",
+    name: "Asha",
+    prefs: "Food 0.9 · Attractions 0.9",
+    ceiling: "₹20,000",
+    tint: "text-primary bg-primary/10 border-primary/20",
+  },
+  {
+    id: "ben",
+    name: "Ben",
+    prefs: "Shopping 0.9",
+    ceiling: "₹40,000",
+    tint: "text-violet-600 bg-violet-500/10 border-violet-500/20",
+  },
+];
+
+interface FairnessPlan {
+  id: string;
+  variant: string;
+  cost: string;
+  mix: string;
+  rating: string;
+  /** interest, quality, affordability per member — the three utility components */
+  components: Record<string, { interest: number; quality: number; affordability: number }>;
+}
+
+const fairnessPlans: FairnessPlan[] = [
+  {
+    id: "budget",
+    variant: "Budget",
+    cost: "₹18,000",
+    mix: "2 food · 2 attractions",
+    rating: "4.0",
+    components: {
+      asha: { interest: 0.9, quality: 0.8, affordability: 1 },
+      ben: { interest: 0.5, quality: 0.8, affordability: 1 },
+    },
+  },
+  {
+    id: "balanced",
+    variant: "Balanced",
+    cost: "₹24,000",
+    mix: "Food · attraction · shopping · other",
+    rating: "4.0",
+    components: {
+      asha: { interest: 0.7, quality: 0.8, affordability: 0.8 },
+      ben: { interest: 0.6, quality: 0.8, affordability: 1 },
+    },
+  },
+  {
+    id: "experience",
+    variant: "Experience",
+    cost: "₹30,000",
+    mix: "2 shopping · 2 attractions",
+    rating: "4.5",
+    components: {
+      asha: { interest: 0.7, quality: 0.9, affordability: 0.5 },
+      ben: { interest: 0.7, quality: 0.9, affordability: 1 },
+    },
+  },
+];
+
+const utilityComponents = [
+  {
+    key: "interest",
+    weight: "0.6",
+    icon: Sparkles,
+    title: "Interest",
+    desc: "The mean of your own category weights across the plan's activities. A category you never rated counts as a neutral 0.5. Transport and accommodation are left out — nobody picks a trip for the taxi.",
+    color: "text-primary bg-primary/10",
+  },
+  {
+    key: "quality",
+    weight: "0.2",
+    icon: CheckCircle,
+    title: "Quality",
+    desc: "Mean review score over the rated activities, normalised against 5. When nothing in the plan carries a rating, this contributes a flat 0.5 rather than punishing the plan for missing data.",
+    color: "text-emerald-500 bg-emerald-500/10",
+  },
+  {
+    key: "affordability",
+    weight: "0.2",
+    icon: Wallet,
+    title: "Affordability",
+    desc: "1.0 while the plan sits inside your personal ceiling, then decays linearly to 0 at twice that ceiling. Your ceiling, not the group's — which is how a shared budget stops hiding an individual's squeeze.",
+    color: "text-blue-500 bg-blue-500/10",
+  },
+];
+
+/* ─── Offline capability matrix ─── */
+
+type OfflineLevel = "full" | "stale" | "none";
+
+const offlineMatrix: {
+  level: OfflineLevel;
+  label: string;
+  sub: string;
+  icon: LucideIcon;
+  chip: string;
+  items: string[];
+}[] = [
+  {
+    level: "full",
+    label: "Works with no connection",
+    sub: "Cached or computed locally",
+    icon: CheckCircle,
+    chip: "border-emerald-500/30 bg-emerald-500/[0.05]",
+    items: [
+      "The app shell and every route",
+      "Any trip you saved, with its itinerary and activities",
+      "Map tiles around a saved trip — about 173 pre-cached per trip",
+      "Expense maths, currency conversion and PDF export",
+      "Local emergency numbers in the SOS panel",
+      "On-device AI, once the model weights are cached",
+      `${FEASIBILITY_CHECK_COUNT} plan checks — pure functions, no network`,
+      "Your edits, queued in order and replayed on reconnect",
+    ],
+  },
+  {
+    level: "stale",
+    label: "Serves what it last saw",
+    sub: "Revalidated when you're back",
+    icon: Clock,
+    chip: "border-amber-500/30 bg-warning/[0.05]",
+    items: [
+      "Trip and profile reads you've already made — up to a day",
+      "Weather, for 15 minutes, then it wants the network",
+      "Place lookups and geocoding — up to a week",
+      "Wikipedia context and imagery — a week and a month",
+    ],
+  },
+  {
+    level: "none",
+    label: "Needs a connection",
+    sub: "And says so instead of failing quietly",
+    icon: WifiOff,
+    chip: "border-border bg-muted/30",
+    items: [
+      "Signing in or signing up — deliberately never cached",
+      "Hosted inference, if you're on the Groq engine",
+      "Live chat, votes and location sharing",
+      "A route you haven't calculated yet",
+    ],
+  },
+];
+
+const queueRules = [
+  {
+    icon: ListChecks,
+    title: "Strict order, across reloads",
+    desc: "Writes replay first-in-first-out on a monotonic sequence number rather than a millisecond timestamp, so a burst of edits can't come back shuffled.",
+  },
+  {
+    icon: Signal,
+    title: "Only network failures queue",
+    desc: "A permission denial or a constraint violation tells you immediately. Queueing those would just delay the bad news.",
+  },
+  {
+    icon: AlertTriangle,
+    title: "Conflicts surface, never merge",
+    desc: "If the row changed while you were offline, the write is retired and shown to you. Silently overwriting someone else's edit is worse than asking.",
+  },
+  {
+    icon: Lock,
+    title: "One sync at a time",
+    desc: "A single in-flight lock means reconnecting and hitting retry can't apply the same change twice.",
+  },
+];
+
+/* ─── Verified state ───
+   Figures from the repository's own verification pass, documented in
+   docs/BACKLOG.md §1. Paired with what that pass could NOT check, because a
+   list of green ticks with no caveats is a marketing claim, not a test report. */
+
+const verifiedState = [
+  { label: "TypeScript", value: "Clean", note: "tsc --noEmit, strict project config" },
+  { label: "Lint", value: "0 errors", note: "157 warnings, all at network boundaries" },
+  { label: "Unit tests", value: "228 passing", note: "Across 9 files" },
+  { label: "Production build", value: "Succeeds", note: "Every route code-split" },
+  { label: "Service worker", value: "91 entries", note: "≈4.9 MB precached, printed by the build" },
+  { label: "Dependencies", value: "No paid tier", note: "Only Supabase is required" },
+];
+
+const notVerified = [
+  "On-device inference has never been measured — no load time, tokens per second or peak GPU figure",
+  "Lighthouse hasn't been run against a production deploy",
+  "Home-screen install is untested on real Android and iOS hardware",
+  "Row-Level Security is written and reviewed, but not probed against the live project",
+];
+
+const testBreakdown = [
+  { name: "Group regret scoring", count: 36 },
+  { name: "Opening hours + verifier integration", count: 46 },
+  { name: "Travel preferences", count: 33 },
+  { name: "Offline mutation queue", count: 31 },
+  { name: "Itinerary verifier", count: 26 },
+  { name: "Plan repair loop", count: 21 },
+  { name: "AI provider selection", count: 19 },
+  { name: "IndexedDB offline trips", count: 15 },
+];
+
+const quickstart = [
+  { cmd: "git clone https://github.com/HarshTambade/Radiator-Routes.git", note: "MIT licensed" },
+  { cmd: "npm install", note: "No paid registry, no private packages" },
+  { cmd: "cp .env.example .env", note: "Two Supabase values are all that's required" },
+  { cmd: "npm run dev", note: "Everything else degrades gracefully without a key" },
+];
+
+const requiredEnv = [
+  { key: "VITE_SUPABASE_URL", need: "Required", desc: "Auth, database and realtime" },
+  { key: "VITE_SUPABASE_PUBLISHABLE_KEY", need: "Required", desc: "The anon publishable key" },
+  { key: "VITE_GROQ_API_KEY", need: "Optional", desc: "Free tier. Skip it and use on-device AI" },
+  { key: "VITE_ORS_API_KEY", need: "Optional", desc: "Routing and elevation, 2k requests a day" },
+  { key: "VITE_OPENTRIPMAP_API_KEY", need: "Optional", desc: "Place discovery, 1k requests a day" },
+];
+
+/* ─── What isn't here yet ───
+   From docs/BACKLOG.md §4. A roadmap section that only lists wins is a
+   feature list wearing a different hat. */
+
+const roadmap: {
+  group: string;
+  icon: LucideIcon;
+  tint: string;
+  items: { title: string; desc: string }[];
+}[] = [
+  {
+    group: "Known limits",
+    icon: AlertTriangle,
+    tint: "text-amber-600 bg-warning/10 border-warning/20",
+    items: [
+      {
+        title: "Opening hours aren't authoritative",
+        desc: "The model supplies them, so a closed-on-Tuesday finding warns instead of blocking. Nothing imports hours from OpenStreetMap yet.",
+      },
+      {
+        title: "Conflicts are redone, not merged",
+        desc: "There's no field-level merge. If a row moved under you while offline, the queue retires the write and asks you to redo it.",
+      },
+      {
+        title: "Updates replace rather than diff",
+        desc: "Applying a plan deletes the old activities and inserts the new ones, so per-activity history isn't preserved.",
+      },
+      {
+        title: "Three write paths skip the queue",
+        desc: "Expense splits, community memberships and event RSVPs still need a connection to succeed.",
+      },
+    ],
+  },
+  {
+    group: "Planned next",
+    icon: GitBranch,
+    tint: "text-primary bg-primary/10 border-primary/20",
+    items: [
+      {
+        title: "Votes feeding the fairness score",
+        desc: "Activity votes are stored and realtime already, but the scorer still reads only stated preferences.",
+      },
+      {
+        title: "Offline route geometry",
+        desc: "Tiles cache per trip; the routes drawn on them don't. A saved trip should keep its lines too.",
+      },
+      {
+        title: "Budget against actuals",
+        desc: "Planned cost and money actually spent are tracked separately today and never compared.",
+      },
+      {
+        title: "Trip export and import",
+        desc: "PDF export exists. A round-trippable format that another instance can read doesn't.",
+      },
+    ],
+  },
+  {
+    group: "Out of scope for now",
+    icon: Compass,
+    tint: "text-slate-500 bg-slate-500/10 border-slate-500/20",
+    items: [
+      {
+        title: "On-device vision",
+        desc: "Every curated local model is text-only, so the camera description feature can't run without the network.",
+      },
+      {
+        title: "A true route optimiser",
+        desc: "The plan is scored, not solved. A tour-and-orienteering solver is a research project, not a sprint.",
+      },
+      {
+        title: "Agents negotiating live",
+        desc: "Interesting, and previously claimed on this very page without existing. It stays on the backlog until it's real.",
+      },
+      {
+        title: "Learning preferences across users",
+        desc: "Travel memory is per account. Anything federated needs a privacy design first.",
+      },
+    ],
+  },
+];
+
+/* ─── FAQ ─── */
+
+const faqs: { q: string; a: string }[] = [
+  {
+    q: "What does it cost to use?",
+    a: "Nothing, and there's no card anywhere in the flow. Every integration is free or free-tier: Groq for hosted inference, Open-Meteo for weather, OpenStreetMap and Nominatim for maps and geocoding, Wikipedia for place context, OpenRouteService for routing. Paid services that an earlier version of this project assumed were removed and replaced, not left behind as dead configuration.",
+  },
+  {
+    q: "Do I need an API key?",
+    a: "To run your own copy, only the Supabase URL and publishable key. Voice input needs no key at all because it uses the browser's own speech recognition. A Groq key is free and optional — pick the on-device engine instead and there's no key in the picture at all.",
+  },
+  {
+    q: "How private is on-device mode really?",
+    a: "The model weights download once, then inference runs on your own GPU through WebGPU and prompts never leave the machine. That's a property of where the code runs, not a promise about a server. The trade-off is honest too: you're running a 1–8B model instead of a 70B one, so the plans are noticeably simpler.",
+  },
+  {
+    q: "What happens when the AI gets it wrong?",
+    a: `Some of it gets caught: ${FEASIBILITY_CHECK_COUNT} deterministic checks reject impossible plans and one repair pass asks for a fix. Some of it doesn't — a place can be real, open, affordable, reachable and still a bad idea. Warnings are shown rather than hidden, the reasoning panel explains why each activity was picked, and everything stays editable.`,
+  },
+  {
+    q: "Which browsers support the on-device engine?",
+    a: "WebGPU is needed: Chrome or Edge 113 and up, Chrome for Android 121 and up, Safari 26 and up, plus roughly as much free GPU memory as the model. The app asks for a real GPU adapter before offering the option, because a browser can expose the API and still refuse one. If that probe fails it tells you why and stays on hosted.",
+  },
+  {
+    q: "Does anything work without a connection?",
+    a: "Saved trips, their activities and the map tiles around them open offline, and edits you make are queued in order and replayed when you reconnect. Signing in and hosted inference need the network and say so. Full breakdown in the offline section above.",
+  },
+  {
+    q: "Is my trip data isolated from other users?",
+    a: "Every table is guarded by Row-Level Security policies, auth uses the PKCE flow, and the request cache is purged on sign-out so one session can't read another's data. Worth being precise: those policies are written and reviewed, but the project's own notes record that they haven't been probed against the live database yet.",
+  },
+  {
+    q: "Does it work outside India?",
+    a: "Yes, with an Indian default. Budgets are ₹ INR native and the destinations up front are Indian, but discovery, routing and maps are OpenStreetMap-based, so anywhere OSM covers is fair game — and currency plus date formatting follow the country you're in.",
+  },
+  {
+    q: "Is there an app to install?",
+    a: "It's a PWA, so it installs from the browser to your home screen rather than from a store, with the service worker caching the shell and your saved trips. Being straight about it: install has been verified in a desktop browser, not yet on physical Android or iOS hardware.",
+  },
+  {
+    q: "Can I run or fork it myself?",
+    a: "It's MIT licensed and the whole thing is in the repository, including the audit that removed the false claims from this page. Clone it, add two Supabase values, run npm run dev. The quickstart in the tech section has the exact commands.",
   },
 ];
 
@@ -974,6 +1694,112 @@ function SectionHeading({
   );
 }
 
+/** Reading-position bar. Sits on the navbar's lower edge rather than at the top
+ *  of the viewport, so it doesn't fight the browser chrome on mobile. */
+function ScrollProgress() {
+  const [pct, setPct] = useState(0);
+
+  useEffect(() => {
+    const update = () => {
+      const doc = document.documentElement;
+      const scrollable = doc.scrollHeight - window.innerHeight;
+      setPct(scrollable > 0 ? Math.min(100, (window.scrollY / scrollable) * 100) : 0);
+    };
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  return (
+    <div
+      aria-hidden="true"
+      className="fixed top-16 left-0 right-0 z-[49] h-[2px] overflow-hidden pointer-events-none"
+    >
+      <div
+        className="h-full w-full bg-primary origin-left transition-transform duration-150 ease-out motion-reduce:transition-none"
+        style={{ transform: `scaleX(${pct / 100})` }}
+      />
+    </div>
+  );
+}
+
+/**
+ * Counts to `to` once scrolled into view.
+ *
+ * Renders the final value straight away when IntersectionObserver is missing or
+ * reduced motion is requested, so the number is never gated behind an animation.
+ */
+function CountUp({
+  to,
+  prefix = "",
+  suffix = "",
+  duration = 1200,
+  className,
+}: {
+  to: number;
+  prefix?: string;
+  suffix?: string;
+  duration?: number;
+  className?: string;
+}) {
+  const skip =
+    typeof IntersectionObserver === "undefined" ||
+    typeof requestAnimationFrame === "undefined" ||
+    prefersReducedMotion();
+  const [value, setValue] = useState(() => (skip ? to : 0));
+  const ref = useRef<HTMLSpanElement | null>(null);
+  const done = useRef(skip || to === 0);
+
+  useEffect(() => {
+    if (done.current) return;
+    const el = ref.current;
+    if (!el) return;
+
+    let frame = 0;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (done.current || !entries.some((e) => e.isIntersecting)) return;
+        done.current = true;
+        observer.disconnect();
+        const start = performance.now();
+        const tick = (now: number) => {
+          const p = Math.min(1, (now - start) / duration);
+          setValue(Math.round(to * (1 - Math.pow(1 - p, 3))));
+          if (p < 1) frame = requestAnimationFrame(tick);
+        };
+        frame = requestAnimationFrame(tick);
+      },
+      { threshold: 0.35 },
+    );
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [to, duration]);
+
+  return (
+    <span ref={ref} className={className}>
+      {prefix}
+      {value}
+      {suffix}
+    </span>
+  );
+}
+
+/** Monospace pill for a file path or identifier lifted from the codebase. */
+function CodeChip({ children }: { children: ReactNode }) {
+  return (
+    <code className="inline-block px-2 py-0.5 rounded-md bg-muted text-[11px] font-mono text-muted-foreground break-all">
+      {children}
+    </code>
+  );
+}
+
 /* ────────────────────────────────────────────────────────────────────────────
    Page
    ──────────────────────────────────────────────────────────────────────────── */
@@ -984,6 +1810,13 @@ export default function Landing() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState("");
+
+  // New interactive sections
+  const [activeStage, setActiveStage] = useState(0);
+  const [checkSeverity, setCheckSeverity] = useState<"All" | CheckSeverity>("All");
+  const [activePlan, setActivePlan] = useState("budget");
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
 
   // Hero slideshow: `heroPaused` is the user's explicit pause, `heroHold` is a
   // transient pause while the controls have keyboard focus or the pointer.
@@ -1058,6 +1891,98 @@ export default function Landing() {
   );
 
   const currentReason = reasons[activeReason] ?? reasons[0];
+  const currentStage = pipelineStages[activeStage] ?? pipelineStages[0];
+
+  const checkCounts = useMemo(() => {
+    const counts = new Map<string, number>([["All", verificationChecks.length]]);
+    for (const c of verificationChecks) {
+      counts.set(c.severity, (counts.get(c.severity) ?? 0) + 1);
+    }
+    return counts;
+  }, []);
+
+  const filteredChecks = useMemo(
+    () =>
+      checkSeverity === "All"
+        ? verificationChecks
+        : verificationChecks.filter((c) => c.severity === checkSeverity),
+    [checkSeverity],
+  );
+
+  /**
+   * The worked fairness example, computed rather than typed in.
+   *
+   * Same weights and the same Least Misery aggregation as lib/groupRegret.ts:
+   * utility per member, best available utility across the candidate set, regret
+   * as the gap, group score as the worst member's regret.
+   */
+  const fairness = useMemo(() => {
+    const utilityOf = (c: { interest: number; quality: number; affordability: number }) =>
+      Math.min(
+        1,
+        Math.max(
+          0,
+          UTILITY_WEIGHTS.interest * c.interest +
+            UTILITY_WEIGHTS.quality * c.quality +
+            UTILITY_WEIGHTS.affordability * c.affordability,
+        ),
+      );
+
+    const utilities = new Map<string, Map<string, number>>();
+    for (const plan of fairnessPlans) {
+      const perMember = new Map<string, number>();
+      for (const member of fairnessMembers) {
+        const components = plan.components[member.id];
+        perMember.set(member.id, components ? utilityOf(components) : 0);
+      }
+      utilities.set(plan.id, perMember);
+    }
+
+    const bestPerMember = new Map<string, number>();
+    for (const member of fairnessMembers) {
+      bestPerMember.set(
+        member.id,
+        Math.max(...fairnessPlans.map((p) => utilities.get(p.id)?.get(member.id) ?? 0)),
+      );
+    }
+
+    const scored = fairnessPlans.map((plan) => {
+      const members = fairnessMembers.map((member) => {
+        const utility = utilities.get(plan.id)?.get(member.id) ?? 0;
+        const best = bestPerMember.get(member.id) ?? 0;
+        return { ...member, utility, best, regret: Math.max(0, best - utility) };
+      });
+      const regrets = members.map((m) => m.regret);
+      return {
+        ...plan,
+        members,
+        groupRegret: Math.max(...regrets),
+        averageRegret: regrets.reduce((a, b) => a + b, 0) / regrets.length,
+      };
+    });
+
+    const recommended = [...scored].sort(
+      (a, b) => a.groupRegret - b.groupRegret || a.averageRegret - b.averageRegret,
+    )[0];
+
+    return { scored, recommendedId: recommended?.id ?? null };
+  }, []);
+
+  const currentFairnessPlan =
+    fairness.scored.find((p) => p.id === activePlan) ?? fairness.scored[0];
+
+  const copyCommand = (cmd: string) => {
+    void navigator.clipboard
+      ?.writeText(cmd)
+      .then(() => {
+        setCopiedCmd(cmd);
+        window.setTimeout(
+          () => setCopiedCmd((c) => (c === cmd ? null : c)),
+          1600,
+        );
+      })
+      .catch(() => setCopiedCmd(null));
+  };
 
   const navLinkClass = (active: boolean) => {
     if (scrolled) {
@@ -1068,8 +1993,34 @@ export default function Landing() {
     return active ? "text-white" : "text-white/70 hover:text-white";
   };
 
+  /* ─── Structured data ───
+     Built from the same arrays the sections below render, so the markup can
+     never describe something a visitor can't see. The base metadata — title,
+     description, canonical, Open Graph, Twitter — comes from the route registry
+     in src/lib/seoRoutes.ts; only the page-specific graph is assembled here. */
+  const structuredData = useMemo<JsonLd[]>(() => {
+    const pageUrl = canonicalUrl("/");
+
+    return [
+      destinationListJsonLd(
+        destinations,
+        "Featured destinations in India",
+        pageUrl,
+      ),
+      destinationListJsonLd(beyondIndia, "Destinations beyond India", pageUrl),
+      // Rendered verbatim by the #faq section further down; FAQ rich results
+      // require exactly that.
+      faqPageJsonLd(
+        faqs.map((faq) => ({ question: faq.q, answer: faq.a })),
+        pageUrl,
+      ),
+    ];
+  }, []);
+
   return (
     <div className="min-h-screen bg-background">
+      <Seo jsonLd={structuredData} />
+
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:rounded-full focus:bg-primary focus:text-primary-foreground focus:text-sm focus:font-semibold"
@@ -1102,7 +2053,7 @@ export default function Landing() {
             </span>
           </a>
 
-          <div className="hidden lg:flex items-center gap-6">
+          <div className="hidden lg:flex items-center gap-3.5 xl:gap-5">
             {navLinks.map((link) => {
               const active = activeSection === link.href.slice(1);
               return (
@@ -1110,9 +2061,15 @@ export default function Landing() {
                   key={link.href}
                   href={link.href}
                   aria-current={active ? "location" : undefined}
-                  className={`text-sm font-medium transition-colors ${navLinkClass(active)}`}
+                  className={`relative text-[13px] xl:text-sm font-medium transition-colors ${navLinkClass(active)}`}
                 >
                   {link.label}
+                  <span
+                    aria-hidden="true"
+                    className={`absolute -bottom-1.5 left-0 right-0 h-0.5 rounded-full transition-transform duration-300 origin-left motion-reduce:transition-none ${
+                      scrolled ? "bg-primary" : "bg-white"
+                    } ${active ? "scale-x-100" : "scale-x-0"}`}
+                  />
                 </a>
               );
             })}
@@ -1160,7 +2117,7 @@ export default function Landing() {
         {menuOpen && (
           <div
             id="mobile-menu"
-            className="lg:hidden bg-background border-t border-border shadow-elevated"
+            className="lg:hidden bg-background border-t border-border shadow-elevated max-h-[75vh] overflow-y-auto overscroll-contain"
           >
             <ul className="px-6 py-4 space-y-1">
               {[...navLinks, ...mobileOnlyLinks].map((link) => (
@@ -1189,6 +2146,8 @@ export default function Landing() {
         )}
       </header>
 
+      <ScrollProgress />
+
       <main id="main">
         {/* ─── Hero ─── */}
         <section className="relative min-h-[100svh] flex items-center justify-center overflow-hidden">
@@ -1205,12 +2164,19 @@ export default function Landing() {
                 aria-hidden="true"
                 decoding="async"
                 className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ease-out motion-reduce:transition-none ${
-                  i === heroSlide ? "opacity-100" : "opacity-0"
+                  i === heroSlide
+                    ? "opacity-100 animate-ken-burns motion-reduce:animate-none"
+                    : "opacity-0"
                 }`}
               />
             );
           })}
           <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/35 to-black/80" />
+          {/* Warms the frame toward the brand colour without washing the photo out. */}
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_115%,hsl(var(--primary)/0.35),transparent_60%)]"
+          />
 
           {/* Slide controls. These are the numbers that previously did nothing.
               Vertical rail on large screens, horizontal row above the stats bar
@@ -1342,6 +2308,25 @@ export default function Landing() {
             </div>
           </div>
 
+          {/* Scroll cue. Desktop only — on smaller screens the slide controls
+              and the two-row stats bar already occupy this space. */}
+          <a
+            href="#about"
+            /* Suppressed on short desktop windows, where the hero copy and the
+               stats bar already meet in the middle. */
+            className="absolute z-20 left-1/2 -translate-x-1/2 bottom-[7rem] hidden lg:[@media(min-height:760px)]:flex flex-col items-center gap-1.5 text-white/50 hover:text-white transition-colors group"
+          >
+            <span className="text-[10px] font-medium uppercase tracking-[0.25em]">
+              Scroll
+            </span>
+            <span className="w-8 h-8 rounded-full border border-white/25 flex items-center justify-center group-hover:border-white/60 transition-colors">
+              <ArrowDown
+                className="w-3.5 h-3.5 animate-bounce motion-reduce:animate-none"
+                aria-hidden="true"
+              />
+            </span>
+          </a>
+
           {/* Stats bar */}
           <div className="absolute bottom-0 left-0 right-0 z-10 bg-black/55 backdrop-blur-md border-t border-white/10">
             <dl className="max-w-5xl mx-auto px-6 py-4 grid grid-cols-3 md:grid-cols-6 gap-3">
@@ -1349,9 +2334,12 @@ export default function Landing() {
                 <div key={s.label} className="text-center">
                   <dt className="sr-only">{s.label}</dt>
                   <dd>
-                    <span className="block text-white text-lg sm:text-xl font-bold">
-                      {s.value}
-                    </span>
+                    <CountUp
+                      to={s.value}
+                      prefix={s.prefix}
+                      suffix={s.suffix}
+                      className="block text-white text-lg sm:text-xl font-bold tabular-nums"
+                    />
                     <span className="block text-white/60 text-[10px] sm:text-xs mt-0.5 leading-tight">
                       {s.label}
                     </span>
@@ -1833,6 +2821,679 @@ export default function Landing() {
           </div>
         </section>
 
+        {/* ─── Pipeline ─── */}
+        <section
+          id="pipeline"
+          className="scroll-mt-20 py-24 px-6 bg-gradient-to-b from-background via-card to-background"
+        >
+          <div className="max-w-6xl mx-auto">
+            <Reveal>
+              <SectionHeading
+                eyebrow="Inside one request"
+                eyebrowIcon={Layers}
+                title="Between your sentence and"
+                accent="a saved plan"
+              >
+                Seven stages, and only three of them involve a language model.
+                Every parameter below is the one in the source — pick a stage to
+                see it.
+              </SectionHeading>
+            </Reveal>
+
+            <Reveal>
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)] gap-6 lg:gap-8 items-start">
+                {/* Stage rail */}
+                <div className="relative">
+                  <div
+                    aria-hidden="true"
+                    className="hidden lg:block absolute left-[2.1rem] top-6 bottom-6 w-px bg-border"
+                  />
+                  <ol className="relative space-y-1.5">
+                    {pipelineStages.map((stage, i) => {
+                      const active = i === activeStage;
+                      const kind = stageKind[stage.id];
+                      return (
+                        <li key={stage.id}>
+                          <button
+                            type="button"
+                            onClick={() => setActiveStage(i)}
+                            aria-pressed={active}
+                            className={`w-full flex items-center gap-3 p-3 rounded-2xl border text-left transition-all motion-reduce:transition-none ${
+                              active
+                                ? "bg-card border-border shadow-card"
+                                : "border-transparent hover:bg-card/70"
+                            }`}
+                          >
+                            <span
+                              className={`relative z-10 w-11 h-11 rounded-xl border flex items-center justify-center shrink-0 transition-colors motion-reduce:transition-none ${
+                                active
+                                  ? stage.accent
+                                  : "bg-background border-border text-muted-foreground"
+                              }`}
+                            >
+                              <stage.icon className="w-5 h-5" aria-hidden="true" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-[10px] font-bold tracking-widest text-muted-foreground">
+                                STAGE {stage.step}
+                              </span>
+                              <span
+                                className={`block text-sm font-semibold truncate ${
+                                  active ? "text-foreground" : "text-muted-foreground"
+                                }`}
+                              >
+                                {stage.title}
+                              </span>
+                            </span>
+                            {kind && (
+                              <span
+                                className={`shrink-0 px-2 py-0.5 rounded-full text-[9px] font-bold border ${kind.chip}`}
+                              >
+                                {kind.label}
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </div>
+
+                {/* Stage detail */}
+                <div className="rounded-3xl border border-border bg-card overflow-hidden">
+                  <div
+                    aria-hidden="true"
+                    className={`h-1 bg-gradient-to-r ${currentStage.bar}`}
+                  />
+                  <div className="p-6 sm:p-8">
+                    <div className="flex items-start gap-4 mb-5">
+                      <div
+                        className={`w-12 h-12 rounded-2xl border flex items-center justify-center shrink-0 ${currentStage.accent}`}
+                      >
+                        <currentStage.icon className="w-6 h-6" aria-hidden="true" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-bold tracking-widest text-muted-foreground">
+                          STAGE {currentStage.step} · {currentStage.title.toUpperCase()}
+                        </p>
+                        <h3 className="font-display text-2xl sm:text-3xl font-bold text-foreground mt-1 leading-tight">
+                          {currentStage.headline}
+                        </h3>
+                      </div>
+                    </div>
+
+                    <p className="text-sm text-muted-foreground leading-relaxed mb-6">
+                      {currentStage.detail}
+                    </p>
+
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {currentStage.meta.map((m) => (
+                        <div
+                          key={m.k}
+                          className="p-3.5 rounded-2xl bg-background border border-border"
+                        >
+                          <dt className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                            {m.k}
+                          </dt>
+                          <dd className="text-sm font-semibold text-foreground">{m.v}</dd>
+                        </div>
+                      ))}
+                    </dl>
+
+                    <div className="mt-6 pt-5 border-t border-border flex flex-wrap items-center gap-2.5">
+                      <span className="text-[11px] font-semibold text-muted-foreground">
+                        Implemented in
+                      </span>
+                      <CodeChip>{currentStage.source}</CodeChip>
+                    </div>
+
+                    <div className="mt-5 flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setActiveStage((i) => Math.max(0, i - 1))}
+                        disabled={activeStage === 0}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-border text-xs font-semibold text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                      >
+                        <ChevronRight className="w-3.5 h-3.5 rotate-180" aria-hidden="true" />
+                        Previous
+                      </button>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {activeStage + 1} / {pipelineStages.length}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setActiveStage((i) => Math.min(pipelineStages.length - 1, i + 1))
+                        }
+                        disabled={activeStage === pipelineStages.length - 1}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-40 disabled:pointer-events-none"
+                      >
+                        Next stage
+                        <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Reveal>
+
+            {/* Numbers */}
+            <Reveal delay={80}>
+              <dl className="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {pipelineNumbers.map((n) => (
+                  <div
+                    key={n.label}
+                    className="p-5 rounded-2xl bg-card border border-border text-center"
+                  >
+                    <n.icon
+                      className="w-5 h-5 text-primary mx-auto mb-2.5"
+                      aria-hidden="true"
+                    />
+                    <dd className="font-display text-3xl font-bold text-foreground tabular-nums">
+                      {n.value}
+                    </dd>
+                    <dt className="text-[11px] text-muted-foreground mt-1 leading-tight">
+                      {n.label}
+                    </dt>
+                  </div>
+                ))}
+              </dl>
+            </Reveal>
+
+            {/* Required output shape */}
+            <Reveal delay={120}>
+              <div className="mt-8 rounded-3xl border border-border bg-card p-6 sm:p-8">
+                <div className="flex flex-wrap items-baseline justify-between gap-3 mb-1">
+                  <h3 className="font-display text-xl font-bold text-foreground">
+                    What every activity has to carry
+                  </h3>
+                  <CodeChip>response_format: json_object</CodeChip>
+                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed mb-6 max-w-3xl">
+                  The prompt pins this shape exactly, because the verifier and the
+                  fairness scorer are ordinary code — they need coordinates to
+                  measure a distance and a category to weigh an interest. A plan
+                  missing these fields can't be checked, so it isn't accepted.
+                </p>
+                <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {activityFields.map((f) => (
+                    <li
+                      key={f.field}
+                      className="p-4 rounded-2xl bg-background border border-border"
+                    >
+                      <p className="font-mono text-xs text-primary mb-1.5 break-all">
+                        {f.field}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        {f.note}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* ─── Verification ─── */}
+        <section id="verification" className="scroll-mt-20 py-24 px-6 bg-card">
+          <div className="max-w-6xl mx-auto">
+            <Reveal>
+              <SectionHeading
+                eyebrow="Plan verification"
+                eyebrowIcon={ShieldCheck}
+                title={`${FEASIBILITY_CHECK_COUNT} ways a plan gets caught`}
+                accent="before you see it"
+              >
+                A language model will return an itinerary that parses perfectly
+                and is still impossible. These checks are pure functions — no
+                model, no network — so they give the same answer every time and
+                run offline in milliseconds.
+              </SectionHeading>
+            </Reveal>
+
+            {/* Severity legend */}
+            <Reveal>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+                {(["error", "conditional", "warning"] as CheckSeverity[]).map((sev) => (
+                  <div
+                    key={sev}
+                    className="p-5 rounded-2xl bg-background border border-border"
+                  >
+                    <div className="flex items-center gap-2.5 mb-2">
+                      <span
+                        aria-hidden="true"
+                        className={`w-2.5 h-2.5 rounded-full ${severityMeta[sev].dot}`}
+                      />
+                      <p className="text-sm font-bold text-foreground">
+                        {severityMeta[sev].label}
+                      </p>
+                      <span className="ml-auto text-xs font-semibold text-muted-foreground tabular-nums">
+                        {checkCounts.get(sev) ?? 0}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      {severityMeta[sev].blurb}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
+
+            {/* Filter */}
+            <Reveal>
+              <div
+                role="group"
+                aria-label="Filter checks by severity"
+                className="flex flex-wrap gap-2 justify-center mb-8"
+              >
+                {severityFilters.map((sev) => {
+                  const selected = checkSeverity === sev;
+                  return (
+                    <button
+                      key={sev}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setCheckSeverity(sev)}
+                      className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition-all motion-reduce:transition-none ${
+                        selected
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                      }`}
+                    >
+                      {sev === "All" ? "All checks" : severityMeta[sev].label}
+                      <span
+                        className={`ml-1.5 ${selected ? "text-primary-foreground/70" : "text-muted-foreground/60"}`}
+                      >
+                        {checkCounts.get(sev) ?? 0}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Reveal>
+
+            {/* Checks */}
+            <Reveal>
+              <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {filteredChecks.map((check) => (
+                  <li
+                    key={check.code}
+                    className="p-5 rounded-2xl bg-background border border-border hover:border-primary/30 transition-colors motion-reduce:transition-none"
+                  >
+                    <div className="flex items-start gap-3 mb-3">
+                      <div
+                        className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${severityMeta[check.severity].chip}`}
+                      >
+                        <check.icon className="w-4 h-4" aria-hidden="true" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-mono text-[11px] text-muted-foreground break-all">
+                          {check.code}
+                        </p>
+                        <p className="text-sm font-semibold text-foreground mt-0.5 leading-snug">
+                          {check.what}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed mb-3">
+                      {check.detail}
+                    </p>
+                    <span
+                      className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${severityMeta[check.severity].chip}`}
+                    >
+                      {severityMeta[check.severity].label}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Reveal>
+
+            {/* Constants + repair loop */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+              <Reveal>
+                <div className="h-full rounded-3xl border border-border bg-background p-6 sm:p-7">
+                  <h3 className="font-display text-xl font-bold text-foreground mb-1.5">
+                    The numbers it judges by
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+                    Published rather than buried, because a check is only
+                    trustworthy if you can disagree with its thresholds.
+                  </p>
+                  <dl className="space-y-0">
+                    {verifierConstants.map((c) => (
+                      <div
+                        key={c.label}
+                        className="py-3 border-b border-border last:border-0"
+                      >
+                        <div className="flex items-baseline justify-between gap-4">
+                          <dt className="text-sm text-foreground font-medium">{c.label}</dt>
+                          <dd className="text-sm font-bold text-primary shrink-0 tabular-nums">
+                            {c.value}
+                          </dd>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">{c.note}</p>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              </Reveal>
+
+              <Reveal delay={80}>
+                <div className="h-full rounded-3xl border border-border bg-background p-6 sm:p-7">
+                  <div className="flex items-center gap-2.5 mb-1.5">
+                    <Wrench className="w-5 h-5 text-amber-500" aria-hidden="true" />
+                    <h3 className="font-display text-xl font-bold text-foreground">
+                      When a check fails
+                    </h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+                    One repair pass, not a loop that grinds until something
+                    passes. Two model calls is the ceiling for any plan request.
+                  </p>
+                  <ol className="space-y-3.5">
+                    {repairSteps.map((step, i) => (
+                      <li key={step.title} className="flex items-start gap-3">
+                        <span className="w-6 h-6 rounded-lg bg-warning/10 border border-warning/20 text-amber-600 text-[11px] font-bold flex items-center justify-center shrink-0 tabular-nums">
+                          {i + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-foreground">
+                            {step.title}
+                          </p>
+                          <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
+                            {step.desc}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                  <p className="mt-5 pt-4 border-t border-border text-[11px] text-muted-foreground leading-relaxed">
+                    A plan is reported as ok only when it has zero errors.
+                    Warnings travel with it and stay visible.
+                  </p>
+                </div>
+              </Reveal>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Fairness ─── */}
+        <section id="fairness" className="scroll-mt-20 py-24 px-6 bg-background">
+          <div className="max-w-6xl mx-auto">
+            <Reveal>
+              <SectionHeading
+                eyebrow="Group fairness"
+                eyebrowIcon={Scale}
+                title="A group score you can"
+                accent="check by hand"
+              >
+                The old version of this was a number the prompt asked the model to
+                emit — unfalsifiable by construction. It's now arithmetic over
+                each traveller's own stated preferences, which means it can be
+                wrong, and you can prove it.
+              </SectionHeading>
+            </Reveal>
+
+            {/* Formula */}
+            <Reveal>
+              <div className="rounded-3xl border border-primary/20 bg-primary/[0.04] p-6 sm:p-8 mb-6">
+                <div className="flex items-center gap-2.5 mb-4">
+                  <Calculator className="w-5 h-5 text-primary" aria-hidden="true" />
+                  <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
+                    One traveller's utility
+                  </h3>
+                </div>
+                <p className="font-mono text-sm sm:text-base text-foreground leading-relaxed break-words">
+                  utility = <span className="text-primary font-bold">0.6</span> ·
+                  interest + <span className="text-primary font-bold">0.2</span> ·
+                  quality + <span className="text-primary font-bold">0.2</span> ·
+                  affordability
+                </p>
+                <p className="text-sm text-muted-foreground leading-relaxed mt-4 max-w-3xl">
+                  Clamped to 0–1. A plan with no activities scores zero rather
+                  than dividing by nothing. Every input comes from that person's
+                  profile and the plan itself, so two members looking at the same
+                  itinerary get genuinely different numbers.
+                </p>
+              </div>
+            </Reveal>
+
+            <Reveal>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+                {utilityComponents.map((c) => (
+                  <div
+                    key={c.key}
+                    className="p-6 rounded-2xl bg-card border border-border"
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center ${c.color}`}
+                      >
+                        <c.icon className="w-5 h-5" aria-hidden="true" />
+                      </div>
+                      <span className="font-mono text-lg font-bold text-primary">
+                        ×{c.weight}
+                      </span>
+                    </div>
+                    <h4 className="text-base font-semibold text-foreground mb-2">
+                      {c.title}
+                    </h4>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{c.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
+
+            {/* Worked example */}
+            <Reveal>
+              <div className="rounded-3xl border border-border bg-card overflow-hidden">
+                <div className="px-6 sm:px-8 pt-7 pb-5 border-b border-border">
+                  <div className="flex flex-wrap items-baseline justify-between gap-3">
+                    <h3 className="font-display text-2xl font-bold text-foreground">
+                      Worked example
+                    </h3>
+                    <span className="text-[11px] font-semibold text-muted-foreground">
+                      Two travellers · three candidate plans
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground leading-relaxed mt-2 max-w-3xl">
+                    Asha loves food and temples on a tighter ceiling. Ben wants
+                    markets and has more room. Neither gets to be the default.
+                  </p>
+                  <ul className="flex flex-wrap gap-2.5 mt-4">
+                    {fairnessMembers.map((m) => (
+                      <li
+                        key={m.id}
+                        className={`px-3.5 py-2 rounded-2xl border text-xs ${m.tint}`}
+                      >
+                        <span className="font-bold">{m.name}</span>
+                        <span className="opacity-80"> · {m.prefs} · ceiling {m.ceiling}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Plan picker */}
+                <div
+                  role="group"
+                  aria-label="Choose a candidate plan"
+                  className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-border"
+                >
+                  {fairness.scored.map((plan) => {
+                    const selected = plan.id === currentFairnessPlan?.id;
+                    const recommended = plan.id === fairness.recommendedId;
+                    return (
+                      <button
+                        key={plan.id}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => setActivePlan(plan.id)}
+                        className={`text-left p-5 transition-colors motion-reduce:transition-none ${
+                          selected ? "bg-primary/[0.06]" : "bg-card hover:bg-muted/40"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span
+                            className={`text-sm font-bold ${selected ? "text-primary" : "text-foreground"}`}
+                          >
+                            {plan.variant}
+                          </span>
+                          {recommended && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 text-[9px] font-bold border border-emerald-500/20">
+                              BEST FIT
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {plan.cost} · {plan.mix}
+                        </p>
+                        <div className="flex items-baseline gap-1.5 mt-3">
+                          <span className="font-display text-2xl font-bold text-foreground tabular-nums">
+                            {Math.round(plan.groupRegret * 100)}%
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            worst-case gap
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Breakdown */}
+                {currentFairnessPlan && (
+                  <div className="p-6 sm:p-8">
+                    <div className="space-y-5">
+                      {currentFairnessPlan.members.map((m) => {
+                        const components = currentFairnessPlan.components[m.id];
+                        return (
+                          <div key={m.id}>
+                            <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+                              <p className="text-sm font-bold text-foreground">
+                                {m.name}
+                              </p>
+                              <p className="text-xs text-muted-foreground tabular-nums">
+                                utility{" "}
+                                <span className="font-bold text-foreground">
+                                  {m.utility.toFixed(2)}
+                                </span>{" "}
+                                · best available {m.best.toFixed(2)} · regret{" "}
+                                <span
+                                  className={`font-bold ${m.regret > 0 ? "text-amber-600" : "text-emerald-600"}`}
+                                >
+                                  {m.regret.toFixed(2)}
+                                </span>
+                              </p>
+                            </div>
+                            <div className="h-2.5 rounded-full bg-muted overflow-hidden flex">
+                              <div
+                                className="h-full bg-primary transition-[width] duration-500 ease-out motion-reduce:transition-none"
+                                style={{ width: `${m.utility * 100}%` }}
+                              />
+                              <div
+                                className="h-full bg-warning/60 transition-[width] duration-500 ease-out motion-reduce:transition-none"
+                                style={{ width: `${m.regret * 100}%` }}
+                              />
+                            </div>
+                            {components && (
+                              <p className="text-[11px] text-muted-foreground mt-1.5 font-mono">
+                                0.6·{components.interest.toFixed(2)} + 0.2·
+                                {components.quality.toFixed(2)} + 0.2·
+                                {components.affordability.toFixed(2)} ={" "}
+                                {m.utility.toFixed(2)}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-7 pt-6 border-t border-border grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                          Group score
+                        </p>
+                        <p className="text-sm font-semibold text-foreground">
+                          {currentFairnessPlan.groupRegret.toFixed(2)} — the worst
+                          member's regret
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                          Average regret
+                        </p>
+                        <p className="text-sm font-semibold text-foreground">
+                          {currentFairnessPlan.averageRegret.toFixed(2)} —
+                          reported, not used to pick
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                          Verdict
+                        </p>
+                        <p className="text-sm font-semibold text-foreground">
+                          {currentFairnessPlan.id === fairness.recommendedId
+                            ? "Recommended — lowest worst-case gap"
+                            : "Beaten by a plan with a smaller worst case"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 rounded-2xl bg-emerald-500/[0.06] border border-emerald-500/20 p-5 flex items-start gap-3">
+                      <TrendingDown
+                        className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5"
+                        aria-hidden="true"
+                      />
+                      <p className="text-sm text-muted-foreground leading-relaxed">
+                        Averaging would have picked{" "}
+                        <span className="font-semibold text-foreground">Budget</span>{" "}
+                        too here, but not always — an average happily buries one
+                        person having a miserable trip under three people having a
+                        great one. Minimising the worst case can't.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Reveal>
+
+            {/* Honesty notes */}
+            <Reveal delay={80}>
+              <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[
+                  {
+                    icon: Info,
+                    title: "Regret is relative to the options",
+                    desc: "It measures the gap to the best plan on offer, so at least one candidate always has somebody at zero. It is not a claim about the best trip imaginable.",
+                  },
+                  {
+                    icon: ShieldCheck,
+                    title: "Feasibility outranks fairness",
+                    desc: "The recommendation is made among plans that passed verification. A perfectly fair impossible itinerary still loses to a possible one.",
+                  },
+                  {
+                    icon: AlertTriangle,
+                    title: "No preferences, no score",
+                    desc: "If nobody in the trip has stated any, the app says fairness is unscored instead of printing a confident zero. Pace fit is computed but deliberately left out of the utility.",
+                  },
+                ].map((n) => (
+                  <div
+                    key={n.title}
+                    className="p-5 rounded-2xl bg-card border border-border"
+                  >
+                    <n.icon className="w-5 h-5 text-muted-foreground mb-3" aria-hidden="true" />
+                    <p className="text-sm font-semibold text-foreground mb-1.5">
+                      {n.title}
+                    </p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{n.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
         {/* ─── Reasons ─── */}
         <section className="py-24 px-6 bg-card">
           <div className="max-w-6xl mx-auto">
@@ -2031,6 +3692,156 @@ export default function Landing() {
           </div>
         </section>
 
+        {/* ─── Offline ─── */}
+        <section
+          id="offline"
+          className="scroll-mt-20 py-24 px-6 bg-gradient-to-b from-background via-card to-background"
+        >
+          <div className="max-w-6xl mx-auto">
+            <Reveal>
+              <SectionHeading
+                eyebrow="Offline behaviour"
+                eyebrowIcon={WifiOff}
+                title="Signal is worst exactly when"
+                accent="you're travelling"
+              >
+                So here's the honest breakdown — what keeps working, what serves
+                you something slightly old, and what genuinely needs a connection
+                and tells you so.
+              </SectionHeading>
+            </Reveal>
+
+            <Reveal>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                {offlineMatrix.map((column) => (
+                  <div
+                    key={column.level}
+                    className={`rounded-3xl border p-6 ${column.chip}`}
+                  >
+                    <div className="flex items-start gap-3 mb-1">
+                      <column.icon
+                        className={`w-5 h-5 shrink-0 mt-0.5 ${
+                          column.level === "full"
+                            ? "text-emerald-600"
+                            : column.level === "stale"
+                              ? "text-amber-600"
+                              : "text-muted-foreground"
+                        }`}
+                        aria-hidden="true"
+                      />
+                      <div>
+                        <h3 className="text-base font-bold text-foreground leading-tight">
+                          {column.label}
+                        </h3>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {column.sub}
+                        </p>
+                      </div>
+                    </div>
+                    <ul className="mt-5 space-y-2.5">
+                      {column.items.map((item) => (
+                        <li key={item} className="flex items-start gap-2.5">
+                          <CircleDot
+                            className="w-3 h-3 text-muted-foreground/50 shrink-0 mt-1"
+                            aria-hidden="true"
+                          />
+                          <span className="text-xs text-muted-foreground leading-relaxed">
+                            {item}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+              <Reveal>
+                <div className="h-full rounded-3xl border border-border bg-card p-6 sm:p-7">
+                  <div className="flex items-center gap-2.5 mb-1.5">
+                    <CloudUpload className="w-5 h-5 text-primary" aria-hidden="true" />
+                    <h3 className="font-display text-xl font-bold text-foreground">
+                      How queued edits behave
+                    </h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+                    Ticking activities off happens mid-trip, which is when signal
+                    is worst. Those writes land in IndexedDB instead of failing,
+                    then replay when you're back — under rules worth stating out
+                    loud, because "syncs later" hides a lot of decisions.
+                  </p>
+                  <ul className="space-y-4">
+                    {queueRules.map((rule) => (
+                      <li key={rule.title} className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                          <rule.icon className="w-4 h-4 text-primary" aria-hidden="true" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-foreground">
+                            {rule.title}
+                          </p>
+                          <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
+                            {rule.desc}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-5 pt-4 border-t border-border text-[11px] text-muted-foreground leading-relaxed">
+                    Pending writes are counted in the offline banner, so the queue
+                    is never a black box. 31 tests cover it, 9 of them the
+                    conflict path.
+                  </p>
+                </div>
+              </Reveal>
+
+              <Reveal delay={80}>
+                <div className="h-full rounded-3xl border border-border bg-card p-6 sm:p-7">
+                  <div className="flex items-center gap-2.5 mb-1.5">
+                    <MapIcon className="w-5 h-5 text-teal-500" aria-hidden="true" />
+                    <h3 className="font-display text-xl font-bold text-foreground">
+                      Maps that survive a dead zone
+                    </h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+                    Saving a trip for offline pre-fetches the OpenStreetMap tiles
+                    around it across five zoom levels, into the same cache the map
+                    reads from — which is the part that actually makes it render
+                    with no connection.
+                  </p>
+                  <dl className="grid grid-cols-2 gap-3">
+                    {[
+                      { k: "Tiles per trip", v: "~173" },
+                      { k: "Zoom levels", v: "10 → 14" },
+                      { k: "Over the network", v: "~6–8 MB" },
+                      { k: "Kept for", v: "30 days" },
+                    ].map((s) => (
+                      <div
+                        key={s.k}
+                        className="p-4 rounded-2xl bg-background border border-border"
+                      >
+                        <dt className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                          {s.k}
+                        </dt>
+                        <dd className="text-base font-bold text-foreground tabular-nums">
+                          {s.v}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <p className="mt-5 pt-4 border-t border-border text-[11px] text-muted-foreground leading-relaxed">
+                    Twelve separate runtime caches sit behind this, each with its
+                    own strategy — weather is network-first with a 6-second
+                    timeout, imagery is cache-first for a month. Route lines
+                    aren't cached yet; that one's on the roadmap below.
+                  </p>
+                </div>
+              </Reveal>
+            </div>
+          </div>
+        </section>
+
         {/* ─── Languages ─── */}
         <section id="languages" className="scroll-mt-20 py-24 px-6 bg-card">
           <div className="max-w-6xl mx-auto">
@@ -2125,6 +3936,192 @@ export default function Landing() {
                 })}
               </div>
             </Reveal>
+
+            {/* Verified state — and what the same pass couldn't check */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+              <Reveal>
+                <div className="h-full rounded-3xl border border-border bg-card p-6 sm:p-7">
+                  <div className="flex items-center gap-2.5 mb-1.5">
+                    <FlaskConical className="w-5 h-5 text-emerald-500" aria-hidden="true" />
+                    <h3 className="font-display text-xl font-bold text-foreground">
+                      Checked, on the current commit
+                    </h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+                    Commands anyone with the repository can run and compare
+                    against.
+                  </p>
+                  <dl className="space-y-0">
+                    {verifiedState.map((v) => (
+                      <div
+                        key={v.label}
+                        className="flex items-start gap-3 py-3 border-b border-border last:border-0"
+                      >
+                        <CheckCircle
+                          className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5"
+                          aria-hidden="true"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-baseline justify-between gap-3">
+                            <dt className="text-sm font-medium text-foreground">
+                              {v.label}
+                            </dt>
+                            <dd className="text-sm font-bold text-emerald-600 shrink-0">
+                              {v.value}
+                            </dd>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            {v.note}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </dl>
+                  <ul className="mt-5 pt-4 border-t border-border flex flex-wrap gap-2">
+                    {testBreakdown.map((t) => (
+                      <li
+                        key={t.name}
+                        className="px-2.5 py-1 rounded-full bg-muted text-[10px] font-medium text-muted-foreground"
+                      >
+                        {t.name} <span className="font-bold tabular-nums">{t.count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </Reveal>
+
+              <Reveal delay={80}>
+                <div className="h-full rounded-3xl border border-warning/25 bg-warning/[0.04] p-6 sm:p-7">
+                  <div className="flex items-center gap-2.5 mb-1.5">
+                    <AlertTriangle className="w-5 h-5 text-amber-600" aria-hidden="true" />
+                    <h3 className="font-display text-xl font-bold text-foreground">
+                      Not verified yet
+                    </h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+                    A page of green ticks with no caveats is a marketing claim,
+                    not a test report. These are the gaps in the same pass.
+                  </p>
+                  <ul className="space-y-3">
+                    {notVerified.map((item) => (
+                      <li key={item} className="flex items-start gap-2.5">
+                        <Minus
+                          className="w-4 h-4 text-amber-600/70 shrink-0 mt-0.5"
+                          aria-hidden="true"
+                        />
+                        <span className="text-sm text-muted-foreground leading-relaxed">
+                          {item}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-5 pt-4 border-t border-warning/20 text-[11px] text-muted-foreground leading-relaxed">
+                    Tracked in the repository's own backlog rather than quietly
+                    left off the page. When one of these gets measured, the number
+                    goes in the column on the left.
+                  </p>
+                </div>
+              </Reveal>
+            </div>
+
+            {/* Quickstart */}
+            <Reveal delay={120}>
+              <div className="mt-8 rounded-3xl border border-border bg-card overflow-hidden">
+                <div className="grid grid-cols-1 lg:grid-cols-2">
+                  <div className="p-6 sm:p-8 border-b lg:border-b-0 lg:border-r border-border">
+                    <div className="flex items-center gap-2.5 mb-1.5">
+                      <Terminal className="w-5 h-5 text-primary" aria-hidden="true" />
+                      <h3 className="font-display text-xl font-bold text-foreground">
+                        Run your own copy
+                      </h3>
+                    </div>
+                    <p className="text-sm text-muted-foreground leading-relaxed mb-6">
+                      MIT licensed, four commands, and two environment values
+                      you'll get free from Supabase in about a minute.
+                    </p>
+                    <ol className="space-y-2.5">
+                      {quickstart.map((step, i) => {
+                        const copied = copiedCmd === step.cmd;
+                        return (
+                          <li key={step.cmd}>
+                            <div className="flex items-center gap-2 rounded-2xl bg-background border border-border p-2.5">
+                              <span className="w-6 h-6 rounded-lg bg-primary/10 text-primary text-[11px] font-bold flex items-center justify-center shrink-0 tabular-nums">
+                                {i + 1}
+                              </span>
+                              <code className="flex-1 min-w-0 font-mono text-[11px] sm:text-xs text-foreground overflow-x-auto whitespace-nowrap">
+                                {step.cmd}
+                              </code>
+                              <button
+                                type="button"
+                                onClick={() => copyCommand(step.cmd)}
+                                aria-label={
+                                  copied ? "Command copied" : `Copy: ${step.cmd}`
+                                }
+                                className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                              >
+                                {copied ? (
+                                  <ClipboardCheck
+                                    className="w-3.5 h-3.5 text-emerald-500"
+                                    aria-hidden="true"
+                                  />
+                                ) : (
+                                  <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+                                )}
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mt-1 ml-11">
+                              {step.note}
+                            </p>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </div>
+
+                  <div className="p-6 sm:p-8 bg-background/40">
+                    <div className="flex items-center gap-2.5 mb-1.5">
+                      <KeyRound className="w-5 h-5 text-muted-foreground" aria-hidden="true" />
+                      <h3 className="font-display text-xl font-bold text-foreground">
+                        Every key it can read
+                      </h3>
+                    </div>
+                    <p className="text-sm text-muted-foreground leading-relaxed mb-6">
+                      Two required, three optional, none of them paid. Leave an
+                      optional one blank and that feature degrades with a notice
+                      instead of breaking the app.
+                    </p>
+                    <ul className="space-y-2.5">
+                      {requiredEnv.map((env) => (
+                        <li
+                          key={env.key}
+                          className="p-3.5 rounded-2xl bg-card border border-border"
+                        >
+                          <div className="flex items-start justify-between gap-3 mb-1">
+                            <code className="font-mono text-[11px] text-primary break-all">
+                              {env.key}
+                            </code>
+                            <span
+                              className={`shrink-0 px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                                env.need === "Required"
+                                  ? "bg-primary/10 text-primary border-primary/20"
+                                  : "bg-muted text-muted-foreground border-border"
+                              }`}
+                            >
+                              {env.need.toUpperCase()}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">{env.desc}</p>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="mt-5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <Server className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                      Skip the Groq key entirely and use the on-device engine.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Reveal>
           </div>
         </section>
 
@@ -2161,7 +4158,7 @@ export default function Landing() {
                           {dest.name}
                         </h3>
                         <p className="text-sm text-muted-foreground mt-1">
-                          {dest.desc}
+                          {dest.description}
                         </p>
                       </div>
                       <div className="w-8 h-8 rounded-full border border-border flex items-center justify-center group-hover:bg-primary group-hover:border-primary transition-colors shrink-0 ml-3">
@@ -2317,6 +4314,172 @@ export default function Landing() {
           </div>
         </section>
 
+        {/* ─── Roadmap ─── */}
+        <section id="roadmap" className="scroll-mt-20 py-24 px-6 bg-background">
+          <div className="max-w-6xl mx-auto">
+            <Reveal>
+              <SectionHeading
+                eyebrow="The other list"
+                eyebrowIcon={GitBranch}
+                title="What isn't here"
+                accent="yet"
+              >
+                A roadmap that only lists wins is a feature list wearing a
+                different hat. These are the limits and gaps the project tracks
+                against itself.
+              </SectionHeading>
+            </Reveal>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              {roadmap.map((group, gi) => (
+                <Reveal key={group.group} delay={gi * 80}>
+                  <div className="h-full rounded-3xl border border-border bg-card p-6">
+                    <div className="flex items-center gap-2.5 mb-5">
+                      <span
+                        className={`w-9 h-9 rounded-xl border flex items-center justify-center ${group.tint}`}
+                      >
+                        <group.icon className="w-4 h-4" aria-hidden="true" />
+                      </span>
+                      <h3 className="text-base font-bold text-foreground">
+                        {group.group}
+                      </h3>
+                      <span className="ml-auto text-xs font-semibold text-muted-foreground tabular-nums">
+                        {group.items.length}
+                      </span>
+                    </div>
+                    <ul className="space-y-4">
+                      {group.items.map((item) => (
+                        <li key={item.title}>
+                          <p className="text-sm font-semibold text-foreground mb-1">
+                            {item.title}
+                          </p>
+                          <p className="text-xs text-muted-foreground leading-relaxed">
+                            {item.desc}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </Reveal>
+              ))}
+            </div>
+
+            <Reveal>
+              <div className="mt-8 rounded-2xl border border-border bg-card px-6 py-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Each of these is an open item in the repository's backlog, with
+                  the reasoning attached. Nothing on this list is described
+                  anywhere else on the page as though it were finished.
+                </p>
+                <a
+                  href="https://github.com/HarshTambade/Radiator-Routes"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 rounded-full border border-border text-sm font-semibold text-foreground hover:bg-muted transition-colors"
+                >
+                  <GitBranch className="w-4 h-4" aria-hidden="true" />
+                  See the backlog
+                </a>
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* ─── FAQ ─── */}
+        <section id="faq" className="scroll-mt-20 py-24 px-6 bg-card">
+          <div className="max-w-4xl mx-auto">
+            <Reveal>
+              <SectionHeading
+                eyebrow="Questions"
+                eyebrowIcon={HelpCircle}
+                title="The things people actually"
+                accent="ask first"
+              >
+                Including the ones with awkward answers.
+              </SectionHeading>
+            </Reveal>
+
+            <Reveal>
+              <ul className="space-y-3">
+                {faqs.map((faq, i) => {
+                  const open = openFaq === i;
+                  return (
+                    <li
+                      key={faq.q}
+                      className={`rounded-2xl border transition-colors motion-reduce:transition-none ${
+                        open
+                          ? "border-primary/30 bg-background shadow-card"
+                          : "border-border bg-background/60 hover:border-primary/20"
+                      }`}
+                    >
+                      <h3>
+                        <button
+                          type="button"
+                          onClick={() => setOpenFaq(open ? null : i)}
+                          aria-expanded={open}
+                          aria-controls={`faq-panel-${i}`}
+                          className="w-full flex items-start gap-4 text-left p-5"
+                        >
+                          <span className="flex-1 text-base font-semibold text-foreground leading-snug">
+                            {faq.q}
+                          </span>
+                          <span
+                            className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-colors motion-reduce:transition-none ${
+                              open
+                                ? "bg-primary border-primary text-primary-foreground"
+                                : "border-border text-muted-foreground"
+                            }`}
+                          >
+                            {open ? (
+                              <Minus className="w-3.5 h-3.5" aria-hidden="true" />
+                            ) : (
+                              <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                            )}
+                          </span>
+                        </button>
+                      </h3>
+                      <div id={`faq-panel-${i}`} hidden={!open}>
+                        <p className="px-5 pb-5 text-sm text-muted-foreground leading-relaxed">
+                          {faq.a}
+                        </p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Reveal>
+
+            <Reveal>
+              <div className="mt-8 rounded-2xl bg-primary/5 border border-primary/20 px-6 py-5 text-center">
+                <p className="text-sm font-semibold text-foreground">
+                  Something not answered here?
+                </p>
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  The source is the documentation of record — including the audit
+                  of what this page used to claim.
+                </p>
+                <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+                  <Link
+                    to="/auth?mode=signup"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity"
+                  >
+                    Start Planning Free <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                  </Link>
+                  <a
+                    href="https://github.com/HarshTambade/Radiator-Routes"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full border border-border bg-background text-sm font-semibold text-foreground hover:bg-muted transition-colors"
+                  >
+                    <Github className="w-4 h-4" aria-hidden="true" />
+                    Read the source
+                  </a>
+                </div>
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
         {/* ─── CTA ─── */}
         <section className="relative py-32 px-6 overflow-hidden">
           <img
@@ -2418,6 +4581,11 @@ export default function Landing() {
                 </a>
               </li>
               <li>
+                <a href="#faq" className="hover:text-background transition-colors">
+                  FAQ
+                </a>
+              </li>
+              <li>
                 <Link
                   to="/auth?mode=signup"
                   className="hover:text-background transition-colors"
@@ -2429,31 +4597,54 @@ export default function Landing() {
           </div>
 
           <div>
-            <h2 className="font-semibold mb-4 text-sm">Technology</h2>
+            <h2 className="font-semibold mb-4 text-sm">How it works</h2>
             <ul className="space-y-2.5 text-sm text-background/60">
               <li>
+                <a href="#pipeline" className="hover:text-background transition-colors">
+                  The pipeline
+                </a>
+              </li>
+              <li>
+                <a href="#verification" className="hover:text-background transition-colors">
+                  Plan verification
+                </a>
+              </li>
+              <li>
+                <a href="#fairness" className="hover:text-background transition-colors">
+                  Fairness scoring
+                </a>
+              </li>
+              <li>
                 <a href="#engines" className="hover:text-background transition-colors">
-                  AI Engines
+                  AI engines
                 </a>
               </li>
               <li>
-                <a href="#tech" className="hover:text-background transition-colors">
-                  Tech Stack
+                <a href="#offline" className="hover:text-background transition-colors">
+                  Offline behaviour
                 </a>
               </li>
-              <li>
-                <a href="#languages" className="hover:text-background transition-colors">
-                  {LANGUAGE_COUNT} Languages
-                </a>
-              </li>
-              <li>Plan verification</li>
-              <li>Offline-first PWA</li>
             </ul>
           </div>
 
           <div>
             <h2 className="font-semibold mb-4 text-sm">Project</h2>
             <ul className="space-y-2.5 text-sm text-background/60">
+              <li>
+                <a href="#tech" className="hover:text-background transition-colors">
+                  Tech stack
+                </a>
+              </li>
+              <li>
+                <a href="#languages" className="hover:text-background transition-colors">
+                  {LANGUAGE_COUNT} languages
+                </a>
+              </li>
+              <li>
+                <a href="#roadmap" className="hover:text-background transition-colors">
+                  What isn't built yet
+                </a>
+              </li>
               <li>
                 <a
                   href="https://github.com/HarshTambade/Radiator-Routes"
@@ -2466,11 +4657,9 @@ export default function Landing() {
               </li>
               <li>
                 <Link to="/auth" className="hover:text-background transition-colors">
-                  Sign In
+                  Sign in
                 </Link>
               </li>
-              <li>MIT licensed</li>
-              <li>No paid APIs</li>
             </ul>
           </div>
         </div>

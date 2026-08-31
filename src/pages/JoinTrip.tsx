@@ -4,6 +4,7 @@ import { MapPin, Loader2, CheckCircle, XCircle, LogIn } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { useSeo } from "@/hooks/useSeo";
 import { errorMessage } from "@/lib/errors";
 
 export default function JoinTrip() {
@@ -16,6 +17,22 @@ export default function JoinTrip() {
   const [trip, setTrip] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<"idle" | "sent" | "already" | "error">("idle");
+
+  // Names the tab and the share sheet once the invite resolves. Kept in a hook
+  // because each of this page's four branches (loading, invalid, signed out,
+  // signed in) should be labelled.
+  //
+  // The route registry marks /join/:inviteCode noindex — an invite link is
+  // private. Note this only reaches JS-capable clients, so the link preview a
+  // recipient sees in WhatsApp or Slack is still the generic site card from
+  // index.html. Giving those scrapers the trip name would take a server-side
+  // renderer for this route; see docs/BACKLOG.md.
+  useSeo({
+    title: trip?.name ? `Join ${trip.name}` : undefined,
+    description: trip?.name
+      ? `You have been invited to join ${trip.name}${trip.destination ? ` in ${trip.destination}` : ""} on Radiator Routes.`
+      : undefined,
+  });
 
   useEffect(() => {
     const loadInvite = async () => {

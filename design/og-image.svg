@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Open Graph / Twitter social card — 1200×630, the size every scraper expects.
+
+  This is the source of truth for public/og-image.png. It lives outside public/
+  so it is never served or precached, and editing it alone changes nothing:
+  scrapers are served the PNG, because Facebook, WhatsApp, LinkedIn and Slack
+  will not render an SVG card. Re-rasterise after any edit:
+
+    rsvg-convert -w 1200 -h 630 design/og-image.svg -o public/og-image.png
+
+  Typography matches the landing page — Plus Jakarta Sans for the sans, Playfair
+  Display Italic for the accent line — so the fonts must be installed for the
+  rasterise step. Both are OFL, from Google Fonts. The committed PNG has the
+  type already rendered, so nobody needs them just to build the app.
+-->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1200"
+  height="630"
+  viewBox="0 0 1200 630"
+  role="img"
+  aria-label="Radiator Routes — AI travel planner for group trips"
+>
+  <defs>
+    <linearGradient id="canvas" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1d0700" />
+      <stop offset="55%" stop-color="#140500" />
+      <stop offset="100%" stop-color="#260a01" />
+    </linearGradient>
+
+    <!-- Brand glow, bottom-right, echoing the landing page hero. -->
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#e8390e" stop-opacity="0.55" />
+      <stop offset="55%" stop-color="#e8390e" stop-opacity="0.14" />
+      <stop offset="100%" stop-color="#e8390e" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="glowTop" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff7a2f" stop-opacity="0.20" />
+      <stop offset="100%" stop-color="#ff7a2f" stop-opacity="0" />
+    </radialGradient>
+
+    <linearGradient id="mark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f0481a" />
+      <stop offset="100%" stop-color="#c42d08" />
+    </linearGradient>
+
+    <linearGradient id="markShine" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+
+    <linearGradient id="routeLine" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff8a4c" stop-opacity="0.15" />
+      <stop offset="45%" stop-color="#ff8a4c" stop-opacity="0.85" />
+      <stop offset="100%" stop-color="#ffd0b8" stop-opacity="0.95" />
+    </linearGradient>
+  </defs>
+
+  <!-- ─── Canvas ─── -->
+  <rect width="1200" height="630" fill="url(#canvas)" />
+  <ellipse cx="1010" cy="620" rx="560" ry="380" fill="url(#glow)" />
+  <ellipse cx="240" cy="-40" rx="420" ry="280" fill="url(#glowTop)" />
+
+  <!-- Hairline grid, barely there — keeps the flat background from banding. -->
+  <g stroke="#ffffff" stroke-opacity="0.035" stroke-width="1">
+    <path d="M0 158.5h1200M0 315.5h1200M0 472.5h1200" />
+    <path d="M300.5 0v630M600.5 0v630M900.5 0v630" />
+  </g>
+
+  <!-- ─── Route motif, right side ───
+       Three stops on one curve: the shape of a planned trip, and the same
+       pin-and-road vocabulary as the favicon. -->
+  <g transform="translate(742 96)">
+    <path
+      d="M40 330 C 120 300, 96 196, 184 178 C 268 160, 300 88, 366 44"
+      fill="none"
+      stroke="url(#routeLine)"
+      stroke-width="3.5"
+      stroke-linecap="round"
+      stroke-dasharray="14 11"
+    />
+
+    <!-- Stop 1 -->
+    <g transform="translate(40 330)">
+      <circle r="30" fill="#e8390e" fill-opacity="0.12" />
+      <circle r="9.5" fill="none" stroke="#ffb995" stroke-width="3" />
+      <circle r="3" fill="#ffb995" />
+    </g>
+
+    <!-- Stop 2 -->
+    <g transform="translate(184 178)">
+      <circle r="34" fill="#e8390e" fill-opacity="0.16" />
+      <circle r="11" fill="none" stroke="#ff8a4c" stroke-width="3.2" />
+      <circle r="3.6" fill="#ff8a4c" />
+    </g>
+
+    <!-- Stop 3 — destination, drawn as a full pin -->
+    <g transform="translate(366 44)">
+      <circle r="46" fill="#e8390e" fill-opacity="0.20" />
+      <circle r="16" fill="none" stroke="#ffffff" stroke-width="4" />
+      <circle r="5.5" fill="#ffffff" />
+      <path
+        d="M-7 24 Q0 40 0 46 Q0 40 7 24"
+        fill="#ffffff"
+        fill-opacity="0.92"
+      />
+    </g>
+  </g>
+
+  <!-- ─── Logo lockup ─── -->
+  <g transform="translate(72 62)">
+    <g>
+      <rect width="60" height="60" rx="14" fill="url(#mark)" />
+      <rect width="60" height="28" rx="14" fill="url(#markShine)" />
+      <path
+        d="M7.5 47 Q18.8 35.6 30 37.5 Q41.3 39.4 52.5 47"
+        fill="none"
+        stroke="#ffffff"
+        stroke-width="2.5"
+        stroke-linecap="round"
+        stroke-opacity="0.85"
+      />
+      <circle cx="30" cy="19.7" r="8" fill="none" stroke="#ffffff" stroke-width="2.6" />
+      <circle cx="30" cy="19.7" r="2.8" fill="#ffffff" />
+      <path
+        d="M26.7 25.8 Q30 31.9 30 33.8 Q30 31.9 33.3 25.8"
+        fill="#ffffff"
+        fill-opacity="0.9"
+      />
+    </g>
+
+    <text
+      x="78"
+      y="39"
+      font-family="Plus Jakarta Sans"
+      font-size="25"
+      font-weight="800"
+      letter-spacing="4.5"
+      fill="#ffffff"
+      fill-opacity="0.94"
+    >RADIATOR ROUTES</text>
+  </g>
+
+  <!-- ─── Eyebrow ─── -->
+  <text
+    x="72"
+    y="222"
+    font-family="Plus Jakarta Sans"
+    font-size="19"
+    font-weight="700"
+    letter-spacing="3.6"
+    fill="#ff8a4c"
+  >AI TRAVEL PLANNER · BUILT FOR GROUP TRIPS</text>
+
+  <!-- ─── Headline ───
+       White sans over italic serif in the brand orange: the exact pairing the
+       landing page hero uses. -->
+  <text
+    x="72"
+    y="320"
+    font-family="Plus Jakarta Sans"
+    font-size="82"
+    font-weight="800"
+    letter-spacing="-2.4"
+    fill="#ffffff"
+  >Speak your trip.</text>
+
+  <text
+    x="72"
+    y="410"
+    font-family="Playfair Display"
+    font-style="italic"
+    font-size="82"
+    font-weight="400"
+    letter-spacing="-1.2"
+    fill="#ff5a24"
+  >Code checks it.</text>
+
+  <!-- ─── Capability chips ─── -->
+  <g font-family="Plus Jakarta Sans" font-size="19" font-weight="600">
+    <g transform="translate(72 458)">
+      <rect width="180" height="46" rx="23" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.16" />
+      <circle cx="24" cy="23" r="4" fill="#ff8a4c" />
+      <text x="40" y="30" fill="#ffffff" fill-opacity="0.86">Voice-first</text>
+    </g>
+
+    <g transform="translate(264 458)">
+      <rect width="252" height="46" rx="23" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.16" />
+      <circle cx="24" cy="23" r="4" fill="#ff8a4c" />
+      <text x="40" y="30" fill="#ffffff" fill-opacity="0.86">13 feasibility checks</text>
+    </g>
+
+    <g transform="translate(528 458)">
+      <rect width="212" height="46" rx="23" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.16" />
+      <circle cx="24" cy="23" r="4" fill="#ff8a4c" />
+      <text x="40" y="30" fill="#ffffff" fill-opacity="0.86">Fairness scoring</text>
+    </g>
+  </g>
+
+  <!-- ─── Footer ─── -->
+  <g font-family="Plus Jakarta Sans">
+    <text
+      x="72"
+      y="566"
+      font-size="21"
+      font-weight="700"
+      letter-spacing="0.2"
+      fill="#ffffff"
+      fill-opacity="0.72"
+    >radiatorroutes.vercel.app</text>
+
+    <text
+      x="72"
+      y="596"
+      font-size="17"
+      font-weight="500"
+      letter-spacing="0.6"
+      fill="#ffffff"
+      fill-opacity="0.42"
+    >Free · No paid APIs · Works offline · Open source</text>
+  </g>
+</svg>

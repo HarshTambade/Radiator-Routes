@@ -57,6 +57,7 @@ import { planItinerary } from "@/services/aiPlanner";
 import { nominatimSearch } from "@/services/nominatim";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useSeo } from "@/hooks/useSeo";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import RegretPlanner from "@/components/RegretPlanner";
 import DisruptionReplanner from "@/components/DisruptionReplanner";
@@ -114,6 +115,21 @@ export default function Itinerary() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isOnline = useOnlineStatus();
+
+  // Tab title and share-sheet label follow the trip once it loads. Set through
+  // the hook rather than a <Seo> element because this component has three
+  // separate return paths (no trip selected, loading, loaded) and all three
+  // should be labelled. Every /itinerary URL is noindex in the route registry:
+  // trip names are private data, and this metadata only ever reaches the
+  // owner's own browser.
+  useSeo({
+    title: trip
+      ? [trip.name, trip.destination].filter(Boolean).join(" — ")
+      : undefined,
+    description: trip
+      ? `Day-by-day plan for ${trip.name}${trip.destination ? ` in ${trip.destination}` : ""}.`
+      : undefined,
+  });
 
   // Fetch trip members for expense splitting
   const { data: tripMembers = [] } = useQuery({

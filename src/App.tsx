@@ -11,6 +11,7 @@ import { ProtectedLayout } from "@/components/ProtectedLayout";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import PWAInstallPrompt from "@/components/PWAInstallPrompt";
+import { RouteSeo } from "@/components/Seo";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -61,6 +62,11 @@ const App = () => (
             <Toaster />
             <Sonner />
             <BrowserRouter>
+              {/* Outside Suspense on purpose: title, canonical URL and the
+                  robots directive update the moment the URL changes, rather
+                  than waiting on the route's lazy chunk. Pages refine this
+                  with their own <Seo> once their data has loaded. */}
+              <RouteSeo />
               <Suspense fallback={<RouteFallback />}>
                 <Routes>
                   <Route path="/" element={<Landing />} />

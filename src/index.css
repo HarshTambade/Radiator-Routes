@@ -144,6 +144,22 @@
     animation: scroll-x 20s linear infinite;
 }
 
+/* Slow zoom for the landing hero slideshow. Runs slightly longer than the
+   6s slide interval so it never visibly stalls before the crossfade.
+   Applied only to the active slide; JSX opts out with motion-reduce. */
+@keyframes ken-burns {
+    from {
+        transform: scale(1) translate3d(0, 0, 0);
+    }
+    to {
+        transform: scale(1.08) translate3d(0, -1%, 0);
+    }
+}
+
+.animate-ken-burns {
+    animation: ken-burns 7s ease-out forwards;
+}
+
 /* Slide up from bottom (for PWA install banner) */
 @keyframes slide-up {
     from {

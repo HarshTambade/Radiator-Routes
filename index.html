@@ -8,17 +8,35 @@
         />
 
         <!-- ═══ Primary Meta ═══ -->
-        <title>Radiator Routes — AI-Powered Travel Planner for India</title>
+        <!--
+            This head is not a fallback — it is the real metadata for every URL
+            on the domain. The app is a client-rendered SPA, and the scrapers
+            behind WhatsApp, Slack, iMessage, Facebook, LinkedIn and X fetch the
+            HTML once without running a line of JavaScript. Whatever sits here
+            is the link preview they show.
+
+            src/lib/seoRoutes.ts then refines this per route for the browser and
+            for Googlebot, which does render JS. Keep the values below in sync
+            with the "/" entry in that registry.
+        -->
+        <title>
+            Radiator Routes — AI Travel Planner for Group Trips in India
+        </title>
         <meta
             name="description"
-            content="Radiator Routes is India's smartest AI travel planner. Voice-first itinerary creation, regret-aware AI planning, SOS emergency system, real-time safety warnings, UPI payments, group travel coordination, accessibility panel, and a fully installable PWA mobile app."
+            content="Plan group trips with an AI that shows its reasoning. Voice-first itineraries, 13 feasibility checks per plan, group fairness scoring, live location sharing, SOS with GPS, offline PWA — built entirely on free APIs."
         />
         <meta name="author" content="Radiator Routes — HarshTambade" />
         <meta
             name="keywords"
-            content="AI travel planner India, group trip planner, itinerary generator, voice travel planning, regret-free travel, SOS emergency travel, UPI travel payment, accessible travel app, travel safety warnings, Goa Kerala Agra trip, PWA travel app, real-time replanning, Jinny AI assistant, travel chatbot India"
+            content="AI travel planner India, group trip planner, itinerary generator, voice travel planning, group fairness scoring, offline travel app, PWA travel app, SOS emergency travel, accessible travel app, free travel planner, on-device AI travel, Goa Kerala Agra trip"
         />
-        <meta name="robots" content="index, follow" />
+        <!-- max-image-preview:large is what lets Google use the 1200×630 card
+             instead of a thumbnail in search results. -->
+        <meta
+            name="robots"
+            content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
+        />
         <meta name="language" content="en-IN" />
         <meta name="revisit-after" content="7 days" />
         <meta name="rating" content="general" />
@@ -116,57 +134,127 @@
         <!-- ═══ Web App Manifest ═══ -->
         <link rel="manifest" href="/manifest.webmanifest" />
 
-        <!-- ═══ Open Graph / Facebook ═══ -->
+        <!-- ═══ Open Graph — Facebook, LinkedIn, WhatsApp, Slack, iMessage ═══ -->
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="Radiator Routes" />
         <meta property="og:locale" content="en_IN" />
-        <meta property="og:url" content="https://radiatorroutes.vercel.app" />
+        <meta property="og:url" content="https://radiatorroutes.vercel.app/" />
         <meta
             property="og:title"
-            content="Radiator Routes — AI Travel Planner for India"
+            content="Radiator Routes — AI Travel Planner for Group Trips in India"
         />
         <meta
             property="og:description"
-            content="India's smartest AI travel planner. Voice-first itinerary creation, SOS emergency, real-time safety warnings, UPI payments, group travel coordination, accessibility panel & installable PWA."
+            content="Speak your trip, code checks it. Voice-first itineraries, 13 feasibility checks per plan, group fairness scoring, live location sharing, SOS with GPS and an offline PWA — on free APIs, no card."
         />
+        <!--
+            1200×630, generated from design/og-image.svg. This used to point at
+            icon-512x512.png: a square app icon declared as a 512×512 image
+            while twitter:card asked for summary_large_image, so every scraper
+            either letterboxed it or cropped the middle out. The dimensions below
+            must keep matching the file — scrapers lay the card out from these
+            numbers before the image has finished downloading.
+        -->
         <meta
             property="og:image"
-            content="https://radiatorroutes.vercel.app/icons/icon-512x512.png"
+            content="https://radiatorroutes.vercel.app/og-image.png"
         />
-        <meta property="og:image:width" content="512" />
-        <meta property="og:image:height" content="512" />
+        <meta
+            property="og:image:secure_url"
+            content="https://radiatorroutes.vercel.app/og-image.png"
+        />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
         <meta
             property="og:image:alt"
-            content="Radiator Routes — AI Travel Planner"
+            content="Radiator Routes — speak your trip, code checks it. AI travel planner for group trips."
         />
         <meta property="og:image:type" content="image/png" />
 
-        <!-- ═══ Twitter Card ═══ -->
+        <!-- ═══ Twitter / X Card ═══ -->
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:site" content="@RadiatorRoutes" />
         <meta name="twitter:creator" content="@RadiatorRoutes" />
         <meta
             name="twitter:title"
-            content="Radiator Routes — AI Travel Planner for India"
+            content="Radiator Routes — AI Travel Planner for Group Trips"
         />
         <meta
             name="twitter:description"
-            content="India's smartest AI travel planner. Voice-first itineraries, SOS emergency, safety warnings, UPI payments, group travel & PWA mobile app."
+            content="Speak your trip, code checks it. Voice-first itineraries, 13 feasibility checks per plan, group fairness scoring, SOS with GPS and an offline PWA — on free APIs."
         />
         <meta
             name="twitter:image"
-            content="https://radiatorroutes.vercel.app/icons/icon-512x512.png"
+            content="https://radiatorroutes.vercel.app/og-image.png"
         />
-        <meta name="twitter:image:alt" content="Radiator Routes App" />
+        <meta
+            name="twitter:image:alt"
+            content="Radiator Routes — speak your trip, code checks it. AI travel planner for group trips."
+        />
+        <!-- Rendered as two extra fields beneath the card in most X clients. -->
+        <meta name="twitter:label1" content="Price" />
+        <meta name="twitter:data1" content="Free — no card, no paid APIs" />
+        <meta name="twitter:label2" content="Install" />
+        <meta name="twitter:data2" content="PWA — Web, Android, iOS" />
 
-        <!-- ═══ Canonical ═══ -->
-        <link rel="canonical" href="https://radiatorroutes.vercel.app" />
+        <!-- ═══ Canonical & alternates ═══ -->
+        <link rel="canonical" href="https://radiatorroutes.vercel.app/" />
+        <!-- Single-locale site. The in-app switcher translates the UI at runtime
+             without changing the URL, so there is one canonical document and
+             x-default points at it. -->
+        <link
+            rel="alternate"
+            hreflang="en-IN"
+            href="https://radiatorroutes.vercel.app/"
+        />
+        <link
+            rel="alternate"
+            hreflang="x-default"
+            href="https://radiatorroutes.vercel.app/"
+        />
+        <link
+            rel="sitemap"
+            type="application/xml"
+            title="Sitemap"
+            href="/sitemap.xml"
+        />
 
-        <!-- ═══ Structured Data — SoftwareApplication ═══ -->
+        <!-- ═══ Structured Data ═══
+             Three entities are declared statically so they reach crawlers that
+             don't run JavaScript: WebSite, Organization and SoftwareApplication.
+             Each carries an @id, and the per-page blocks written at runtime by
+             src/lib/seoHead.ts (WebPage, BreadcrumbList, ItemList, FAQPage)
+             reference these @ids instead of restating them. That makes the two
+             halves one graph rather than rival copies of the same entity.
+
+             The @id and url values hardcode the production origin. If you point
+             VITE_SITE_URL somewhere else, change them here too. -->
+
+        <!-- ─── WebSite ───
+             No SearchAction: sitelinks search requires a public results URL, and
+             this app's only search sits behind the auth gate on /explore. -->
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "WebSite",
+                "@id": "https://radiatorroutes.vercel.app/#website",
+                "url": "https://radiatorroutes.vercel.app/",
+                "name": "Radiator Routes",
+                "alternateName": "RadRoutes",
+                "description": "AI travel planner for group trips — voice-first itineraries, deterministic plan verification and group fairness scoring.",
+                "inLanguage": "en-IN",
+                "publisher": {
+                    "@id": "https://radiatorroutes.vercel.app/#organization"
+                }
+            }
+        </script>
+
+        <!-- ─── SoftwareApplication ─── -->
         <script type="application/ld+json">
             {
                 "@context": "https://schema.org",
                 "@type": "SoftwareApplication",
+                "@id": "https://radiatorroutes.vercel.app/#application",
                 "name": "Radiator Routes",
                 "alternateName": "RadRoutes",
                 "description": "India's AI-powered travel planner for group trips. Combines voice-first interaction, hosted Groq LLaMA or fully on-device WebLLM inference, deterministic itinerary verification, computed group fairness scoring, Wikipedia-backed safety context, SOS emergency with live location, live location sharing between trip members, a 5-tab accessibility panel, UPI P2P payments, an offline-capable PWA, community groups, 3D maps, AR view, flight & hotel search deep-links, and dynamic disruption replanning.",
