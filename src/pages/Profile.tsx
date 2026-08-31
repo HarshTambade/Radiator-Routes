@@ -22,6 +22,7 @@ import { formatCurrency } from "@/lib/currency";
 import { useLanguage } from "@/hooks/useLanguage";
 import { errorMessage } from "@/lib/errors";
 import AIProviderSettings from "@/components/AIProviderSettings";
+import TravelPreferencesForm from "@/components/TravelPreferencesForm";
 
 export default function Profile() {
   const { user } = useAuth();
@@ -205,10 +206,20 @@ export default function Profile() {
         ))}
       </div>
 
+      {/* Plan preferences — the input side of group fairness scoring. Without
+          these the Least Misery metric has nothing to read and every plan
+          scores identically for every member. */}
+      <TravelPreferencesForm
+        country={trips[0]?.country ?? undefined}
+        onSaved={() => {
+          setProfile((prev: any) => (prev ? { ...prev } : prev));
+        }}
+      />
+
       {/* Preferences */}
       <div className="bg-card rounded-2xl p-5 shadow-card">
         <h3 className="font-semibold text-card-foreground mb-3 md:mb-4 flex items-center gap-2">
-          <Heart className="w-4 h-4 text-primary" /> Travel Preferences
+          <Heart className="w-4 h-4 text-primary" /> Trip Style
         </h3>
         {Object.keys(prefs).length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">

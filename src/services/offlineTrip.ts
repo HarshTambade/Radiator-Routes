@@ -1,10 +1,28 @@
-// ── Offline Trip Storage Service ─────────────────────────────────────────────
-// Uses IndexedDB to persist full trip data (trip, itineraries, activities)
-// Also pre-caches OpenStreetMap tiles for offline map usage via Cache API
+// ─────────────────────────────────────────────────────────────────────────────
+// Offline trip storage — now backed by `lib/idb.ts`
+// ─────────────────────────────────────────────────────────────────────────────
+// Used to open its own IndexedDB database (`radiator-routes-offline`) with raw
+// IndexedDB, alongside the `radiator-routes-db` database `lib/idb.ts` opens with
+// the `idb` wrapper. Two databases meant two quota budgets and two eviction
+// stories for one feature, and any user-triggered "clear offline data" that
+// only knew about one of them was quietly incomplete.
+//
+// P4 merged them. The trip records live in the `offlineTrips` store of
+// `radiator-routes-db`, and `lib/idb.ts`'s v1→v2 upgrade copies over anything a
+// previous install saved to the legacy database. The public shape here is
+// unchanged so callers did not have to move.
+//
+// This file now hosts only what does not belong in `lib/idb.ts`: the OSM map
+// tile pre-cache, which uses the Cache API rather than IndexedDB.
+// ─────────────────────────────────────────────────────────────────────────────
 
-const DB_NAME = "radiator-routes-offline";
-const DB_VERSION = 1;
-const TRIPS_STORE = "offline-trips";
+import {
+  deleteOfflineTrip,
+  getAllOfflineTrips as getAllOfflineTripsFromDB,
+  getOfflineTrip,
+  saveOfflineTrip,
+} from "@/lib/idb";
+
 const TILE_CACHE_NAME = "osm-tiles-offline";
 
 export interface OfflineTripData {
@@ -19,78 +37,39 @@ export interface OfflineTripData {
   tileCacheCount?: number;
 }
 
-// ── IndexedDB helpers ─────────────────────────────────────────────────────────
-
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-
-    req.onupgradeneeded = (e) => {
-      const db = (e.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(TRIPS_STORE)) {
-        db.createObjectStore(TRIPS_STORE, { keyPath: "tripId" });
-      }
-    };
-
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(new Error(`IndexedDB open failed: ${req.error?.message}`));
-  });
-}
+// ── Trip persistence ─────────────────────────────────────────────────────────
 
 export async function saveTripOffline(data: OfflineTripData): Promise<void> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(TRIPS_STORE, "readwrite");
-    const store = tx.objectStore(TRIPS_STORE);
-    store.put(data);
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror = () => { db.close(); reject(new Error(`Save failed: ${tx.error?.message}`)); };
-  });
+  // `offlineTrips` uses `tripId` as its key path (see lib/idb.ts), so no `id`
+  // synthesis is needed — the shape crosses over unchanged.
+  await saveOfflineTrip(data as unknown as Record<string, unknown>);
 }
 
-export async function getOfflineTripData(tripId: string): Promise<OfflineTripData | null> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(TRIPS_STORE, "readonly");
-    const store = tx.objectStore(TRIPS_STORE);
-    const req = store.get(tripId);
-    req.onsuccess = () => { db.close(); resolve((req.result as OfflineTripData) ?? null); };
-    req.onerror = () => { db.close(); reject(new Error(`Get failed: ${req.error?.message}`)); };
-  });
+export async function getOfflineTripData(
+  tripId: string,
+): Promise<OfflineTripData | null> {
+  const row = await getOfflineTrip(tripId);
+  return (row as unknown as OfflineTripData | undefined) ?? null;
 }
 
 export async function getAllOfflineTrips(): Promise<OfflineTripData[]> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(TRIPS_STORE, "readonly");
-    const store = tx.objectStore(TRIPS_STORE);
-    const req = store.getAll();
-    req.onsuccess = () => { db.close(); resolve((req.result as OfflineTripData[]) ?? []); };
-    req.onerror = () => { db.close(); reject(new Error(`GetAll failed: ${req.error?.message}`)); };
-  });
+  const rows = await getAllOfflineTripsFromDB();
+  return rows as unknown as OfflineTripData[];
 }
 
 export async function removeOfflineTrip(tripId: string): Promise<void> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(TRIPS_STORE, "readwrite");
-    const store = tx.objectStore(TRIPS_STORE);
-    store.delete(tripId);
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror = () => { db.close(); reject(new Error(`Delete failed: ${tx.error?.message}`)); };
-  });
+  await deleteOfflineTrip(tripId);
 }
 
 export async function isTripOffline(tripId: string): Promise<boolean> {
   try {
-    const data = await getOfflineTripData(tripId);
-    return data !== null;
+    return (await getOfflineTripData(tripId)) !== null;
   } catch {
     return false;
   }
 }
 
-// ── Map Tile Maths ────────────────────────────────────────────────────────────
+// ── Map Tile Maths ───────────────────────────────────────────────────────────
 
 /** Convert WGS-84 lat/lng + zoom to OSM tile x/y */
 function latLngToTileXY(lat: number, lng: number, zoom: number): { x: number; y: number } {

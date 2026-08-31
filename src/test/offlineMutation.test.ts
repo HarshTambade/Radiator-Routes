@@ -10,38 +10,100 @@ import { clearAllData } from "@/lib/idb";
 
 // ── Test doubles ────────────────────────────────────────────────────────────
 
-/** Records every write so replay order and payloads can be asserted. */
-function fakeClient(behaviour: { failWith?: unknown } = {}) {
-  const calls: Array<{
-    table: string;
-    action: string;
-    values?: Record<string, unknown>;
-    column?: string;
-    value?: unknown;
-  }> = [];
+interface RecordedCall {
+  table: string;
+  action: string;
+  values?: Record<string, unknown>;
+  /** First filter column, kept for the common single-filter assertions. */
+  column?: string;
+  value?: unknown;
+  /** Every filter applied, in order. Needed for the concurrency precondition. */
+  filters: Array<[string, unknown]>;
+}
+
+/**
+ * Records every write so replay order and payloads can be asserted.
+ *
+ * Mirrors the shape of a PostgREST builder closely enough to matter: filters
+ * chain, the builder is itself awaitable, and `select` resolves to the affected
+ * rows. That last part is what makes conflict detection testable — PostgREST
+ * reports "matched nothing" as success with an empty array, not as an error.
+ */
+function fakeClient(
+  behaviour: {
+    failWith?: unknown;
+    /**
+     * Rows a conditional update reports as affected. Default 1 means the
+     * precondition held; 0 simulates another writer having won the race.
+     */
+    updatedRows?: number;
+  } = {},
+) {
+  const calls: RecordedCall[] = [];
+
+  function makeFilter(
+    table: string,
+    action: "update" | "delete",
+    values?: Record<string, unknown>,
+  ) {
+    const filters: Array<[string, unknown]> = [];
+
+    const record = () => {
+      calls.push({
+        table,
+        action,
+        values,
+        column: filters[0]?.[0],
+        value: filters[0]?.[1],
+        filters: [...filters],
+      });
+    };
+
+    const filter = {
+      eq(column: string, value: unknown) {
+        filters.push([column, value]);
+        return filter;
+      },
+      select(_columns: string) {
+        record();
+        if (behaviour.failWith) {
+          return Promise.resolve({ data: null, error: behaviour.failWith });
+        }
+        const rows = behaviour.updatedRows ?? 1;
+        return Promise.resolve({
+          data: Array.from({ length: rows }, (_, i) => ({ id: `row-${i}` })),
+          error: null,
+        });
+      },
+      then<TResult1, TResult2>(
+        onFulfilled?:
+          | ((value: { error: unknown }) => TResult1 | PromiseLike<TResult1>)
+          | null,
+        onRejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+      ) {
+        record();
+        return Promise.resolve({ error: behaviour.failWith ?? null }).then(
+          onFulfilled,
+          onRejected,
+        );
+      },
+    };
+
+    return filter;
+  }
 
   const client: MutationClient = {
     from(table: string) {
       return {
         insert(values: Record<string, unknown>) {
-          calls.push({ table, action: "insert", values });
+          calls.push({ table, action: "insert", values, filters: [] });
           return Promise.resolve({ error: behaviour.failWith ?? null });
         },
         update(values: Record<string, unknown>) {
-          return {
-            eq(column: string, value: unknown) {
-              calls.push({ table, action: "update", values, column, value });
-              return Promise.resolve({ error: behaviour.failWith ?? null });
-            },
-          };
+          return makeFilter(table, "update", values);
         },
         delete() {
-          return {
-            eq(column: string, value: unknown) {
-              calls.push({ table, action: "delete", column, value });
-              return Promise.resolve({ error: behaviour.failWith ?? null });
-            },
-          };
+          return makeFilter(table, "delete");
         },
       };
     },
@@ -191,6 +253,7 @@ describe("syncQueuedMutations", () => {
         values: { status: "done" },
         column: "id",
         value: "act-1",
+        filters: [["id", "act-1"]],
       },
     ]);
     expect(await pendingMutationCount()).toBe(0);
@@ -410,5 +473,154 @@ describe("offline edit round trip", () => {
     expect(outcome.succeeded).toBe(1);
     expect(calls[0].values).toEqual({ name: "Sunset at Anjuna", cost: 0 });
     expect(await pendingMutationCount()).toBe(0);
+  });
+});
+
+// ── Conflict handling ───────────────────────────────────────────────────────
+// Replay used to be unconditional last-write-wins: two members editing the same
+// activity resolved by whoever reconnected last, and the loser was never told.
+
+describe("concurrency preconditions", () => {
+  const conflictSpec = {
+    table: "activities",
+    action: "update" as const,
+    payload: { name: "Renamed offline" },
+    matchValue: "act-7",
+    expectedUpdatedAt: "2026-08-31T10:00:00.000Z",
+    description: 'Edit "Anjuna Beach"',
+    invalidate: [["activities"]],
+  };
+
+  it("sends updated_at alongside the row id when a precondition is given", async () => {
+    setOnline(false);
+    await mutateWithOfflineQueue(vi.fn(), conflictSpec);
+
+    setOnline(true);
+    const { client, calls } = fakeClient({ updatedRows: 1 });
+    const outcome = await syncQueuedMutations(client);
+
+    expect(outcome.succeeded).toBe(1);
+    expect(outcome.conflicted).toBe(0);
+    expect(calls[0].filters).toEqual([
+      ["id", "act-7"],
+      ["updated_at", "2026-08-31T10:00:00.000Z"],
+    ]);
+  });
+
+  it("reports a conflict when the row has moved on", async () => {
+    setOnline(false);
+    await mutateWithOfflineQueue(vi.fn(), conflictSpec);
+
+    setOnline(true);
+    // Zero affected rows: somebody else edited the activity first.
+    const { client } = fakeClient({ updatedRows: 0 });
+    const outcome = await syncQueuedMutations(client);
+
+    expect(outcome.conflicted).toBe(1);
+    expect(outcome.succeeded).toBe(0);
+    expect(outcome.failed).toBe(0);
+    expect(outcome.conflicts).toHaveLength(1);
+    // The message has to name the edit, or the user cannot tell what to redo.
+    expect(outcome.conflicts[0]).toContain("Anjuna Beach");
+  });
+
+  it("retires a conflicted mutation instead of retrying it forever", async () => {
+    setOnline(false);
+    await mutateWithOfflineQueue(vi.fn(), conflictSpec);
+
+    setOnline(true);
+    const { client } = fakeClient({ updatedRows: 0 });
+    await syncQueuedMutations(client);
+
+    // Replaying would overwrite whoever won the race.
+    expect(await pendingMutationCount()).toBe(0);
+  });
+
+  it("still invalidates queries for a conflicted row so the stale value goes", async () => {
+    setOnline(false);
+    await mutateWithOfflineQueue(vi.fn(), conflictSpec);
+
+    setOnline(true);
+    const { client } = fakeClient({ updatedRows: 0 });
+    const outcome = await syncQueuedMutations(client);
+
+    expect(outcome.invalidate).toEqual([["activities"]]);
+  });
+
+  it("does not block later mutations behind a conflict", async () => {
+    setOnline(false);
+    await mutateWithOfflineQueue(vi.fn(), conflictSpec);
+    await mutateWithOfflineQueue(vi.fn(), {
+      table: "messages",
+      action: "insert",
+      payload: { content: "unrelated" },
+    });
+
+    setOnline(true);
+    const { client, calls } = fakeClient({ updatedRows: 0 });
+    const outcome = await syncQueuedMutations(client);
+
+    expect(outcome.conflicted).toBe(1);
+    expect(outcome.succeeded).toBe(1);
+    expect(calls.map((c) => c.action)).toEqual(["update", "insert"]);
+    expect(await pendingMutationCount()).toBe(0);
+  });
+
+  it("falls back to last-write-wins when no precondition is supplied", async () => {
+    // Explicitly documented behaviour, not an accident: tables without an
+    // updated_at column cannot support the precondition.
+    setOnline(false);
+    await mutateWithOfflineQueue(vi.fn(), {
+      table: "activities",
+      action: "update",
+      payload: { status: "done" },
+      matchValue: "act-1",
+    });
+
+    setOnline(true);
+    const { client, calls } = fakeClient({ updatedRows: 0 });
+    const outcome = await syncQueuedMutations(client);
+
+    // Zero rows affected, but with no precondition there is nothing to detect.
+    expect(outcome.succeeded).toBe(1);
+    expect(outcome.conflicted).toBe(0);
+    expect(calls[0].filters).toEqual([["id", "act-1"]]);
+  });
+
+  it("treats a genuine server error during a conditional update as a failure", async () => {
+    setOnline(false);
+    await mutateWithOfflineQueue(vi.fn(), conflictSpec);
+
+    setOnline(true);
+    const { client } = fakeClient({ failWith: { code: "42501" } });
+    const outcome = await syncQueuedMutations(client);
+
+    // An RLS denial is not a conflict; conflating them would tell the user
+    // someone else edited their row when in fact they lack permission.
+    expect(outcome.failed).toBe(1);
+    expect(outcome.conflicted).toBe(0);
+  });
+
+  it("never classifies a conflict as retriable, even offline", async () => {
+    setOnline(false);
+    await mutateWithOfflineQueue(vi.fn(), conflictSpec);
+
+    setOnline(true);
+    const { client } = fakeClient({ updatedRows: 0 });
+    const outcome = await syncQueuedMutations(client);
+
+    // Offline makes isRetriableFailure permissive by default, so the conflict
+    // check has to come first or the queue would never drain.
+    setOnline(false);
+    expect(outcome.conflicted).toBe(1);
+    expect(await pendingMutationCount()).toBe(0);
+  });
+});
+
+describe("newId", () => {
+  it("produces distinct ids so queued inserts keep their identity", async () => {
+    const { newId } = await import("@/lib/offlineMutation");
+    const ids = new Set(Array.from({ length: 200 }, () => newId()));
+    expect(ids.size).toBe(200);
   });
 });

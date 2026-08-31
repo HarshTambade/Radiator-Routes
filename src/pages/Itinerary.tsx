@@ -37,6 +37,8 @@ import {
 import { formatCurrency } from "@/lib/currency";
 import { errorMessage } from "@/lib/errors";
 import { verifyItinerary } from "@/lib/itineraryVerifier";
+import { describeRepair, generateWithRepair } from "@/lib/planRepair";
+import { mutateWithOfflineQueue, newId } from "@/lib/offlineMutation";
 import {
   getWeatherForecast,
   geocodeDestination,
@@ -128,10 +130,17 @@ export default function Itinerary() {
         .from("profiles")
         .select("id, name")
         .in("id", userIds);
-      return (profiles || []).map((p: any) => p.name || "Traveler");
+      // Ids are kept, not just names: `group_expenses.paid_by` and `split_with`
+      // are user UUIDs, and two members can share a display name.
+      return (profiles || []).map((p: any) => ({
+        id: p.id as string,
+        name: (p.name as string) || "Traveler",
+      }));
     },
     enabled: !!tripId,
   });
+
+  const tripMemberNames = tripMembers.map((m) => m.name);
 
   // Weather & Traffic state
   const [weatherForecast, setWeatherForecast] = useState<DailyForecast[]>([]);
@@ -399,36 +408,54 @@ export default function Itinerary() {
         ),
       );
 
-      const plan = (await planItinerary({
-        destination: trip.destination,
-        days,
-        travelers: Number((trip as any).travelers) || 2,
-        budget: Number(trip.budget_total) || 30000,
-        interests: ["culture", "food", "sightseeing"],
-        tripType: (trip as any).trip_type || "leisure",
-      })) as any;
+      // Generate → verify → regenerate once with the violations fed back.
+      // Grammar-constrained JSON guarantees shape, not possibility; the external
+      // check plus a re-prompt is the part with published evidence behind it.
+      const generation = await generateWithRepair<any>({
+        generate: (repairInstruction) =>
+          planItinerary({
+            destination: trip.destination,
+            days,
+            travelers: Number((trip as any).travelers) || 2,
+            budget: Number(trip.budget_total) || 30000,
+            interests: ["culture", "food", "sightseeing"],
+            tripType: (trip as any).trip_type || "leisure",
+            repairInstruction,
+          }) as Promise<any>,
+        verify: (candidate) =>
+          verifyItinerary(
+            {
+              activities: candidate?.activities,
+              total_cost: candidate?.total_cost,
+            },
+            {
+              budget: Number(trip.budget_total) || undefined,
+              days,
+              maxActivitiesPerDay: 6,
+            },
+          ),
+      });
 
-      // Verify feasibility before this reaches the user. Grammar-constrained
-      // JSON guarantees shape, not possibility, so check budget, timing, travel
-      // distances and pace deterministically.
-      const verification = verifyItinerary(
-        { activities: plan.activities, total_cost: plan.total_cost },
-        {
-          budget: Number(trip.budget_total) || undefined,
-          days,
-          maxActivitiesPerDay: 6,
-        },
-      );
+      const plan = generation.plan;
+      const verification = generation.verification;
+
       if (!verification.ok) {
         toast({
           title: `Plan has ${verification.errors.length} feasibility issue${
             verification.errors.length === 1 ? "" : "s"
           }`,
-          description: verification.errors
+          description: `${describeRepair(generation)} ${verification.errors
             .slice(0, 2)
             .map((v) => v.message)
-            .join(" "),
+            .join(" ")}`,
           variant: "destructive",
+        });
+      } else if (generation.repaired) {
+        // Say so when the repair pass is what made the plan viable, rather than
+        // presenting a second-attempt plan as if it came out right first time.
+        toast({
+          title: "Plan repaired",
+          description: describeRepair(generation),
         });
       }
 
@@ -477,6 +504,10 @@ export default function Itinerary() {
         review_score: a.review_score,
         priority: a.priority,
         notes: a.notes,
+        // Persisted so the verifier can re-check the plan later, and so a
+        // replan is checked against the same hours. Null when the model
+        // declined to guess.
+        opening_hours: a.opening_hours ?? null,
       }));
 
       if (activitiesToInsert.length > 0) {
@@ -521,14 +552,36 @@ export default function Itinerary() {
     if (!chatInput.trim() || !user || !tripId) return;
     setSendingMsg(true);
     try {
-      const { error } = await supabase.from("messages").insert({
+      const row = {
+        id: newId(),
         trip_id: tripId,
         sender_id: user.id,
         content: chatInput,
         message_type: "text",
-      });
-      if (error) throw error;
+      };
+
+      const result = await mutateWithOfflineQueue(
+        async () => {
+          const { error } = await supabase.from("messages").insert(row);
+          if (error) throw error;
+        },
+        {
+          table: "messages",
+          action: "insert",
+          payload: row,
+          matchValue: row.id,
+          description: "Send chat message",
+          invalidate: [["messages", tripId]],
+        },
+      );
+
       setChatInput("");
+      if (result.queued) {
+        toast({
+          title: "Message queued",
+          description: "It will send when you're back online.",
+        });
+      }
     } catch (error: unknown) {
       toast({
         title: "Error",
@@ -1363,17 +1416,20 @@ export default function Itinerary() {
         {/* Trip Money & Expense Split + UPI Payment — side by side */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-2">
           <TripMoneyExpenses
+            tripId={tripId!}
             activities={activities as any}
             tripBudget={Number(trip.budget_total) || 0}
             country={trip.country ?? undefined}
             travelers={
               Number((trip as any).travelers) ||
-              (tripMembers.length > 0 ? tripMembers.length + 1 : 1)
+              (tripMembers.length > 0 ? tripMembers.length : 1)
             }
-            memberNames={tripMembers.length > 0 ? tripMembers : undefined}
+            members={tripMembers}
           />
           <UPIPayment
-            memberNames={tripMembers.length > 0 ? tripMembers : undefined}
+            memberNames={
+              tripMemberNames.length > 0 ? tripMemberNames : undefined
+            }
           />
         </div>
 

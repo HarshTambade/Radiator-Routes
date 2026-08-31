@@ -37,10 +37,18 @@ const FOREIGN_LANGS = [
 ];
 
 interface PanelStyle {
-  top: number;
+  top?: number;
+  bottom?: number;
   left?: number;
   right?: number;
+  maxHeight: number;
 }
+
+const PANEL_W = 288;
+const VIEWPORT_MARGIN = 8; // keep the panel off the viewport edges
+const TRIGGER_GAP = 6; // gap between trigger and panel
+const PREFERRED_H = 480;
+const MIN_USABLE_H = 240; // below this, flipping is worth it
 
 export default function LanguageSwitcher({
   compact = false,
@@ -50,30 +58,47 @@ export default function LanguageSwitcher({
   const { lang, setLang, langInfo } = useLanguage();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"indian" | "foreign">("indian");
-  const [panelStyle, setPanelStyle] = useState<PanelStyle>({ top: 0, left: 0 });
+  const [panelStyle, setPanelStyle] = useState<PanelStyle>({
+    top: 0,
+    left: 0,
+    maxHeight: PREFERRED_H,
+  });
   const btnRef = useRef<HTMLButtonElement>(null);
-
-  const PANEL_W = 288;
 
   const calcPosition = useCallback(() => {
     if (!btnRef.current) return;
     const rect = btnRef.current.getBoundingClientRect();
-    const top = rect.bottom + 6;
-    const spaceOnRight = window.innerWidth - rect.left;
-    const spaceOnLeft = rect.right;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
 
-    let style: PanelStyle;
-    if (spaceOnRight >= PANEL_W + 12) {
-      // Enough room to the right → left-align with button
-      style = { top, left: rect.left };
-    } else if (spaceOnLeft >= PANEL_W + 12) {
-      // Not enough right, but enough left → right-align with button
-      style = { top, right: window.innerWidth - rect.right };
+    // ── Horizontal: prefer left-aligned, flip to right-aligned, else centre ──
+    let horizontal: Pick<PanelStyle, "left" | "right">;
+    if (vw - rect.left >= PANEL_W + VIEWPORT_MARGIN) {
+      horizontal = { left: rect.left };
+    } else if (rect.right >= PANEL_W + VIEWPORT_MARGIN) {
+      horizontal = { right: vw - rect.right };
     } else {
-      // Fallback: centre in viewport
-      style = { top, left: Math.max(8, (window.innerWidth - PANEL_W) / 2) };
+      horizontal = { left: Math.max(VIEWPORT_MARGIN, (vw - PANEL_W) / 2) };
     }
-    setPanelStyle(style);
+
+    // ── Vertical: drop down, flip up when the space below is too tight ──
+    const spaceBelow = vh - rect.bottom - TRIGGER_GAP - VIEWPORT_MARGIN;
+    const spaceAbove = rect.top - TRIGGER_GAP - VIEWPORT_MARGIN;
+    const cap = Math.min(PREFERRED_H, vh - VIEWPORT_MARGIN * 2);
+    const flipUp =
+      spaceBelow < Math.min(cap, MIN_USABLE_H) && spaceAbove > spaceBelow;
+    const available = flipUp ? spaceAbove : spaceBelow;
+
+    // Never taller than the space we actually have — that keeps the list scrollable.
+    const maxHeight = Math.max(160, Math.min(cap, available));
+
+    setPanelStyle({
+      ...horizontal,
+      ...(flipUp
+        ? { bottom: vh - rect.top + TRIGGER_GAP }
+        : { top: rect.bottom + TRIGGER_GAP }),
+      maxHeight,
+    });
   }, []);
 
   const handleToggle = useCallback(() => {
@@ -90,6 +115,18 @@ export default function LanguageSwitcher({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
+
+  // Reposition on resize / ancestor scroll so the panel stays inside the viewport
+  useEffect(() => {
+    if (!open) return;
+    calcPosition();
+    window.addEventListener("resize", calcPosition);
+    window.addEventListener("scroll", calcPosition, true);
+    return () => {
+      window.removeEventListener("resize", calcPosition);
+      window.removeEventListener("scroll", calcPosition, true);
+    };
+  }, [open, calcPosition]);
 
   // Close + unlock scroll on unmount
   useEffect(
@@ -156,7 +193,10 @@ export default function LanguageSwitcher({
       </div>
 
       {/* List */}
-      <div className="overflow-y-auto px-3 pb-3 space-y-0.5 flex-1 min-h-0">
+      <div
+        className="overflow-y-auto overscroll-contain px-3 pb-3 space-y-0.5 flex-1 min-h-0"
+        style={{ WebkitOverflowScrolling: "touch" }}
+      >
         {displayed.map((language) => {
           const isSelected = lang === language.code;
           return (
@@ -239,12 +279,14 @@ export default function LanguageSwitcher({
           <div
             className="hidden md:flex fixed flex-col bg-card border border-border rounded-2xl shadow-2xl animate-fade-in overflow-hidden z-[199]"
             style={{
-              top: panelStyle.top,
+              ...(panelStyle.top !== undefined
+                ? { top: panelStyle.top }
+                : { bottom: panelStyle.bottom }),
               ...(panelStyle.left !== undefined
                 ? { left: panelStyle.left }
                 : { right: panelStyle.right }),
               width: PANEL_W,
-              maxHeight: "min(480px, 80vh)",
+              maxHeight: panelStyle.maxHeight,
             }}
             role="dialog"
             aria-label="Language selector"

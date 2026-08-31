@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { CloudUpload, Loader2, RefreshCw, WifiOff } from "lucide-react";
+import { AlertTriangle, CloudUpload, Loader2, RefreshCw, WifiOff } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/useOfflineTrip";
 import { useServiceWorkerUpdate } from "@/hooks/useOfflineStorage";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
@@ -15,7 +15,8 @@ import { useToast } from "@/hooks/use-toast";
 export function OfflineIndicator() {
   const isOnline = useOnlineStatus();
   const { hasUpdate, update } = useServiceWorkerUpdate();
-  const { pending, phase, hasPending, syncNow } = useOfflineSync();
+  const { pending, phase, hasPending, conflicts, dismissConflicts, syncNow } =
+    useOfflineSync();
   const { toast } = useToast();
   const wasOffline = useRef(false);
 
@@ -56,6 +57,45 @@ export function OfflineIndicator() {
             {hasPending &&
               ` ${pending} change${pending === 1 ? "" : "s"} will sync when you reconnect.`}
           </span>
+        </div>
+      </div>
+    );
+  }
+
+  // Dropped edits outrank the pending count: the queue is empty precisely
+  // because these were discarded, so without this the user would see everything
+  // go quiet and assume their change landed.
+  if (conflicts.length > 0) {
+    return (
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 bg-destructive p-3 text-sm text-destructive-foreground md:text-base"
+        role="alert"
+        aria-live="assertive"
+      >
+        <div className="mx-auto flex max-w-7xl items-start gap-3">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+          <div className="flex-1">
+            <p className="font-medium">
+              {conflicts.length} offline change
+              {conflicts.length === 1 ? "" : "s"} could not be saved — someone
+              else edited the same item first.
+            </p>
+            <ul className="mt-1 space-y-0.5 text-xs opacity-90">
+              {conflicts.slice(0, 3).map((message, index) => (
+                <li key={index}>{message}</li>
+              ))}
+              {conflicts.length > 3 && (
+                <li>and {conflicts.length - 3} more.</li>
+              )}
+            </ul>
+          </div>
+          <button
+            type="button"
+            onClick={dismissConflicts}
+            className="rounded-full bg-destructive-foreground/15 px-3 py-1 font-semibold transition-colors hover:bg-destructive-foreground/25"
+          >
+            Dismiss
+          </button>
         </div>
       </div>
     );

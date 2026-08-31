@@ -218,10 +218,12 @@ export type Database = {
           location_name: string | null;
           name: string;
           notes: string | null;
+          opening_hours: Json | null;
           priority: number | null;
           review_score: number | null;
           start_time: string;
           status: string;
+          updated_at: string;
         };
         Insert: {
           category?: string | null;
@@ -237,10 +239,12 @@ export type Database = {
           location_name?: string | null;
           name: string;
           notes?: string | null;
+          opening_hours?: Json | null;
           priority?: number | null;
           review_score?: number | null;
           start_time: string;
           status?: string;
+          updated_at?: string;
         };
         Update: {
           category?: string | null;
@@ -256,10 +260,12 @@ export type Database = {
           location_name?: string | null;
           name?: string;
           notes?: string | null;
+          opening_hours?: Json | null;
           priority?: number | null;
           review_score?: number | null;
           start_time?: string;
           status?: string;
+          updated_at?: string;
         };
         Relationships: [
           {

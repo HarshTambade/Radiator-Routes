@@ -304,7 +304,14 @@ CREATE TABLE IF NOT EXISTS public.activities (
   priority        FLOAT           NOT NULL DEFAULT 0.5,
   notes           TEXT,
   status          TEXT            NOT NULL DEFAULT 'pending',
-  created_at      TIMESTAMPTZ     NOT NULL DEFAULT now()
+  -- Consumed by lib/itineraryVerifier.ts. NULL means unknown, which the
+  -- verifier treats as unverifiable rather than as closed.
+  opening_hours   JSONB,
+  created_at      TIMESTAMPTZ     NOT NULL DEFAULT now(),
+  -- Concurrency stamp. The offline mutation queue matches on this when
+  -- replaying a queued edit, so a row someone else changed in the meantime
+  -- rejects the stale write instead of silently overwriting it.
+  updated_at      TIMESTAMPTZ     NOT NULL DEFAULT now()
 );
 
 ALTER TABLE public.activities ENABLE ROW LEVEL SECURITY;
@@ -689,6 +696,12 @@ CREATE TRIGGER update_trips_updated_at
 CREATE TRIGGER trg_auto_add_organizer
   AFTER INSERT ON public.trips
   FOR EACH ROW EXECUTE FUNCTION public.auto_add_organizer_membership();
+
+-- activities  →  stamp updated_at (drives offline-replay conflict detection)
+DROP TRIGGER IF EXISTS update_activities_updated_at ON public.activities;
+CREATE TRIGGER update_activities_updated_at
+  BEFORE UPDATE ON public.activities
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- itineraries  →  stamp updated_at
 CREATE TRIGGER update_itineraries_updated_at

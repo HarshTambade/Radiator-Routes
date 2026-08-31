@@ -28,6 +28,7 @@ import { getCurrencySymbol } from "@/lib/currency";
 import { formatLocalDate, parseLocalDate, daysBetween } from "@/lib/date";
 import ReactMarkdown from "react-markdown";
 import { errorMessage } from "@/lib/errors";
+import { mergeTripStyle } from "@/lib/travelPreferences";
 import {
   startGroqRecording,
   transcribeWithGroq,
@@ -486,16 +487,32 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
           });
           if (error) throw error;
 
-          // Update profile preferences
+          // Merge trip-style answers into the existing preferences blob.
+          // This previously wrote a fresh four-key object, replacing the column
+          // outright and destroying the category weights, pace and budget cap
+          // collected by the preferences form — the inputs the fairness score
+          // reads. `mergeTripStyle` also normalises the chat's "balanced" to
+          // "moderate", the only legal pace value, which the old write left in a
+          // state the scorer silently discarded.
+          const { data: existingProfile } = await supabase
+            .from("profiles")
+            .select("preferences")
+            .eq("id", user!.id)
+            .single();
+
           await supabase
             .from("profiles")
             .update({
-              preferences: {
-                food_preference: tripData.food_preference,
-                accommodation: tripData.accommodation,
-                pace: tripData.pace,
-                interests: tripData.interests,
-              },
+              preferences: mergeTripStyle(
+                (existingProfile as { preferences?: unknown } | null)
+                  ?.preferences ?? null,
+                {
+                  food_preference: tripData.food_preference,
+                  accommodation: tripData.accommodation,
+                  pace: tripData.pace,
+                  interests: tripData.interests,
+                },
+              ) as never,
             })
             .eq("id", user!.id);
 

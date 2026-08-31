@@ -80,12 +80,27 @@ export function useGroupPreferences(tripId?: string) {
     load();
   }, [load]);
 
+  // A member row with no stated preferences contributes no signal: they score
+  // every candidate identically. Counting them separately lets the UI tell
+  // "nobody has said what they want" apart from "this plan is genuinely fair",
+  // which are indistinguishable in the regret number itself (both are zero).
+  const statedCount = members.filter(
+    (m) =>
+      (m.categoryWeights && Object.keys(m.categoryWeights).length > 0) ||
+      m.pace !== undefined ||
+      m.budgetCeiling !== undefined,
+  ).length;
+
   return {
     members,
     loading,
     /** True when real membership could not be read and scoring is degraded. */
     usedFallback,
     memberCount: members.length,
+    /** Members who have actually stated something the scorer can use. */
+    statedCount,
+    /** True when scoring would run over entirely empty preferences. */
+    hasUsablePreferences: statedCount > 0,
     reload: load,
   };
 }

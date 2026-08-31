@@ -7,9 +7,10 @@ import {
   pendingMutationCount,
   syncQueuedMutations,
 } from "@/lib/offlineMutation";
+import { useToast } from "./use-toast";
 import { useOnlineStatus } from "./useOfflineTrip";
 
-export type SyncPhase = "idle" | "syncing" | "synced" | "partial";
+export type SyncPhase = "idle" | "syncing" | "synced" | "partial" | "conflict";
 
 /**
  * Drains the offline mutation queue whenever connectivity returns, and exposes
@@ -22,8 +23,10 @@ export type SyncPhase = "idle" | "syncing" | "synced" | "partial";
 export function useOfflineSync() {
   const isOnline = useOnlineStatus();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [pending, setPending] = useState(0);
   const [phase, setPhase] = useState<SyncPhase>("idle");
+  const [conflicts, setConflicts] = useState<string[]>([]);
   const wasOffline = useRef(false);
 
   const refreshCount = useCallback(async () => {
@@ -59,14 +62,36 @@ export function useOfflineSync() {
         queryClient.invalidateQueries({ queryKey: key });
       }
 
-      setPhase(outcome.failed > 0 ? "partial" : "synced");
+      // A dropped edit must never be silent — that was the whole point of the
+      // queue. Conflicts are named individually so the user knows which change
+      // to redo.
+      if (outcome.conflicted > 0) {
+        setConflicts(outcome.conflicts);
+        toast({
+          title: `${outcome.conflicted} change${
+            outcome.conflicted === 1 ? "" : "s"
+          } could not be applied`,
+          description:
+            outcome.conflicts.slice(0, 2).join(" ") +
+            " Someone else edited the same item first, so your version was not saved.",
+          variant: "destructive",
+        });
+      }
+
+      setPhase(
+        outcome.conflicted > 0
+          ? "conflict"
+          : outcome.failed > 0
+            ? "partial"
+            : "synced",
+      );
       window.setTimeout(() => setPhase("idle"), 4000);
     } catch {
       setPhase("idle");
     } finally {
       refreshCount();
     }
-  }, [queryClient, refreshCount]);
+  }, [queryClient, refreshCount, toast]);
 
   // Keep the badge accurate as mutations are queued or replayed.
   useEffect(() => {
@@ -96,6 +121,10 @@ export function useOfflineSync() {
     pending,
     phase,
     hasPending: pending > 0,
+    /** Messages for edits dropped because the row changed first. */
+    conflicts,
+    /** Clear the conflict list once the user has acknowledged it. */
+    dismissConflicts: useCallback(() => setConflicts([]), []),
     /** Force a drain attempt, e.g. from a retry button. */
     syncNow: drain,
   };

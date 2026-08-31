@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { mutateWithOfflineQueue, newId } from "@/lib/offlineMutation";
 import { useAuth } from "./useAuth";
 
 // Shared query options for offline persistence
@@ -33,30 +34,104 @@ export function useTrips() {
   });
 }
 
+export interface NewTrip {
+  name: string;
+  destination: string;
+  country?: string;
+  start_date: string;
+  end_date: string;
+  budget_total?: number;
+  image_url?: string;
+}
+
+/**
+ * Creates a trip, queueing the write when there is no signal.
+ *
+ * The id is generated client-side rather than left to the column default. A
+ * queued insert cannot read back a server-generated key, so without this the
+ * caller has nothing to navigate to and the offline path is useless in practice.
+ * `trips.id` is a UUID with a default, so supplying one is equivalent.
+ */
 export function useCreateTrip() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
   return useMutation({
-    mutationFn: async (trip: {
-      name: string;
-      destination: string;
-      country?: string;
-      start_date: string;
-      end_date: string;
-      budget_total?: number;
-      image_url?: string;
-    }) => {
-      const { data, error } = await supabase
-        .from("trips")
-        .insert({ ...trip, organizer_id: user!.id })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
+    mutationFn: async (trip: NewTrip) => {
+      const row = { ...trip, id: newId(), organizer_id: user!.id };
+
+      const result = await mutateWithOfflineQueue(
+        async () => {
+          const { data, error } = await supabase
+            .from("trips")
+            .insert(row)
+            .select()
+            .single();
+          if (error) throw error;
+          return data;
+        },
+        {
+          table: "trips",
+          action: "insert",
+          payload: row,
+          matchValue: row.id,
+          description: `Create trip "${trip.name}"`,
+          invalidate: [["trips"]],
+        },
+      );
+
+      // When queued, the row exists only in the queue. Returning the local copy
+      // keeps the caller's contract — an object with an id it can route to —
+      // and the same id lands on the server when the queue drains.
+      return result.data ?? { ...row, queued: true };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trips"] });
+    },
+  });
+}
+
+/**
+ * Updates a trip, queueing when offline.
+ *
+ * `expectedUpdatedAt` makes the replay conditional: two organisers editing the
+ * same trip no longer resolve by whoever reconnects last.
+ */
+export function useUpdateTrip() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      patch,
+      expectedUpdatedAt,
+    }: {
+      id: string;
+      patch: Partial<NewTrip> & { status?: string; currency?: string };
+      expectedUpdatedAt?: string;
+    }) => {
+      return mutateWithOfflineQueue(
+        async () => {
+          const { error } = await supabase
+            .from("trips")
+            .update(patch)
+            .eq("id", id);
+          if (error) throw error;
+        },
+        {
+          table: "trips",
+          action: "update",
+          payload: patch,
+          matchValue: id,
+          expectedUpdatedAt,
+          description: `Update trip ${patch.name ? `"${patch.name}"` : id}`,
+          invalidate: [["trips"], ["trip", id]],
+        },
+      );
+    },
+    onSuccess: (_result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["trips"] });
+      queryClient.invalidateQueries({ queryKey: ["trip", variables.id] });
     },
   });
 }

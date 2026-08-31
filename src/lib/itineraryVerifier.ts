@@ -17,6 +17,13 @@
 // app is offline and the plan came from an on-device model.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import {
+  WEEKDAY_NAMES,
+  checkOpenDuring,
+  formatRanges,
+  parseOpeningHours,
+} from "./openingHours";
+
 export type Severity = "error" | "warning";
 
 export type ViolationCode =
@@ -30,7 +37,9 @@ export type ViolationCode =
   | "COORD_INVALID"
   | "COORD_OUT_OF_REGION"
   | "EMPTY_ITINERARY"
-  | "DURATION_IMPLAUSIBLE";
+  | "DURATION_IMPLAUSIBLE"
+  | "CLOSED_ON_DAY"
+  | "OUTSIDE_OPENING_HOURS";
 
 export interface Violation {
   code: ViolationCode;
@@ -48,6 +57,11 @@ export interface VerifiableActivity {
   cost?: number;
   location_lat?: number | null;
   location_lng?: number | null;
+  /**
+   * Opening hours for the underlying POI, in either supported shape. See
+   * lib/openingHours.ts. Null or absent means unknown, and no check runs.
+   */
+  opening_hours?: unknown;
 }
 
 export interface VerifiablePlan {
@@ -359,6 +373,62 @@ function checkCoordinates(
   return out;
 }
 
+/**
+ * Checks each activity against its POI's opening hours.
+ *
+ * This is the check that catches the third violation in the documented Goa
+ * example — a Wednesday-only market scheduled on a Sunday — which was previously
+ * undetectable because the hours were never stored.
+ *
+ * Severity follows provenance. Hours sourced from OSM or entered by hand block
+ * the plan; hours a language model supplied are a guess and only warn. Treating a
+ * model's claim about a market's schedule as hard fact would be the same error as
+ * presenting a generated number as a measurement.
+ */
+function checkOpeningHours(activities: VerifiableActivity[]): Violation[] {
+  const out: Violation[] = [];
+
+  activities.forEach((a, i) => {
+    const hours = parseOpeningHours(a.opening_hours);
+    if (!hours) return; // unknown — absence of data is not evidence of closure
+
+    const start = parseTime(a.start_time);
+    const end = parseTime(a.end_time);
+    if (start === null || end === null || end <= start) return; // covered by checkTimes
+
+    const verdict = checkOpenDuring(hours, start, end);
+    const severity: Severity =
+      hours.source === "osm" || hours.source === "manual" ? "error" : "warning";
+    const qualifier =
+      severity === "warning" ? " (per unverified opening-hours data)" : "";
+
+    if (verdict.status === "closed-that-day") {
+      out.push({
+        code: "CLOSED_ON_DAY",
+        severity,
+        message:
+          `${label(a, i)} is scheduled on ${WEEKDAY_NAMES[verdict.weekday]} ` +
+          `${verdict.date}, when it is closed${qualifier}.`,
+        activityIndices: [i],
+      });
+      return;
+    }
+
+    if (verdict.status === "outside-hours") {
+      out.push({
+        code: "OUTSIDE_OPENING_HOURS",
+        severity,
+        message:
+          `${label(a, i)} is scheduled outside its opening hours on ` +
+          `${WEEKDAY_NAMES[verdict.weekday]} (open ${formatRanges(verdict.open)})${qualifier}.`,
+        activityIndices: [i],
+      });
+    }
+  });
+
+  return out;
+}
+
 function checkPace(
   activities: VerifiableActivity[],
   constraints: VerifyConstraints,
@@ -428,6 +498,7 @@ export function verifyItinerary(
     ...checkCoordinates(activities, constraints),
     ...checkBudget(plan, activities, constraints),
     ...checkPace(activities, constraints),
+    ...checkOpeningHours(activities),
   ];
 
   const errors = violations.filter((v) => v.severity === "error");

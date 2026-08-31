@@ -16,6 +16,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorMessage } from "@/lib/errors";
+import { mutateWithOfflineQueue, newId } from "@/lib/offlineMutation";
 
 const CATEGORIES = [
   "general",
@@ -76,16 +77,36 @@ export default function Community() {
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      const { error } = await supabase.from("communities").insert({
+      const row = {
+        id: newId(),
         name: newName,
         description: newDesc,
         category: newCategory,
         created_by: user!.id,
-      });
-      if (error) throw error;
+      };
+
+      const result = await mutateWithOfflineQueue(
+        async () => {
+          const { error } = await supabase.from("communities").insert(row);
+          if (error) throw error;
+        },
+        {
+          table: "communities",
+          action: "insert",
+          payload: row,
+          matchValue: row.id,
+          description: `Create community "${newName}"`,
+          invalidate: [["communities"], ["my-community-memberships"]],
+        },
+      );
+
       queryClient.invalidateQueries({ queryKey: ["communities"] });
       queryClient.invalidateQueries({ queryKey: ["my-community-memberships"] });
-      toast({ title: "Community created! 🎉" });
+      toast({
+        title: result.queued
+          ? "Community queued — will create when online"
+          : "Community created! 🎉",
+      });
       setShowCreate(false);
       setNewName("");
       setNewDesc("");
@@ -447,13 +468,37 @@ function CommunityChat({ communityId }: { communityId: string }) {
     if (!input.trim() || !user) return;
     setSending(true);
     try {
-      const { error } = await supabase.from("community_messages").insert({
+      const row = {
+        id: newId(),
         community_id: communityId,
         sender_id: user.id,
         content: input,
-      });
-      if (error) throw error;
+      };
+
+      const result = await mutateWithOfflineQueue(
+        async () => {
+          const { error } = await supabase
+            .from("community_messages")
+            .insert(row);
+          if (error) throw error;
+        },
+        {
+          table: "community_messages",
+          action: "insert",
+          payload: row,
+          matchValue: row.id,
+          description: "Send community message",
+          invalidate: [["community-messages", communityId]],
+        },
+      );
+
       setInput("");
+      if (result.queued) {
+        toast({
+          title: "Message queued",
+          description: "It will post when you're back online.",
+        });
+      }
     } catch (error: unknown) {
       toast({
         title: "Error",

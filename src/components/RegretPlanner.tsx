@@ -12,6 +12,7 @@ import {
   MapPin,
   Clock,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -28,6 +29,11 @@ import {
   type PlanRegret,
 } from "@/lib/groupRegret";
 import { verifyItinerary, type VerificationResult } from "@/lib/itineraryVerifier";
+import {
+  describeRepair,
+  generateWithRepair,
+  mergeVerifications,
+} from "@/lib/planRepair";
 
 type Activity = {
   name: string;
@@ -41,6 +47,8 @@ type Activity = {
   review_score: number;
   priority: number;
   notes: string;
+  /** Opening hours in either shape supported by lib/openingHours.ts. */
+  opening_hours?: unknown;
 };
 
 type Plan = {
@@ -134,7 +142,13 @@ export default function RegretPlanner({
 
   // Real trip membership and stated preferences, replacing the previous
   // hardcoded `travelers: 2` and fixed interest list.
-  const { members, memberCount, usedFallback } = useGroupPreferences(tripId);
+  const {
+    members,
+    memberCount,
+    usedFallback,
+    statedCount,
+    hasUsablePreferences,
+  } = useGroupPreferences(tripId);
 
   const generatePlans = async () => {
     setLoading(true);
@@ -145,35 +159,72 @@ export default function RegretPlanner({
     try {
       const interests = deriveInterests(members);
 
-      const res = (await regretCounterfactual({
-        destination,
-        days,
-        travelers: Math.max(1, memberCount),
-        budget,
-        interests,
-        tripType: "leisure",
-      })) as RegretData;
+      const verifyPlan = (plan: Plan) =>
+        verifyItinerary(
+          { activities: plan.activities, total_cost: plan.total_cost },
+          { budget, days, maxActivitiesPerDay: 6 },
+        );
 
+      // Generate → verify all three → regenerate once with the violations fed
+      // back, labelled per variant so the model can tell which plan each problem
+      // belongs to. All three candidates arrive in a single response, so the
+      // repair pass necessarily covers the whole set.
+      const generation = await generateWithRepair<RegretData>({
+        generate: (repairInstruction) =>
+          regretCounterfactual({
+            destination,
+            days,
+            travelers: Math.max(1, memberCount),
+            budget,
+            interests,
+            tripType: "leisure",
+            repairInstruction,
+          }) as Promise<RegretData>,
+        verify: (candidate) => {
+          const candidatePlans = candidate?.plans ?? [];
+          if (candidatePlans.length === 0) {
+            return {
+              ok: false,
+              violations: [],
+              errors: [
+                {
+                  code: "EMPTY_ITINERARY" as const,
+                  severity: "error" as const,
+                  message: "The planner returned no plans.",
+                  activityIndices: [],
+                },
+              ],
+              warnings: [],
+              summary: "The planner returned no plans.",
+            };
+          }
+          return mergeVerifications(
+            candidatePlans.map((plan) => ({
+              label: plan.variant,
+              result: verifyPlan(plan),
+            })),
+          );
+        },
+      });
+
+      const res = generation.plan;
       const plans = res?.plans ?? [];
       if (plans.length === 0) throw new Error("The planner returned no plans.");
 
-      // Verify every plan locally before it is shown. Grammar-constrained JSON
-      // guarantees shape, not feasibility.
-      const verifications = plans.map((plan) =>
-        verifyItinerary(
-          { activities: plan.activities, total_cost: plan.total_cost },
-          {
-            budget,
-            days,
-            maxActivitiesPerDay: 6,
-          },
-        ),
-      );
+      // Per-plan results for the UI. Recomputed from the kept candidate rather
+      // than reused from the merged view, which carries variant-prefixed
+      // messages meant for the model.
+      const verifications = plans.map(verifyPlan);
 
-      // Score against real member preferences. With no members loaded there is
-      // nothing to compute, so regret is left undefined rather than invented.
+      // Score against real member preferences. Two distinct empty cases, both
+      // left unscored rather than reported as zero:
+      //   • no members loaded — nothing to score
+      //   • members loaded but none stated anything — scoring runs over neutral
+      //     weights and returns zero regret for everyone, which reads as "this
+      //     plan is perfectly fair" when it actually means "nobody said what
+      //     they wanted". Presenting that as a measurement is the F1 mistake.
       const regretResult =
-        members.length > 0
+        members.length > 0 && hasUsablePreferences
           ? computeGroupRegret(
               plans.map((p) => ({
                 variant: p.variant,
@@ -207,13 +258,16 @@ export default function RegretPlanner({
       setSelectedVariant(pick);
 
       const blocked = next.filter((s) => !s.verification.ok).length;
+      const repairNote = generation.repaired ? ` ${describeRepair(generation)}` : "";
       toast({
         title: `${plans.length} plans generated`,
         description: blocked
-          ? `${blocked} of ${plans.length} failed feasibility checks — see the warnings on each plan.`
+          ? `${blocked} of ${plans.length} failed feasibility checks — see the warnings on each plan.${repairNote}`
           : regretResult
-            ? `Scored against ${memberCount} traveller${memberCount === 1 ? "" : "s"}. All plans passed feasibility checks.`
-            : "All plans passed feasibility checks.",
+            ? `Scored against ${statedCount} of ${memberCount} traveller${
+                memberCount === 1 ? "" : "s"
+              } who have set preferences. All plans passed feasibility checks.`
+            : "All plans passed feasibility checks. Fairness unscored — no stated preferences yet.",
       });
     } catch (error: unknown) {
       toast({
@@ -277,6 +331,7 @@ export default function RegretPlanner({
         review_score: a.review_score ?? null,
         priority: a.priority ?? null,
         notes: a.notes ?? null,
+        opening_hours: (a.opening_hours ?? null) as never,
         status: "pending",
       }));
 
@@ -342,9 +397,26 @@ export default function RegretPlanner({
           <p className="text-xs text-muted-foreground mb-3">
             Scoring against{" "}
             <span className="font-semibold text-card-foreground">
-              {memberCount} traveller{memberCount === 1 ? "" : "s"}
+              {statedCount} of {memberCount} traveller
+              {memberCount === 1 ? "" : "s"}
             </span>{" "}
-            on this trip.
+            {statedCount === memberCount
+              ? "on this trip."
+              : hasUsablePreferences
+                ? "— the rest have not set preferences yet."
+                : "— nobody has set preferences yet, so fairness stays unscored."}
+            {!hasUsablePreferences && (
+              <>
+                {" "}
+                <Link
+                  to="/profile"
+                  className="text-primary font-semibold underline underline-offset-2"
+                >
+                  Set yours
+                </Link>
+                .
+              </>
+            )}
           </p>
         ) : (
           <p className="text-xs text-muted-foreground mb-3 flex items-start gap-1.5">
@@ -552,11 +624,32 @@ export default function RegretPlanner({
               </p>
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground flex items-start gap-1.5 p-3 rounded-xl bg-secondary/40">
+            <div className="text-xs text-muted-foreground flex items-start gap-1.5 p-3 rounded-xl bg-secondary/40">
               <AlertTriangle className="w-3 h-3 text-warning shrink-0 mt-0.5" />
-              No traveller preferences available, so fairness was not scored.
-              Plans above were still checked for feasibility.
-            </p>
+              <span>
+                {memberCount === 0 ? (
+                  <>
+                    No trip members could be read, so fairness was not scored.
+                    Plans above were still checked for feasibility.
+                  </>
+                ) : (
+                  <>
+                    Fairness was not scored: none of the {memberCount} traveller
+                    {memberCount === 1 ? "" : "s"} on this trip has set plan
+                    preferences yet. Scoring empty preferences would return zero
+                    regret for everyone, which is not the same as a fair plan.{" "}
+                    <Link
+                      to="/profile"
+                      className="text-primary font-semibold underline underline-offset-2"
+                    >
+                      Set your preferences
+                    </Link>{" "}
+                    to turn this on. Plans above were still checked for
+                    feasibility.
+                  </>
+                )}
+              </span>
+            </div>
           )}
 
           {/* Pros & Cons */}

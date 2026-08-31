@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { errorMessage } from "@/lib/errors";
-import { mutateWithOfflineQueue } from "@/lib/offlineMutation";
+import { mutateWithOfflineQueue, newId } from "@/lib/offlineMutation";
 
 interface Activity {
   id: string;
@@ -21,6 +21,13 @@ interface Activity {
   status: string;
   itinerary_id: string;
   notes: string | null;
+  /**
+   * Concurrency stamp. Sent back as a precondition on queued edits so a replay
+   * cannot overwrite a change another member made in the meantime. Optional
+   * because a row read before the column existed simply has no value, in which
+   * case the write falls back to last-write-wins.
+   */
+  updated_at?: string | null;
 }
 
 interface Vote {
@@ -144,7 +151,8 @@ export default function CollaborativePlanner({ tripId, activities, onActivityUpd
     }
   };
 
-  const handleMarkStatus = async (activityId: string, status: string) => {
+  const handleMarkStatus = async (activity: Activity, status: string) => {
+    const activityId = activity.id;
     try {
       // Ticking activities off happens mid-trip, which is exactly when signal is
       // worst — so this write queues rather than failing.
@@ -161,7 +169,11 @@ export default function CollaborativePlanner({ tripId, activities, onActivityUpd
           action: "update",
           payload: { status },
           matchValue: activityId,
-          description: `Mark activity ${status}`,
+          // Guards the replay: if another member changed this activity while the
+          // edit sat in the queue, the write is rejected and reported instead of
+          // silently winning on arrival order.
+          expectedUpdatedAt: activity.updated_at ?? undefined,
+          description: `Mark "${activity.name}" ${status}`,
           invalidate: [["activities"], ["itineraries", tripId]],
         },
       );
@@ -194,6 +206,7 @@ export default function CollaborativePlanner({ tripId, activities, onActivityUpd
 
   const saveEdit = async () => {
     if (!editingId) return;
+    const original = activities.find((a) => a.id === editingId);
     const payload = {
       name: editForm.name,
       description: editForm.description,
@@ -216,6 +229,9 @@ export default function CollaborativePlanner({ tripId, activities, onActivityUpd
           action: "update",
           payload,
           matchValue: editingId,
+          // Concurrent edits to the same activity are the case last-write-wins
+          // got wrong; this makes the loser visible rather than silent.
+          expectedUpdatedAt: original?.updated_at ?? undefined,
           description: `Edit "${editForm.name ?? "activity"}"`,
           invalidate: [["activities"], ["itineraries", tripId]],
         },
@@ -235,14 +251,38 @@ export default function CollaborativePlanner({ tripId, activities, onActivityUpd
     if (!chatInput.trim() || !user) return;
     setSendingMsg(true);
     try {
-      const { error } = await supabase.from("messages").insert({
+      // Group chat while travelling is a prime no-signal case. The id is
+      // generated here so the queued row keeps its identity on replay.
+      const row = {
+        id: newId(),
         trip_id: tripId,
         sender_id: user.id,
         content: chatInput,
         message_type: "text",
-      });
-      if (error) throw error;
+      };
+
+      const result = await mutateWithOfflineQueue(
+        async () => {
+          const { error } = await supabase.from("messages").insert(row);
+          if (error) throw error;
+        },
+        {
+          table: "messages",
+          action: "insert",
+          payload: row,
+          matchValue: row.id,
+          description: "Send chat message",
+          invalidate: [["messages", tripId]],
+        },
+      );
+
       setChatInput("");
+      if (result.queued) {
+        toast({
+          title: "Message queued",
+          description: "It will send when you're back online.",
+        });
+      }
     } catch (e: unknown) {
       toast({ title: "Error", description: errorMessage(e), variant: "destructive" });
     } finally {
@@ -393,7 +433,7 @@ export default function CollaborativePlanner({ tripId, activities, onActivityUpd
 
                       {/* Mark buttons */}
                       <button
-                        onClick={() => handleMarkStatus(activity.id, activity.status === "done" ? "pending" : "done")}
+                        onClick={() => handleMarkStatus(activity, activity.status === "done" ? "pending" : "done")}
                         className={`p-1.5 rounded-lg transition-colors ${
                           activity.status === "done" ? "bg-success/20 text-success" : "hover:bg-secondary text-muted-foreground"
                         }`}
@@ -402,7 +442,7 @@ export default function CollaborativePlanner({ tripId, activities, onActivityUpd
                         <Check className="w-3.5 h-3.5" />
                       </button>
                       <button
-                        onClick={() => handleMarkStatus(activity.id, activity.status === "skipped" ? "pending" : "skipped")}
+                        onClick={() => handleMarkStatus(activity, activity.status === "skipped" ? "pending" : "skipped")}
                         className={`p-1.5 rounded-lg transition-colors ${
                           activity.status === "skipped" ? "bg-destructive/20 text-destructive" : "hover:bg-secondary text-muted-foreground"
                         }`}

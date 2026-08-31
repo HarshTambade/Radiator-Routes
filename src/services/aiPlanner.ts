@@ -72,6 +72,14 @@ export async function planItinerary(params: {
   budget: number;
   interests?: string[];
   tripType?: string;
+  /**
+   * Violations from a previous attempt, appended verbatim to the prompt.
+   *
+   * Built by `buildRepairPrompt` in lib/itineraryVerifier.ts and driven by
+   * `generateWithRepair` in lib/planRepair.ts. External checking plus a
+   * re-prompt is what corrects LLM plan errors; self-critique does not.
+   */
+  repairInstruction?: string;
 }): Promise<unknown> {
   const {
     destination,
@@ -80,6 +88,7 @@ export async function planItinerary(params: {
     budget,
     interests = ["culture", "food", "sightseeing"],
     tripType = "leisure",
+    repairInstruction,
   } = params;
 
   if (!destination) throw new Error("destination is required");
@@ -116,7 +125,8 @@ Return a JSON object with this exact shape:
       "estimated_steps": number,
       "review_score": number,
       "priority": number,
-      "notes": string
+      "notes": string,
+      "opening_hours": { "osm": string, "source": "model" } | null
     }
   ],
   "total_cost": number,
@@ -147,6 +157,11 @@ Rules:
 - Use real lat/lng for ${destination}
 - All costs in INR, total_cost <= ₹${budget}
 - start_time and end_time must use +05:30 timezone offset
+- opening_hours: only when you actually know the place's schedule. Use OSM
+  syntax in the "osm" field, e.g. "Mo-Su 09:00-18:00", "We 06:00-14:00", "24/7".
+  Set it to null when unsure — a guess is worse than no data, and it is checked
+  against the scheduled times. Always set "source" to "model".
+- Do not schedule an activity outside the opening_hours you state for it
 - reasoning.plan_title: short catchy title for this itinerary (e.g. "Budget Explorer", "Premium Experience")
 - reasoning.selection_summary: 2-3 sentence executive summary of WHY this plan was chosen
 - reasoning.why_these_activities: explain the specific logic for activity selection (high ratings, free entry, proximity, etc.)
@@ -159,8 +174,13 @@ Rules:
 - reasoning.potential_savings: 2-3 suggestions for further cost reduction
 - reasoning.selection_criteria: array of 4-6 criteria objects explaining plan decisions`;
 
+  // Appended last so the concrete failures are the final thing the model reads.
+  const prompt = repairInstruction
+    ? `${userPrompt}\n\n${repairInstruction}`
+    : userPrompt;
+
   try {
-    const raw = await callGemini(systemPrompt, userPrompt, 0.7, 8192, true);
+    const raw = await callGemini(systemPrompt, prompt, 0.7, 8192, true);
     return extractJSON(raw);
   } catch (err) {
     throw new Error(handleGeminiError(err));
@@ -176,6 +196,8 @@ export async function regretCounterfactual(params: {
   budget: number;
   interests?: string[];
   tripType?: string;
+  /** Violations from a previous attempt. See `planItinerary`. */
+  repairInstruction?: string;
 }): Promise<unknown> {
   const {
     destination,
@@ -184,6 +206,7 @@ export async function regretCounterfactual(params: {
     budget,
     interests = ["culture", "food", "sightseeing"],
     tripType = "leisure",
+    repairInstruction,
   } = params;
 
   if (!destination) throw new Error("destination is required");
@@ -232,7 +255,8 @@ Return a JSON object:
           "estimated_steps": number,
           "review_score": number,
           "priority": number,
-          "notes": string
+          "notes": string,
+          "opening_hours": { "osm": string, "source": "model" } | null
         }
       ],
       "daily_summary": [string],
@@ -250,10 +274,20 @@ Rules:
 - balanced plan: total_cost ~${Math.round(budget * 0.8)}
 - experience plan: total_cost ~${Math.round(Number(budget))}
 - Set category accurately per activity — it drives preference matching downstream
-- review_score must be a real 0-5 rating, not a placeholder`;
+- review_score must be a real 0-5 rating, not a placeholder
+- opening_hours: OSM syntax in the "osm" field ("We 06:00-14:00", "24/7") only
+  when you actually know the schedule; null otherwise. Always "source":"model".
+  It is checked against the times you schedule, so a guess creates a false alarm
+- Never schedule an activity outside the opening_hours you state for it`;
+
+  // Violations are labelled per variant upstream, so the model can tell which of
+  // the three plans each problem belongs to.
+  const prompt = repairInstruction
+    ? `${userPrompt}\n\n${repairInstruction}`
+    : userPrompt;
 
   try {
-    const raw = await callGemini(systemPrompt, userPrompt, 0.7, 8192, true);
+    const raw = await callGemini(systemPrompt, prompt, 0.7, 8192, true);
     return extractJSON(raw);
   } catch (err) {
     throw new Error(handleGeminiError(err));

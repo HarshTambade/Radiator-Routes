@@ -11,12 +11,18 @@
 // network reason) the intent is recorded in the durable `offlineQueue`
 // IndexedDB store and replayed on reconnect.
 //
+// Concurrency: an update may carry `expectedUpdatedAt`, the `updated_at` value
+// the client last saw. Replay then matches on it as well as the row id, so a row
+// someone else has changed in the meantime rejects the stale write and is
+// reported as a conflict instead of silently overwriting their edit. Without the
+// precondition, replay is last-write-wins.
+//
 // Deliberate limits, stated rather than hidden:
-//   • Replay is last-write-wins. Fine for one person editing their own trip,
-//     wrong for two members editing the same activity concurrently. Field-level
-//     merge would need server-side support.
-//   • Queued inserts cannot return a server-generated id, so callers must not
-//     depend on the returned row while offline.
+//   • Conflict resolution is detect-and-report, not merge. The losing write is
+//     kept in the queue log as `conflict` and surfaced; it is not replayed, and
+//     no attempt is made to reconcile field-by-field.
+//   • The precondition only works on tables carrying `updated_at`. A caller that
+//     omits `expectedUpdatedAt` still gets last-write-wins.
 //   • Only network failures queue. A rejected write (RLS denial, constraint
 //     violation) is a real error and is surfaced immediately.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,6 +53,14 @@ export interface QueuedMutation extends StoredRecord {
   matchColumn?: string;
   /** Value to match. Required for update/delete. */
   matchValue?: string;
+  /**
+   * The `updated_at` value this client last saw on the target row.
+   *
+   * When set, replay adds it to the match so the write only lands if nobody has
+   * touched the row since. Omit it — or pass a table with no `updated_at`
+   * column — and replay falls back to last-write-wins.
+   */
+  expectedUpdatedAt?: string;
   /** Short human-readable description, for the pending-changes UI. */
   description?: string;
   /** Query keys to invalidate once this replays successfully. */
@@ -73,16 +87,48 @@ export interface OfflineMutationResult<T> {
  */
 interface TableWriter {
   insert(values: Record<string, unknown>): PromiseLike<{ error: unknown }>;
-  update(values: Record<string, unknown>): {
-    eq(column: string, value: unknown): PromiseLike<{ error: unknown }>;
-  };
-  delete(): {
-    eq(column: string, value: unknown): PromiseLike<{ error: unknown }>;
-  };
+  update(values: Record<string, unknown>): WriteFilter;
+  delete(): WriteFilter;
+}
+
+/**
+ * Chainable filter. Awaiting it runs the write; `select` runs it and returns the
+ * affected rows, which is the only way to tell "matched nothing" from "matched
+ * and succeeded" — PostgREST reports both as success with no error.
+ */
+interface WriteFilter extends PromiseLike<{ error: unknown }> {
+  eq(column: string, value: unknown): WriteFilter;
+  select(columns: string): PromiseLike<{ data: unknown[] | null; error: unknown }>;
 }
 
 export interface MutationClient {
   from(table: string): TableWriter;
+}
+
+/**
+ * A replayed write whose precondition no longer held: the target row was changed
+ * or removed by someone else after this mutation was queued.
+ *
+ * Not a failure — the request was valid and the server was reachable. Retrying
+ * would either do nothing or overwrite the other person's work, so the mutation
+ * is retired and reported instead.
+ */
+export class MutationConflictError extends Error {
+  readonly table: string;
+  readonly matchValue?: string;
+  /** What the user was trying to change, for the message shown to them. */
+  readonly description?: string;
+
+  constructor(mutation: QueuedMutation) {
+    super(
+      `${mutation.description ?? `${mutation.action} on ${mutation.table}`} ` +
+        `could not be applied: the record changed after the edit was queued.`,
+    );
+    this.name = "MutationConflictError";
+    this.table = mutation.table;
+    this.matchValue = mutation.matchValue;
+    this.description = mutation.description;
+  }
 }
 
 /**
@@ -102,6 +148,9 @@ export function adaptClient(client: unknown): MutationClient {
  * would replay a doomed write forever.
  */
 export function isRetriableFailure(error: unknown): boolean {
+  // A lost precondition is terminal regardless of connectivity: replaying it
+  // would overwrite whoever won the race.
+  if (error instanceof MutationConflictError) return false;
   if (!navigator.onLine) return true;
   if (!error) return false;
 
@@ -129,7 +178,15 @@ export function isRetriableFailure(error: unknown): boolean {
 
 // ── Enqueue ─────────────────────────────────────────────────────────────────
 
-function newId(): string {
+/**
+ * A UUID, falling back to a random string where `crypto.randomUUID` is missing.
+ *
+ * Exported because callers need it too: a queued insert cannot read back a
+ * server-generated key, so any row a caller must reference afterwards has to
+ * carry a client-generated id. Every id column in this schema is a UUID with a
+ * default, so supplying one is equivalent to letting the server pick.
+ */
+export function newId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `q_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -192,6 +249,14 @@ export interface SyncOutcome {
   attempted: number;
   succeeded: number;
   failed: number;
+  /**
+   * Writes dropped because the row moved on while they were queued. Counted
+   * apart from `failed` so the UI can say "someone else changed this" rather
+   * than "something went wrong".
+   */
+  conflicted: number;
+  /** One line per conflict, safe to show the user. */
+  conflicts: string[];
   /** Query keys touched by successful replays, for cache invalidation. */
   invalidate: string[][];
 }
@@ -223,6 +288,8 @@ export function syncQueuedMutations(client: MutationClient): Promise<SyncOutcome
       attempted: pending.length,
       succeeded: 0,
       failed: 0,
+      conflicted: 0,
+      conflicts: [],
       invalidate: [],
     };
 
@@ -233,6 +300,18 @@ export function syncQueuedMutations(client: MutationClient): Promise<SyncOutcome
         outcome.succeeded += 1;
         if (mutation.invalidate) outcome.invalidate.push(...mutation.invalidate);
       } catch (error) {
+        // Checked before retriability: a conflict is terminal by definition, and
+        // its message must never be mistaken for a transient network fault.
+        if (error instanceof MutationConflictError) {
+          await updateOfflineQueue(mutation.id, "conflict");
+          outcome.conflicted += 1;
+          outcome.conflicts.push(error.message);
+          // The row this edit targeted has changed, so refresh the views that
+          // showed the stale value.
+          if (mutation.invalidate) outcome.invalidate.push(...mutation.invalidate);
+          continue;
+        }
+
         if (isRetriableFailure(error)) {
           // Still offline or the server is down — leave it pending and stop, so
           // ordering is preserved for the next attempt.
@@ -243,7 +322,9 @@ export function syncQueuedMutations(client: MutationClient): Promise<SyncOutcome
       }
     }
 
-    if (outcome.succeeded > 0 || outcome.failed > 0) notifyQueueChanged();
+    if (outcome.succeeded > 0 || outcome.failed > 0 || outcome.conflicted > 0) {
+      notifyQueueChanged();
+    }
     return outcome;
   })();
 
@@ -275,6 +356,22 @@ async function applyMutation(
     throw new Error(
       `Queued ${mutation.action} on ${mutation.table} has no match value`,
     );
+  }
+
+  // Optimistic-concurrency path. Matching on the `updated_at` the client last
+  // saw means a row someone else has since edited simply does not match, and
+  // PostgREST reports that as success-with-zero-rows rather than an error — so
+  // the row count has to be read back explicitly via `select`.
+  if (mutation.action === "update" && mutation.expectedUpdatedAt) {
+    const { data, error } = await table
+      .update(mutation.payload)
+      .eq(column, mutation.matchValue)
+      .eq("updated_at", mutation.expectedUpdatedAt)
+      .select("id");
+
+    if (error) throw error;
+    if (!data || data.length === 0) throw new MutationConflictError(mutation);
+    return;
   }
 
   const { error } =
