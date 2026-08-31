@@ -6,9 +6,6 @@ import {
   Scale,
   Sparkles,
   AlertTriangle,
-  Battery,
-  Wallet,
-  Star,
   Check,
   ChevronDown,
   ChevronUp,
@@ -22,6 +19,15 @@ import { useQueryClient } from "@tanstack/react-query";
 import { regretCounterfactual } from "@/services/aiPlanner";
 import { formatCurrency } from "@/lib/currency";
 import { errorMessage } from "@/lib/errors";
+import { useGroupPreferences } from "@/hooks/useGroupPreferences";
+import {
+  computeGroupRegret,
+  explainGroupRegret,
+  explainMemberRegret,
+  regretBand,
+  type PlanRegret,
+} from "@/lib/groupRegret";
+import { verifyItinerary, type VerificationResult } from "@/lib/itineraryVerifier";
 
 type Activity = {
   name: string;
@@ -42,10 +48,6 @@ type Plan = {
   label: string;
   tagline: string;
   total_cost: number;
-  fatigue_level: number;
-  budget_overrun_risk: number;
-  experience_quality: number;
-  regret_score: number;
   activities: Activity[];
   daily_summary: string[];
   pros: string[];
@@ -54,8 +56,19 @@ type Plan = {
 
 type RegretData = {
   plans: Plan[];
-  recommendation: string;
   comparison_note: string;
+};
+
+/**
+ * A plan plus everything computed locally about it. The regret figure and the
+ * recommendation are derived from group preferences here in the client — they
+ * are deliberately not asked of the model, which previously just echoed back
+ * whatever constants the prompt told it to emit.
+ */
+type ScoredPlan = {
+  plan: Plan;
+  regret?: PlanRegret;
+  verification: VerificationResult;
 };
 
 const VARIANT_CONFIG: Record<
@@ -67,44 +80,26 @@ const VARIANT_CONFIG: Record<
   experience: { icon: Sparkles, color: "text-warning", bg: "bg-warning/10" },
 };
 
-function RiskMeter({
-  value,
-  label,
-  icon: Icon,
-  color,
-}: {
-  value: number;
-  label: string;
-  icon: typeof Battery;
-  color: string;
-}) {
-  const getLevel = (v: number) =>
-    v < 35 ? "Low" : v < 65 ? "Moderate" : "High";
-  const getBarColor = (v: number) =>
-    v < 35 ? "bg-success" : v < 65 ? "bg-warning" : "bg-destructive";
+/**
+ * Turns the group's highest-weighted categories into interest hints for the
+ * generation prompt, so the candidate plans are drawn from what the group
+ * actually said rather than a hardcoded list.
+ */
+function deriveInterests(members: { categoryWeights?: Record<string, number> }[]): string[] {
+  const totals = new Map<string, number>();
 
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground flex items-center gap-1">
-          <Icon className={`w-3 h-3 ${color}`} />
-          {label}
-        </span>
-        <span className="text-xs font-semibold text-card-foreground">
-          {getLevel(value)}
-        </span>
-      </div>
-      <div className="h-2 rounded-full bg-secondary overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-700 ${getBarColor(value)}`}
-          style={{ width: `${value}%` }}
-        />
-      </div>
-      <p className="text-[10px] text-muted-foreground text-right">
-        {value}/100
-      </p>
-    </div>
-  );
+  for (const member of members) {
+    for (const [category, weight] of Object.entries(member.categoryWeights ?? {})) {
+      totals.set(category, (totals.get(category) ?? 0) + weight);
+    }
+  }
+
+  if (totals.size === 0) return ["culture", "food", "sightseeing"];
+
+  return [...totals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([category]) => category);
 }
 
 interface RegretPlannerProps {
@@ -127,6 +122,8 @@ export default function RegretPlanner({
   onPlanApplied,
 }: RegretPlannerProps) {
   const [data, setData] = useState<RegretData | null>(null);
+  const [scored, setScored] = useState<ScoredPlan[]>([]);
+  const [recommended, setRecommended] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedVariant, setSelectedVariant] = useState<string>("balanced");
   const [expandedPlan, setExpandedPlan] = useState<string | null>(null);
@@ -135,23 +132,88 @@ export default function RegretPlanner({
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
+  // Real trip membership and stated preferences, replacing the previous
+  // hardcoded `travelers: 2` and fixed interest list.
+  const { members, memberCount, usedFallback } = useGroupPreferences(tripId);
+
   const generatePlans = async () => {
     setLoading(true);
     setData(null);
+    setScored([]);
+    setRecommended(null);
+
     try {
+      const interests = deriveInterests(members);
+
       const res = (await regretCounterfactual({
         destination,
         days,
-        travelers: 2,
+        travelers: Math.max(1, memberCount),
         budget,
-        interests: ["culture", "food", "sightseeing"],
+        interests,
         tripType: "leisure",
-      })) as any;
+      })) as RegretData;
+
+      const plans = res?.plans ?? [];
+      if (plans.length === 0) throw new Error("The planner returned no plans.");
+
+      // Verify every plan locally before it is shown. Grammar-constrained JSON
+      // guarantees shape, not feasibility.
+      const verifications = plans.map((plan) =>
+        verifyItinerary(
+          { activities: plan.activities, total_cost: plan.total_cost },
+          {
+            budget,
+            days,
+            maxActivitiesPerDay: 6,
+          },
+        ),
+      );
+
+      // Score against real member preferences. With no members loaded there is
+      // nothing to compute, so regret is left undefined rather than invented.
+      const regretResult =
+        members.length > 0
+          ? computeGroupRegret(
+              plans.map((p) => ({
+                variant: p.variant,
+                activities: p.activities,
+                total_cost: p.total_cost,
+              })),
+              members,
+            )
+          : null;
+
+      const next: ScoredPlan[] = plans.map((plan, i) => ({
+        plan,
+        regret: regretResult?.plans.find((r) => r.variant === plan.variant),
+        verification: verifications[i],
+      }));
+
+      // Prefer a plan that passes verification; fall back to lowest regret.
+      const feasible = next.filter((s) => s.verification.ok);
+      const pool = feasible.length > 0 ? feasible : next;
+      const pick =
+        regretResult && pool.some((s) => s.regret)
+          ? [...pool].sort(
+              (a, b) =>
+                (a.regret?.groupRegret ?? 1) - (b.regret?.groupRegret ?? 1),
+            )[0].plan.variant
+          : pool[0].plan.variant;
+
       setData(res);
-      setSelectedVariant(res.recommendation || "balanced");
+      setScored(next);
+      setRecommended(pick);
+      setSelectedVariant(pick);
+
+      const blocked = next.filter((s) => !s.verification.ok).length;
       toast({
-        title: "Plans generated! 🧠",
-        description: "3 counterfactual alternatives ready for comparison.",
+        title: `${plans.length} plans generated`,
+        description: blocked
+          ? `${blocked} of ${plans.length} failed feasibility checks — see the warnings on each plan.`
+          : regretResult
+            ? `Scored against ${memberCount} traveller${memberCount === 1 ? "" : "s"}. All plans passed feasibility checks.`
+            : "All plans passed feasibility checks.",
       });
     } catch (error: unknown) {
       toast({
@@ -232,8 +294,11 @@ export default function RegretPlanner({
           cost_breakdown: {
             total: plan.total_cost,
             variant: plan.variant,
-          } as any,
-          regret_score: plan.regret_score,
+          } as never,
+          // Persist the locally computed Least Misery score, not a model output.
+          regret_score:
+            scored.find((s) => s.plan.variant === plan.variant)?.regret
+              ?.groupRegret ?? null,
           variant_id: plan.variant,
         })
         .eq("id", itineraryId);
@@ -264,13 +329,32 @@ export default function RegretPlanner({
           <div>
             <h3 className="font-semibold text-card-foreground flex items-center gap-2">
               <Brain className="w-4 h-4 text-primary" />
-              Regret-Aware Planning
+              Group Trade-off Planner
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Compare 3 counterfactual alternatives with risk analysis
+              Generates three alternatives, checks each for feasibility, and scores
+              them against every traveller&apos;s stated preferences.
             </p>
           </div>
         </div>
+
+        {memberCount > 0 ? (
+          <p className="text-xs text-muted-foreground mb-3">
+            Scoring against{" "}
+            <span className="font-semibold text-card-foreground">
+              {memberCount} traveller{memberCount === 1 ? "" : "s"}
+            </span>{" "}
+            on this trip.
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground mb-3 flex items-start gap-1.5">
+            <AlertTriangle className="w-3 h-3 text-warning shrink-0 mt-0.5" />
+            {usedFallback
+              ? "Couldn't load trip members, so plans will be checked for feasibility but not scored for fairness."
+              : "No trip members found yet — add travellers to get per-person trade-off scores."}
+          </p>
+        )}
+
         <button
           onClick={generatePlans}
           disabled={loading}
@@ -279,12 +363,12 @@ export default function RegretPlanner({
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              Generating 3 alternative plans...
+              Generating and checking 3 plans...
             </>
           ) : (
             <>
               <Brain className="w-4 h-4" />
-              Generate Counterfactual Plans
+              Generate Alternative Plans
             </>
           )}
         </button>
@@ -292,7 +376,8 @@ export default function RegretPlanner({
     );
   }
 
-  const selectedPlan = data.plans.find((p) => p.variant === selectedVariant);
+  const selected = scored.find((s) => s.plan.variant === selectedVariant);
+  const selectedPlan = selected?.plan;
 
   return (
     <div className="space-y-4">
@@ -302,7 +387,7 @@ export default function RegretPlanner({
           <div>
             <h3 className="font-semibold text-card-foreground flex items-center gap-2">
               <Brain className="w-4 h-4 text-primary" />
-              Regret-Aware Counterfactual Plans
+              Group Trade-off Planner
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
               {data.comparison_note}
@@ -319,12 +404,12 @@ export default function RegretPlanner({
 
         {/* Plan Selector Tabs */}
         <div className="grid grid-cols-3 gap-2">
-          {data.plans.map((plan) => {
+          {scored.map(({ plan, regret, verification }) => {
             const config =
               VARIANT_CONFIG[plan.variant] || VARIANT_CONFIG.balanced;
             const Icon = config.icon;
             const isSelected = selectedVariant === plan.variant;
-            const isRecommended = data.recommendation === plan.variant;
+            const isRecommended = recommended === plan.variant;
 
             return (
               <button
@@ -338,7 +423,16 @@ export default function RegretPlanner({
               >
                 {isRecommended && (
                   <span className="absolute -top-2 right-2 px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold">
-                    RECOMMENDED
+                    BEST FIT
+                  </span>
+                )}
+                {!verification.ok && (
+                  <span
+                    className="absolute -top-2 left-2 px-1.5 py-0.5 rounded-full bg-destructive text-destructive-foreground text-[9px] font-bold"
+                    title={verification.summary}
+                  >
+                    {verification.errors.length} ISSUE
+                    {verification.errors.length === 1 ? "" : "S"}
                   </span>
                 )}
                 <Icon className={`w-5 h-5 mb-1 ${config.color}`} />
@@ -353,6 +447,11 @@ export default function RegretPlanner({
                 <p className={`text-lg font-bold mt-1 ${config.color}`}>
                   {formatCurrency(plan.total_cost, country)}
                 </p>
+                {regret && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    worst-case gap {(regret.groupRegret * 100).toFixed(0)}%
+                  </p>
+                )}
               </button>
             );
           })}
@@ -360,51 +459,105 @@ export default function RegretPlanner({
       </div>
 
       {/* Selected Plan Detail */}
-      {selectedPlan && (
+      {selectedPlan && selected && (
         <div className="bg-card rounded-2xl p-5 shadow-card space-y-4 animate-fade-in">
-          {/* Risk Metrics */}
+          {/* Feasibility — deterministic checks, no model involved */}
           <div>
-            <h4 className="text-sm font-semibold text-card-foreground mb-3">
-              Risk Analysis
+            <h4 className="text-sm font-semibold text-card-foreground mb-2 flex items-center gap-1.5">
+              {selected.verification.ok ? (
+                <Check className="w-4 h-4 text-success" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-destructive" />
+              )}
+              Feasibility check
             </h4>
-            <div className="grid grid-cols-1 gap-3">
-              <RiskMeter
-                value={selectedPlan.fatigue_level}
-                label="Fatigue Level"
-                icon={Battery}
-                color="text-warning"
-              />
-              <RiskMeter
-                value={selectedPlan.budget_overrun_risk}
-                label="Budget Overrun Risk"
-                icon={Wallet}
-                color="text-destructive"
-              />
-              <RiskMeter
-                value={selectedPlan.experience_quality}
-                label="Experience Quality"
-                icon={Star}
-                color="text-success"
-              />
-            </div>
+            {selected.verification.ok &&
+            selected.verification.warnings.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Budget, timing, travel distances and pace all check out.
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {selected.verification.errors.map((v, i) => (
+                  <li
+                    key={`e-${i}`}
+                    className="text-xs text-destructive flex items-start gap-1.5"
+                  >
+                    <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                    {v.message}
+                  </li>
+                ))}
+                {selected.verification.warnings.map((v, i) => (
+                  <li
+                    key={`w-${i}`}
+                    className="text-xs text-warning flex items-start gap-1.5"
+                  >
+                    <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                    {v.message}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
-          {/* Regret Score */}
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-primary/5 border border-primary/20">
-            <AlertTriangle className="w-5 h-5 text-primary shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-card-foreground">
-                Regret Score: {selectedPlan.regret_score.toFixed(2)}
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                {selectedPlan.regret_score < 0.3
-                  ? "Low regret — you'll likely be happy with this choice"
-                  : selectedPlan.regret_score < 0.6
-                    ? "Moderate regret — some trade-offs to consider"
-                    : "High regret risk — significant compromises in this plan"}
+          {/* Per-member trade-offs — computed via Least Misery */}
+          {selected.regret ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-primary/5 border border-primary/20">
+                <Scale className="w-5 h-5 text-primary shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-card-foreground">
+                    Worst-case trade-off:{" "}
+                    {(selected.regret.groupRegret * 100).toFixed(0)}%
+                    <span className="ml-2 text-[10px] font-normal uppercase tracking-wide text-muted-foreground">
+                      {regretBand(selected.regret.groupRegret)}
+                    </span>
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {explainGroupRegret(selected.regret)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold text-card-foreground">
+                  Per traveller
+                </p>
+                {selected.regret.members.map((m) => (
+                  <div
+                    key={m.memberId}
+                    className="flex items-center gap-2 text-xs"
+                  >
+                    <div className="h-1.5 flex-1 rounded-full bg-secondary overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${
+                          m.regret < 0.15
+                            ? "bg-success"
+                            : m.regret < 0.35
+                              ? "bg-warning"
+                              : "bg-destructive"
+                        }`}
+                        style={{ width: `${Math.max(2, m.regret * 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-muted-foreground shrink-0">
+                      {explainMemberRegret(m)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Scored by minimising the worst-off traveller&apos;s shortfall
+                (Least Misery) over each person&apos;s stated preferences.
               </p>
             </div>
-          </div>
+          ) : (
+            <p className="text-xs text-muted-foreground flex items-start gap-1.5 p-3 rounded-xl bg-secondary/40">
+              <AlertTriangle className="w-3 h-3 text-warning shrink-0 mt-0.5" />
+              No traveller preferences available, so fairness was not scored.
+              Plans above were still checked for feasibility.
+            </p>
+          )}
 
           {/* Pros & Cons */}
           <div className="grid grid-cols-2 gap-3">

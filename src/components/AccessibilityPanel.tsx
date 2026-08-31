@@ -251,18 +251,18 @@ async function identifyFromVideo(
     }
   }
 
-  // Text-only fallback via the general chat model so the user still gets something
-  try {
-    return await callGemini(
-      "You are an accessibility assistant for a visually impaired traveller. Describe a plausible scene based on the context. Keep it brief and practical.",
-      "Describe what a person might be seeing in a typical travel setting. 3 short sentences.",
-      0.5,
-      300,
-      false,
-    );
-  } catch {
-    throw new Error(`Vision unavailable: ${lastErr ?? "unknown error"}`);
-  }
+  // Deliberately NO text-only fallback here.
+  //
+  // This previously asked a text model to describe "a plausible scene" and
+  // returned that to a blind user as though it described what the camera was
+  // pointing at. The model had never seen the image, so the output was
+  // fabricated — and a confident invented description of someone's
+  // surroundings is a safety hazard, not a graceful degradation. Failing
+  // audibly and honestly is the correct behaviour.
+  throw new Error(
+    `Scene description is unavailable right now (${lastErr ?? "no vision model responded"}). ` +
+      `Nothing was described because no model could actually see the image.`,
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

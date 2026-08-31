@@ -14,25 +14,93 @@
 
 ## 📖 Table of Contents
 
-1. [Overview](#-overview)
-2. [Key Features](#-key-features)
-3. [AI Engines: hosted or on-device](#-ai-engines-hosted-or-on-device)
-4. [Offline & PWA Behaviour](#-offline--pwa-behaviour)
-5. [Tech Stack](#-tech-stack)
-6. [Architecture](#-architecture)
-7. [Getting Started](#-getting-started)
-8. [Environment Variables](#-environment-variables)
-9. [Project Structure](#-project-structure)
-10. [Pages & Routing](#-pages--routing)
-11. [Services Reference](#-services-reference)
-12. [Database Schema](#-database-schema)
-13. [Supabase Setup](#-supabase-setup)
-14. [Available Scripts](#-available-scripts)
-15. [Build & Bundle Budget](#-build--bundle-budget)
-16. [Security](#-security)
-17. [Deployment](#-deployment)
-18. [Contributing](#-contributing)
-19. [License](#-license)
+1. [System Mindmap](#-system-mindmap)
+2. [Overview](#-overview)
+3. [Key Features](#-key-features)
+4. [AI Engines: hosted or on-device](#-ai-engines-hosted-or-on-device)
+5. [Offline & PWA Behaviour](#-offline--pwa-behaviour)
+6. [Tech Stack](#-tech-stack)
+7. [Architecture](#-architecture)
+8. [Getting Started](#-getting-started)
+9. [Environment Variables](#-environment-variables)
+10. [Project Structure](#-project-structure)
+11. [Pages & Routing](#-pages--routing)
+12. [Services Reference](#-services-reference)
+13. [Database Schema](#-database-schema)
+14. [Supabase Setup](#-supabase-setup)
+15. [Available Scripts](#-available-scripts)
+16. [Build & Bundle Budget](#-build--bundle-budget)
+17. [Security](#-security)
+18. [Roadmap](#-roadmap)
+19. [Research & Prior Art](#-research--prior-art)
+20. [Deployment](#-deployment)
+21. [Contributing](#-contributing)
+22. [License](#-license)
+
+---
+
+## 🗺️ System Mindmap
+
+```mermaid
+mindmap
+  root((Radiator<br/>Routes))
+    AI Layer
+      Dual backend dispatch
+        Groq LLaMA 3.3 70B hosted
+        WebLLM on-device WebGPU
+        Capability-gated fallback
+      Jinny assistant
+        Streaming chat
+        Intent classification
+      Planning
+        Itinerary generation
+        Dynamic replanning
+        Travel memory
+      Determinism guards
+        Grammar-constrained JSON
+        Semantic verifier
+        Least Misery scoring
+    Offline Layer
+      Service worker
+        App shell precache
+        11 runtime caches
+        Navigate fallback
+      Trip persistence
+        IndexedDB offline trips
+        Map tiles z10 to z14
+      On-device model cache
+        Weights cached once
+        Zero egress inference
+    Data Sources
+      Free no key
+        Open-Meteo weather
+        Nominatim OSM
+        Wikipedia Wikimedia
+        Web Speech API
+        MyMemory translate
+      Free tier optional key
+        Groq inference
+        OpenRouteService
+        OpenTripMap
+      Backend
+        Supabase Postgres
+        Row Level Security
+        Realtime channels
+    Feature Modules
+      Trips and itinerary
+      Group trade-off planner
+      Explore and discovery
+      Friends and community
+      Expenses and UPI
+      SOS and safety
+      Accessibility panel
+    Quality Gates
+      TypeScript strictish
+      ESLint flat config
+      Vitest 82 tests
+      npm audit zero vulns
+      Bundle budget 171 kB
+```
 
 ---
 
@@ -60,7 +128,8 @@ the stack.
 |---|---|
 | **Voice-first planning** | Web Speech API transcribes in-browser; the LLM extracts destination, dates, budget, group size and interests |
 | **Jinny assistant** | Streaming chat with intent classification (`services/aiChat.ts`) |
-| **Regret-minimised itineraries** | Multiple plan variants scored by group regret (`components/RegretPlanner.tsx`) |
+| **Group trade-off planner** | Three plan variants, each verified for feasibility then scored by **computed** Least Misery over every traveller's stated preferences (`lib/groupRegret.ts`, `components/RegretPlanner.tsx`) |
+| **Plan verification** | Deterministic client-side checks — budget, timing overlap, travel feasibility, coordinate sanity, pace — that run offline and catch what JSON-schema validity cannot (`lib/itineraryVerifier.ts`) |
 | **AI reasoning transparency** | "Why This Plan" panel exposes selection criteria, budget logic and local tips |
 | **Dynamic replanning** | Weather/schedule disruptions trigger a fresh plan (`services/dynamicReplan.ts`) |
 | **Travel memory** | Learns preferences across trips and folds them into future plans |
@@ -74,7 +143,17 @@ See [AI Engines](#-ai-engines-hosted-or-on-device) for choosing a backend.
 ### 🗓️ Itinerary & planning
 Day-by-day timeline with categorised activities · collaborative voting · A4 PDF export via
 jsPDF + autoTable (dynamically imported, so it costs nothing until you click Export) ·
-disruption replanner · counterfactual regret planner.
+disruption replanner · group trade-off planner with per-traveller explanations.
+
+> **How the fairness score works.** For each candidate plan, every member's utility is computed from
+> their stated category weights, review scores and personal budget cap. A member's *regret* is the gap
+> between the best plan available to them and the one selected. The group score is the **worst**
+> member's regret — Least Misery, per
+> [Masthoff](https://link.springer.com/chapter/10.1007/1-4020-2164-X_5) — and the recommended plan
+> minimises it. All arithmetic, no model involvement, runs offline, and each member sees their own
+> trade-off. An earlier version of this feature had the model emit a score that the prompt had
+> already specified; that is documented in [`docs/RESEARCH.md`](./docs/RESEARCH.md) §3.2 and has been
+> removed.
 
 ### 🌍 Maps & navigation
 2D Leaflet + OpenStreetMap · 3D MapLibre GL globe · 360° street view · AR attraction viewer ·
@@ -460,7 +539,8 @@ Radiator-Routes/
 │   ├── hooks/
 │   │   ├── useAuth.tsx          # Session + sign-out cache purge
 │   │   ├── useLanguage.tsx
-│   │   ├── useOfflineStorage.ts # Mutation queue + SW update detection
+│   │   ├── useGroupPreferences.ts # Real trip members + their preferences
+│   │   ├── useOfflineStorage.ts # Mutation queue (not yet wired) + SW updates
 │   │   ├── useOfflineTrip.ts    # Save/remove trips offline, useOnlineStatus
 │   │   ├── useTrips.tsx
 │   │   └── use-toast.ts
@@ -472,6 +552,8 @@ Radiator-Routes/
 │   ├── lib/
 │   │   ├── aiProvider.ts        # Backend choice, model list, WebGPU probe
 │   │   ├── currency.ts          # ₹ INR + multi-currency formatting
+│   │   ├── groupRegret.ts       # Utilities + Least Misery scoring
+│   │   ├── itineraryVerifier.ts # Deterministic feasibility checks
 │   │   ├── date.ts
 │   │   ├── errors.ts            # Shared error taxonomy
 │   │   ├── http.ts              # Fetch wrapper: timeout, retry, JSON
@@ -659,6 +741,10 @@ WHERE pubname = 'supabase_realtime';
 | `npm run verify` | typecheck → lint → test → build |
 | `npm run clean` | Remove `dist`, `dev-dist`, Vite cache |
 
+> **Use npm.** `bun.lockb`, `yarn.lock`, `pnpm-lock.yaml` and `pnpm-workspace.yaml` were removed —
+> four competing lockfiles meant two CI environments could resolve different dependency trees from
+> the same commit. `packageManager` is pinned in `package.json`.
+
 ---
 
 ## 📊 Build & Bundle Budget
@@ -700,7 +786,7 @@ be split further and are already lazy-only, so the warning is expected rather th
 
 ## 🔒 Security
 
-- **`npm audit`: 0 vulnerabilities** across 819 packages
+- **`npm audit`: 0 vulnerabilities** across 881 packages
 - **No hardcoded credentials in `src/`** — verified by scanning for JWT, `sk-` and `gsk_` patterns
 - **Supabase credentials come from env only**, with a loud dev-time failure when absent
 - **PKCE auth flow** with session persistence and auto-refresh
@@ -732,6 +818,58 @@ inherent to a browser-only app, not a defect. Consequently:
 - Move any key that must stay secret behind a Supabase Edge Function
 
 A full findings list, including open items, is in [`AUDIT.md`](./AUDIT.md).
+
+---
+
+## 🛣️ Roadmap
+
+Grounded in what the code does today. Full detail, with file-level evidence, in
+[`docs/BACKLOG.md`](./docs/BACKLOG.md).
+
+```mermaid
+gantt
+    title Radiator Routes — delivery roadmap
+    dateFormat YYYY-MM-DD
+    axisFormat %b
+    section Shipped
+    Security & dependency hardening      :done, s1, 2026-08-01, 10d
+    Code splitting to 171 kB gzipped     :done, s2, 2026-08-08, 7d
+    Offline reads, tiles, PWA install    :done, s3, 2026-08-12, 10d
+    On-device AI via WebLLM              :done, s4, 2026-08-22, 6d
+    Computed fairness + plan verifier    :done, s5, 2026-08-28, 3d
+    section Now
+    Preference elicitation UI            :active, n1, 2026-09-01, 14d
+    Offline write sync queue             :n2, after n1, 14d
+    Verify the main planner path         :n3, 2026-09-01, 10d
+    section Next
+    Verifier repair loop                 :x1, after n2, 10d
+    Votes feed the utility model         :x2, after n2, 12d
+    Opening-hours constraint             :x3, after n3, 10d
+    section Later
+    Merge the two IndexedDB stores       :l1, after x1, 7d
+    Defer Supabase off first paint       :l2, after x1, 5d
+    Type external API responses          :l3, after x2, 14d
+    Real-device + Lighthouse benchmarks  :l4, after x3, 7d
+```
+
+### Phase detail
+
+| Phase | Goal | Exit criteria |
+|---|---|---|
+| **Shipped** | Production hygiene, offline reads, on-device AI, honest metrics | 0 vulns · 82 tests · 171 kB initial · verifier + Least Misery scoring live |
+| **Now** | Make the fairness metric usable and stop losing offline edits | Members can state preferences; offline edits replay on reconnect; every generated plan is verified |
+| **Next** | Raise plan quality with deterministic feedback | Failed plans auto-repair once; revealed votes refine utilities; opening hours enforced |
+| **Later** | Performance, typing and measurement | One IndexedDB store · Supabase off the critical path · API responses typed · Lighthouse and on-device benchmarks published |
+
+### Known gaps, stated plainly
+
+| Gap | Status |
+|---|---|
+| **Offline writes are discarded** | Queue exists in `hooks/useOfflineStorage.ts` but is called from nowhere. Offline is **read-only** today. |
+| **Fairness metric has no input UI** | `useGroupPreferences` reads `profiles.preferences`; nothing writes it yet, so most groups will see "fairness was not scored". |
+| **Main planner ships unverified plans** | The verifier runs in the group planner only, not in `planItinerary`. |
+| **On-device performance unmeasured** | Load time, tokens/sec and GPU memory need a real WebGPU session. |
+| **Opening hours not checked** | No POI hours data stored, so day-of-week errors slip through. |
 
 ---
 
@@ -840,14 +978,15 @@ git push origin feat/your-feature
 
 ## 📄 License
 
-MIT.
+MIT — see [`LICENSE`](./LICENSE), which also carries third-party notices.
 
-> No `LICENSE` file is currently committed and `package.json` has no `license` field. Without
-> them the MIT grant below is not machine-readable and tooling will report the project as
-> unlicensed. Tracked in [`AUDIT.md`](./AUDIT.md).
+The MIT grant covers this project's **source code only**. It does not grant rights to third-party
+data or model weights: OpenStreetMap data is ODbL, Open-Meteo is CC BY, Wikipedia is CC BY-SA, and
+each on-device model carries its own upstream licence (Llama Community, Qwen, Microsoft Research).
+Review the licence of any model you enable before commercial use.
 
 ```
-MIT License · Copyright (c) 2026 Radiator Routes
+MIT License · Copyright (c) 2026 Harsh Tambade
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

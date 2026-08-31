@@ -218,10 +218,6 @@ Return a JSON object:
       "label": string,
       "tagline": string,
       "total_cost": number,
-      "fatigue_level": number (0-100),
-      "budget_overrun_risk": number (0-100),
-      "experience_quality": number (0-100),
-      "regret_score": number (0.0-1.0, lower=less regret),
       "activities": [
         {
           "name": string,
@@ -244,16 +240,17 @@ Return a JSON object:
       "cons": [string]
     }
   ],
-  "recommendation": "budget" | "balanced" | "experience",
   "comparison_note": string
 }
 
 Rules:
 - Each plan must have ${activitiesPerPlan} activities using real ${destination} places
 - Use +05:30 timezone offset in all timestamps
-- budget plan: regret_score ~0.35, total_cost ~${Math.round(budget * 0.6)}
-- balanced plan: regret_score ~0.20, total_cost ~${Math.round(budget * 0.8)}
-- experience plan: regret_score ~0.10, total_cost ~${Math.round(Number(budget))}`;
+- budget plan: total_cost ~${Math.round(budget * 0.6)}
+- balanced plan: total_cost ~${Math.round(budget * 0.8)}
+- experience plan: total_cost ~${Math.round(Number(budget))}
+- Set category accurately per activity — it drives preference matching downstream
+- review_score must be a real 0-5 rating, not a placeholder`;
 
   try {
     const raw = await callGemini(systemPrompt, userPrompt, 0.7, 8192, true);

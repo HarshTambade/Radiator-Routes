@@ -19,20 +19,31 @@ not measurable in this environment and are called out as such rather than estima
 | Secrets in git history | 🔴 **Critical** | `.env` with 6 live keys committed to a public repo |
 | TypeScript | ✅ Pass | `tsc --noEmit` clean |
 | ESLint | 🟡 Partial | 0 errors, 157 warnings |
-| Tests | 🟡 Improving | 20 tests across 2 files — was 1 |
+| Tests | 🟡 Improving | **82 tests across 4 files** — was 1 |
+| Licensing metadata | ✅ Fixed | `LICENSE` + `license` field + third-party notices added |
+| Lockfile determinism | ✅ Fixed | 4 competing lockfiles removed; `packageManager` pinned |
+| Computed plan quality | ✅ Fixed | Prescribed regret score replaced by Least Misery (`lib/groupRegret.ts`) |
+| Plan feasibility | ✅ Fixed | Deterministic verifier added (`lib/itineraryVerifier.ts`) |
+| Fabricated scene descriptions | ✅ Fixed | Hallucinated fallback for blind users removed — see BACKLOG §2.1 |
 | Production build | ✅ Pass | Succeeds in ~1.5 s |
 | Initial bundle | ✅ Good | ≈171 kB gzipped |
 | PWA manifest & service worker | ✅ Pass | 82 precache entries, 12 runtime caches verified in `dist/sw.js` |
 | Offline reads | ✅ Works | App shell, saved trips, cached tiles and API responses |
 | **Offline AI** | ✅ **Now available** | On-device WebLLM backend, opt-in |
 | Offline writes | 🔴 **Not implemented** | Queue exists but is not wired to any mutation path |
-| Accuracy of user-facing claims | 🟡 Fixed this pass | Landing page and metadata advertised removed/absent tech |
-| Licensing metadata | 🟡 Missing | No `LICENSE` file, no `license` field |
+| Accuracy of user-facing claims | ✅ Fixed | Landing page and metadata no longer advertise absent tech |
 
 **Headline:** the codebase is in good shape technically — clean types, zero vulnerabilities, a
 well-split bundle and a correctly generated service worker. The single blocking issue is that live
 API credentials are sitting in the public GitHub repository's history and **must be rotated**. The
 second material gap is that "works offline" is true for reading but not for writing.
+
+> **Follow-up pass, 30 August 2026.** The two most prominently advertised AI features were found to be
+> presentation over prompt constants and have been rebuilt: the regret score is now computed
+> (Least Misery over real member preferences) and every generated plan is checked by a deterministic
+> feasibility verifier. A fabricated-scene-description path aimed at blind users was removed. Tests
+> went 20 → 82. Ongoing work and remaining defects are tracked in
+> [`docs/BACKLOG.md`](./docs/BACKLOG.md).
 
 ---
 
