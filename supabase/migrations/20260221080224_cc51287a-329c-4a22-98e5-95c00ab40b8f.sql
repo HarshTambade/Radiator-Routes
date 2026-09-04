@@ -1,6 +1,6 @@
 
 -- =============================================
--- Radiator Routes - Core Database Schema
+-- Atlas AI - Core Database Schema
 -- =============================================
 
 -- 1. Profiles table (linked to auth.users)

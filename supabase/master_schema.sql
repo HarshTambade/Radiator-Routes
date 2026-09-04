@@ -1,5 +1,5 @@
 -- ============================================================
--- RADIATOR ROUTES — MASTER DATABASE SCHEMA
+-- Atlas AI — MASTER DATABASE SCHEMA
 -- Version : 2.0
 -- Project : dfvyuqxyjlkoovxmtikq (Supabase)
 -- ============================================================

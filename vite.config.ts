@@ -56,7 +56,7 @@ export default defineConfig(({ mode }) => {
         includeAssets: ["favicon.ico", "favicon.svg", "icons/*.png"],
         manifest: {
           id: "/",
-          name: "Radiator Routes",
+          name: "Atlas AI",
           short_name: "RadRoutes",
           description: "AI-powered intelligent travel planning — itineraries, safety alerts, group trips & offline support.",
           theme_color: "#e8390e",

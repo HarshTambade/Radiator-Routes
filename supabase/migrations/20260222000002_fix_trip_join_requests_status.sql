@@ -1,5 +1,5 @@
 -- ============================================================
--- RADIATOR ROUTES — Migration: Fix trip_join_requests status CHECK constraint
+-- Atlas AI — Migration: Fix trip_join_requests status CHECK constraint
 -- ============================================================
 -- The UI was sending status = 'accepted' but the DB constraint only allows
 -- ('pending', 'approved', 'rejected'). This migration:

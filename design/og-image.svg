@@ -20,7 +20,7 @@
   height="630"
   viewBox="0 0 1200 630"
   role="img"
-  aria-label="Radiator Routes — AI travel planner for group trips"
+  aria-label="Atlas AI — AI travel planner for group trips"
 >
   <defs>
     <linearGradient id="canvas" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -140,7 +140,7 @@
       letter-spacing="4.5"
       fill="#ffffff"
       fill-opacity="0.94"
-    >RADIATOR ROUTES</text>
+    >Atlas AI</text>
   </g>
 
   <!-- ─── Eyebrow ─── -->

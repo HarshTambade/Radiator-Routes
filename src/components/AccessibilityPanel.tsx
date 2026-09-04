@@ -1019,7 +1019,7 @@ export default function AccessibilityPanel() {
       try {
         const systemPrompt =
           "You are a helpful travel assistant for visually impaired users. " +
-          "The app is called Radiator Routes — a travel planning app with features: " +
+          "The app is called Atlas AI — a travel planning app with features: " +
           "Dashboard (trip overview), Itinerary (AI trip planner), Explore (discover places), " +
           "Friends (travel companions), Guide (destination guide), SOS (emergency), " +
           "Jinny AI (conversational assistant), UPI Payment (split bills), Safety Warnings, " +
@@ -1774,7 +1774,7 @@ export default function AccessibilityPanel() {
                     label: "Read page title",
                     fn: () =>
                       ttsSpeak(
-                        `You are on: ${document.title || "Radiator Routes"}.`,
+                        `You are on: ${document.title || "Atlas AI"}.`,
                       ),
                   },
                   {
@@ -1990,7 +1990,7 @@ export default function AccessibilityPanel() {
               <button
                 onClick={() =>
                   ttsSpeak(
-                    "This is a test of the Radiator Routes accessibility text to speech system. If you can hear this clearly, the voice settings are working correctly.",
+                    "This is a test of the Atlas AI accessibility text to speech system. If you can hear this clearly, the voice settings are working correctly.",
                   )
                 }
                 className="w-full py-2.5 rounded-xl bg-purple-500/10 text-purple-600 text-sm font-semibold hover:bg-purple-500/20 transition-colors border border-purple-500/20"
@@ -2082,7 +2082,7 @@ export default function AccessibilityPanel() {
               />
               <div className="space-y-2 text-xs text-muted-foreground leading-relaxed">
                 <p>
-                  Radiator Routes is built for every traveller, including those
+                  Atlas AI is built for every traveller, including those
                   who are visually impaired. Features include:
                 </p>
                 <ul className="space-y-1.5 mt-2">

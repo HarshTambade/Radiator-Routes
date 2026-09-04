@@ -1,4 +1,4 @@
-# 🗺️ Radiator Routes
+# 🗺️ Atlas AI
 
 > **Voice-first, regret-aware AI travel planner for Indian group trips — built entirely on free and open-source services.**
 
@@ -106,7 +106,7 @@ mindmap
 
 ## 🌟 Overview
 
-**Radiator Routes** is an AI-powered group travel planner for India. Every integration is either
+**Atlas AI** is an AI-powered group travel planner for India. Every integration is either
 completely free (no key) or free-tier with no credit card — there are no paid APIs anywhere in
 the stack.
 
@@ -385,7 +385,7 @@ Vite PWA Plugin + Workbox · Vitest + Testing Library · ESLint 9 (flat config) 
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                      RADIATOR ROUTES                         │
+│                      Atlas AI                         │
 └──────────────────────────────────────────────────────────────┘
                              │
       ┌──────────────────────┼──────────────────────┐
@@ -868,7 +868,7 @@ Grounded in what the code does today. Full detail, with file-level evidence, in
 
 ```mermaid
 gantt
-    title Radiator Routes — delivery roadmap
+    title Atlas AI — delivery roadmap
     dateFormat YYYY-MM-DD
     axisFormat %b
     section Shipped

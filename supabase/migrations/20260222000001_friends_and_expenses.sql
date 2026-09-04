@@ -1,5 +1,5 @@
 -- ============================================================
--- RADIATOR ROUTES — Migration: Friends, DMs & Group Expenses
+-- Atlas AI — Migration: Friends, DMs & Group Expenses
 -- ============================================================
 
 -- ── friend_requests ──────────────────────────────────────────────────────────

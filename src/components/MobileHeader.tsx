@@ -31,7 +31,7 @@ export default function MobileHeader({
     if (location.pathname.startsWith("/itinerary/")) return t("myTrips");
     const key = PAGE_TITLE_KEYS[location.pathname];
     if (key) return t(key as any);
-    return "Radiator Routes";
+    return "Atlas AI";
   };
 
   return (

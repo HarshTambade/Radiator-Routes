@@ -30,7 +30,7 @@ export default function JoinTrip() {
   useSeo({
     title: trip?.name ? `Join ${trip.name}` : undefined,
     description: trip?.name
-      ? `You have been invited to join ${trip.name}${trip.destination ? ` in ${trip.destination}` : ""} on Radiator Routes.`
+      ? `You have been invited to join ${trip.name}${trip.destination ? ` in ${trip.destination}` : ""} on Atlas AI.`
       : undefined,
   });
 

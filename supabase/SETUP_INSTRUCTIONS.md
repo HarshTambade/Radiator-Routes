@@ -1,4 +1,4 @@
-# Radiator Routes — Supabase Setup Instructions
+# Atlas AI — Supabase Setup Instructions
 # Complete Step-by-Step Guide for supabase.com
 
 > **Project ID:** `dfvyuqxyjlkoovxmtikq`
@@ -9,7 +9,7 @@
 
 ## Overview
 
-This guide walks you through setting up the entire Radiator Routes backend on
+This guide walks you through setting up the entire Atlas AI backend on
 [supabase.com](https://supabase.com) — no CLI required for the core setup.
 Every step is done through the Supabase web dashboard unless explicitly noted.
 
@@ -525,4 +525,4 @@ supabase db pull
 
 ---
 
-*Last updated: Radiator Routes v2.0*
+*Last updated: Atlas AI v2.0*

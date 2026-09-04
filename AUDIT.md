@@ -1,4 +1,4 @@
-# Radiator Routes — Platform Audit
+# Atlas AI — Platform Audit
 
 **Date:** 30 August 2026
 **Commit audited:** `c3032e0` plus uncommitted working-tree changes

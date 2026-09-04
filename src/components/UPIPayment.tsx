@@ -35,7 +35,7 @@ function buildUPILink(
     pn: name || "Payee",
     am: parseFloat(amount).toFixed(2),
     cu: "INR",
-    tn: note || "Payment via Radiator Routes",
+    tn: note || "Payment via Atlas AI",
   });
   return `upi://pay?${params.toString()}`;
 }
@@ -144,7 +144,7 @@ export default function UPIPayment({ memberNames = [] }: Props) {
       selectedPayee.upiId,
       selectedPayee.name,
       amount,
-      note || `Payment to ${selectedPayee.name} via Radiator Routes`,
+      note || `Payment to ${selectedPayee.name} via Atlas AI`,
     );
     const anchor = document.createElement("a");
     anchor.href = link;

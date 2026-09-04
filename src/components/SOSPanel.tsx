@@ -139,7 +139,7 @@ export default function SOSPanel() {
 
   const buildSMSMessage = (lat: number, lng: number): string => {
     const mapsLink = `https://maps.google.com/?q=${lat},${lng}`;
-    return `🆘 SOS ALERT! I need help. My current location: ${mapsLink} - Sent via Radiator Routes Emergency System. Please respond immediately!`;
+    return `🆘 SOS ALERT! I need help. My current location: ${mapsLink} - Sent via Atlas AI Emergency System. Please respond immediately!`;
   };
 
   const triggerSOS = useCallback(async () => {
@@ -172,7 +172,7 @@ export default function SOSPanel() {
 
     const message = location.lat !== 0
       ? buildSMSMessage(location.lat, location.lng)
-      : "🆘 SOS ALERT! I need immediate help. I was unable to share my location. Please call me immediately! - Sent via Radiator Routes Emergency System";
+      : "🆘 SOS ALERT! I need immediate help. I was unable to share my location. Please call me immediately! - Sent via Atlas AI Emergency System";
 
     // Open SMS for each contact sequentially
     const sent: string[] = [];

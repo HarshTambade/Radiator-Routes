@@ -1,5 +1,5 @@
 -- ============================================================
--- Radiator Routes — COMPLETE DATABASE SCHEMA
+-- Atlas AI — COMPLETE DATABASE SCHEMA
 -- Single idempotent script: safe to run on a fresh Supabase
 -- project or re-run on an existing one.
 -- ============================================================

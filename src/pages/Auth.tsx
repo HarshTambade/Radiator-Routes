@@ -77,7 +77,7 @@ export default function Auth() {
             <div className="w-12 h-12 rounded-xl bg-primary-foreground/20 flex items-center justify-center">
               <MapPin className="w-7 h-7" />
             </div>
-            <span className="text-2xl font-bold">Radiator Routes</span>
+            <span className="text-2xl font-bold">Atlas AI</span>
           </div>
           <h2 className="text-4xl font-extrabold leading-tight">
             Plan trips that everyone loves
@@ -105,7 +105,7 @@ export default function Auth() {
             <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center">
               <MapPin className="w-5 h-5 text-primary-foreground" />
             </div>
-            <span className="text-lg font-bold text-foreground">Radiator Routes</span>
+            <span className="text-lg font-bold text-foreground">Atlas AI</span>
           </div>
 
           <h1 className="text-2xl font-bold text-foreground">

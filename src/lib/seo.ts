@@ -8,7 +8,7 @@
 //
 // What this can and cannot do
 // ───────────────────────────
-// Radiator Routes is a client-rendered SPA, so the tags written at runtime are
+// Atlas AI is a client-rendered SPA, so the tags written at runtime are
 // read by:
 //   • the browser        — tab titles, the Android/iOS share sheet, PWA UI
 //   • Googlebot          — it renders JavaScript before indexing
@@ -47,7 +47,7 @@ function resolveOrigin(): string {
 }
 
 export const SITE = {
-  name: "Radiator Routes",
+  name: "Atlas AI",
   shortName: "RadRoutes",
   origin: resolveOrigin(),
   /** Appended to every page title except the landing page. */
@@ -67,7 +67,7 @@ export const SITE = {
   imageWidth: 1200,
   imageHeight: 630,
   imageAlt:
-    "Radiator Routes — speak your trip, code checks it. AI travel planner for group trips.",
+    "Atlas AI — speak your trip, code checks it. AI travel planner for group trips.",
   logo: "/icons/icon-512x512.png",
 } as const;
 

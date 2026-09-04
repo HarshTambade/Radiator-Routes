@@ -10,7 +10,7 @@ const corsHeaders = {
 const HF_API_URL = "https://router.huggingface.co/v1/chat/completions";
 const HF_MODEL = "mistralai/Mistral-7B-Instruct-v0.3";
 
-const BASE_SYSTEM_PROMPT = `You are Jinny, a Personal AI Travel Proxy Agent for Radiator Routes. You act as the traveler's intelligent travel representative — negotiating, planning, optimizing, and protecting their interests.
+const BASE_SYSTEM_PROMPT = `You are Jinny, a Personal AI Travel Proxy Agent for Atlas AI. You act as the traveler's intelligent travel representative — negotiating, planning, optimizing, and protecting their interests.
 
 ## Your Core Capabilities:
 

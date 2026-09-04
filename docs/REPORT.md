@@ -1,4 +1,4 @@
-# Radiator Routes — Project Report
+# Atlas AI — Project Report
 
 **Author:** Harsh Tambade
 **Date:** 31 August 2026
@@ -30,7 +30,7 @@
 
 ## 1. Abstract
 
-Radiator Routes is a group travel planner for India, built as a browser-based progressive web
+Atlas AI is a group travel planner for India, built as a browser-based progressive web
 application. It takes a spoken sentence — *"plan five days in Goa for four friends under
 ₹40,000"* — and produces a day-by-day itinerary.
 
@@ -683,7 +683,7 @@ In priority order. The first three are hours, not weeks, and are ordered ahead o
 
 ## 14. Conclusion
 
-Radiator Routes generates group travel itineraries from speech, checks them in code against 13
+Atlas AI generates group travel itineraries from speech, checks them in code against 13
 feasibility constraints, repairs failures by feeding violations back to the model, scores the result
 for group fairness using arithmetic rather than assertion, and can run the entire path on the user's
 own GPU with no network and no API key. It does this on a stack containing no paid API, in 29

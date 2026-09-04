@@ -98,7 +98,7 @@ export default function PWAInstallPrompt() {
                 </div>
                 <div>
                   <p className="font-bold text-card-foreground text-base leading-tight">
-                    Install Radiator Routes
+                    Install Atlas AI
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     Add to home screen for the best experience

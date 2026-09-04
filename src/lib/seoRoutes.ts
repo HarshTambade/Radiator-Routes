@@ -74,7 +74,7 @@ const HOME_CRUMB: BreadcrumbEntry = { name: "Home", path: "/" };
 export const ROUTE_SEO: readonly RouteSeo[] = [
   {
     pattern: "/",
-    title: "Radiator Routes — AI Travel Planner for Group Trips in India",
+    title: "Atlas AI — AI Travel Planner for Group Trips in India",
     titleExact: true,
     description:
       "Plan group trips with an AI that shows its reasoning. Voice-first itineraries, 13 feasibility checks per plan, group fairness scoring, live location sharing, SOS with GPS, offline PWA — built entirely on free APIs.",
@@ -98,7 +98,7 @@ export const ROUTE_SEO: readonly RouteSeo[] = [
     pattern: "/auth",
     title: "Sign in",
     description:
-      "Sign in or create a Radiator Routes account to plan trips, invite friends and sync your itineraries across devices.",
+      "Sign in or create a Atlas AI account to plan trips, invite friends and sync your itineraries across devices.",
     // A sign-in form has nothing to rank for, and indexing it competes with
     // the landing page for the brand query.
     indexable: false,
@@ -108,7 +108,7 @@ export const ROUTE_SEO: readonly RouteSeo[] = [
     pattern: "/join/:inviteCode",
     title: "Join a trip",
     description:
-      "You have been invited to join a trip on Radiator Routes. Sign in to send the organiser a join request.",
+      "You have been invited to join a trip on Atlas AI. Sign in to send the organiser a join request.",
     // Invite links are private by design — they must never enter an index.
     indexable: false,
     breadcrumbs: [HOME_CRUMB],
@@ -184,7 +184,7 @@ export const NOT_FOUND_SEO: RouteSeo = {
   pattern: "*",
   title: "Page not found",
   description:
-    "That page does not exist. Head back to the Radiator Routes home page to start planning a trip.",
+    "That page does not exist. Head back to the Atlas AI home page to start planning a trip.",
   indexable: false,
   breadcrumbs: [HOME_CRUMB],
 };

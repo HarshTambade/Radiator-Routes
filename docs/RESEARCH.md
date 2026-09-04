@@ -1,4 +1,4 @@
-# Radiator Routes — Research & Patent Dossier
+# Atlas AI — Research & Patent Dossier
 
 **Version:** 1.2 (pass 3)
 **Date:** 31 August 2026 (v1.0: 30 August 2026)
@@ -70,7 +70,7 @@ literature, and identify what must be built before any claim is defensible.
 
 ### The honest position
 
-Radiator Routes contains **one strong novelty candidate** and **several weak ones**. The strong one
+Atlas AI contains **one strong novelty candidate** and **several weak ones**. The strong one
 is not the feature the project has been marketing.
 
 | Candidate | Strength | Why |
@@ -111,7 +111,7 @@ recommendation becomes:
 
 ```mermaid
 mindmap
-  root((Radiator Routes<br/>Research Space))
+  root((Atlas AI<br/>Research Space))
     Novelty Candidates
       Offline private planning
         On-device LLM WebGPU
@@ -388,7 +388,7 @@ maximising collected interest subject to time and budget constraints.
 - **[A Critical Analysis of a TTDP with Time-Dependent Recommendation Factors and Waiting Times](https://www.mdpi.com/2079-9292/11/3/357)** (2022) — time-dependent scoring.
 - **[Combining Mandatory Visits and Personalized Activities](https://mdpi.com/1999-4893/18/2/110)** (2025) — extended Team Orienteering with Time Windows.
 
-**Implication for this project:** Radiator Routes does **not** solve a TTDP. It asks an LLM to emit
+**Implication for this project:** Atlas AI does **not** solve a TTDP. It asks an LLM to emit
 a plausible schedule. There is no objective function, no constraint satisfaction, no optimality
 claim. Framing the work as "itinerary optimisation" against this literature would be indefensible.
 Framing it as *"LLM-generated itineraries, and what breaks"* is defensible and interesting.
@@ -442,7 +442,7 @@ weakness found in §3.2.
 
 **Implication — restated for pass 3.** The literature says LLMs cannot reliably satisfy
 multi-constraint travel plans, and that self-critique does not fix it. When this dossier was first
-written, Radiator Routes asked the LLM to self-report a quality score, which made the project a
+written, Atlas AI asked the LLM to self-report a quality score, which made the project a
 worked example of the field's known failure mode. That is no longer the case: the prescribed score is
 gone (§3.1a), and generation is now wrapped in an external deterministic verifier with a repair pass.
 
@@ -527,7 +527,7 @@ verification alone? That is a measurable question and nobody appears to have ask
 
 ### 5.5 On-device inference
 
-- **Ruan et al., "[WebLLM: A High-Performance In-Browser LLM Inference Engine](https://arxiv.org/abs/2412.15803)"** (arXiv:2412.15803) — retains up to **80% of native performance**; explicitly targets privacy-preserving, locally powered browser LLM applications. **This is the engine Radiator Routes uses.**
+- **Ruan et al., "[WebLLM: A High-Performance In-Browser LLM Inference Engine](https://arxiv.org/abs/2412.15803)"** (arXiv:2412.15803) — retains up to **80% of native performance**; explicitly targets privacy-preserving, locally powered browser LLM applications. **This is the engine Atlas AI uses.**
 - **"[Llamas on the Web (LlamaWeb)](https://arxiv.org/abs/2605.20706)"** — WebGPU backend for llama.cpp; **29–33% less memory** than existing browser frameworks across 16 devices from 8 vendors.
 - **"[Feasibility and Trade-offs of On-Device Language Model Inference](https://arxiv.org/html/2503.09114v2)"** — privacy, latency and data-sovereignty benefits at the edge.
 - **"[Efficient and Privacy Aware Edge Cloud Collaborative Inference](https://arxiv.org/abs/2607.13093)"** — names the **trilemma**: latency vs. local hardware limits vs. privacy.

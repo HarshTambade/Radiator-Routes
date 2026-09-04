@@ -2049,7 +2049,7 @@ export default function Landing() {
                 scrolled ? "text-foreground" : "text-white"
               }`}
             >
-              Radiator Routes
+              Atlas AI
             </span>
           </a>
 
@@ -2384,7 +2384,7 @@ export default function Landing() {
             <Reveal>
               <SectionHeading title="Group travel, minus the group chat">
                 Nine people, four opinions about breakfast and one shared budget.
-                Radiator Routes is built for that trip.
+                Atlas AI is built for that trip.
               </SectionHeading>
             </Reveal>
 
@@ -4493,7 +4493,7 @@ export default function Landing() {
           <div className="absolute inset-0 bg-black/55" />
           <div className="relative z-10 max-w-3xl mx-auto text-center">
             <h2 className="font-display text-5xl md:text-6xl font-bold text-white mb-4">
-              Radiator Routes
+              Atlas AI
             </h2>
             <p className="text-white/75 mb-4 max-w-lg mx-auto text-lg">
               Speak the trip. Let code check it. Travel with the plan your whole
@@ -4531,7 +4531,7 @@ export default function Landing() {
                 <MapPin className="w-4 h-4 text-primary-foreground" aria-hidden="true" />
               </div>
               <span className="font-display text-lg font-bold">
-                Radiator Routes
+                Atlas AI
               </span>
             </div>
             <p className="text-sm text-background/60 mb-4 max-w-xs leading-relaxed">
@@ -4666,7 +4666,7 @@ export default function Landing() {
 
         <div className="max-w-6xl mx-auto pt-6 border-t border-background/10 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-xs text-background/40">
-            © {new Date().getFullYear()} Radiator Routes. Made with care in
+            © {new Date().getFullYear()} Atlas AI. Made with care in
             India. Every feature on this page is in the codebase.
           </p>
           <Link

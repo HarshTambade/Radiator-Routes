@@ -78,7 +78,7 @@ export function ProtectedLayout() {
                   <span className="text-white font-black text-xs">RR</span>
                 </div>
                 <span className="font-bold text-card-foreground text-sm">
-                  Radiator Routes
+                  Atlas AI
                 </span>
               </div>
               <div className="flex items-center gap-2">
