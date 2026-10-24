@@ -53,6 +53,21 @@ function plainText(html: string | undefined): string | undefined {
   return parsed.body.textContent?.replace(/\s+/g, " ").trim() || undefined;
 }
 
+// Wikipedia's API now returns thumbnails on thumb.wikimedia.org; older
+// responses used upload.wikimedia.org. Accepting only the old host discarded
+// every photo, so trip cards fell back to the placeholder.
+const WIKIMEDIA_IMAGE_HOSTS = new Set(["upload.wikimedia.org", "thumb.wikimedia.org"]);
+
+export function isWikimediaImageUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && WIKIMEDIA_IMAGE_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 async function findWikipediaPhoto(title: string): Promise<DestinationPhoto | null> {
   const query = new URLSearchParams({
     action: "query",
@@ -71,7 +86,7 @@ async function findWikipediaPhoto(title: string): Promise<DestinationPhoto | nul
   const data = await response.json();
   const page = (data?.query?.pages ?? []).find((item: any) => !item.missing && item.thumbnail?.source);
   const imageUrl = page?.thumbnail?.source;
-  if (typeof imageUrl !== "string" || !imageUrl.startsWith("https://upload.wikimedia.org/")) return null;
+  if (!isWikimediaImageUrl(imageUrl)) return null;
 
   const fileTitle = typeof page.pageimage === "string" ? page.pageimage : "";
   const filePageUrl = fileTitle
