@@ -741,13 +741,11 @@ export default function Itinerary() {
           : "🟢 Free flow";
 
   return (
-    <div className="flex flex-col lg:flex-row min-h-screen lg:h-screen lg:overflow-hidden">
+    <div className="flex min-h-screen w-full min-w-0 flex-col lg:h-screen lg:flex-row lg:overflow-hidden">
       {/* Main content */}
-      <div
-        className={`flex-1 p-4 lg:p-6 overflow-y-auto min-w-0 ${showChat ? "lg:max-w-[calc(100%-360px)]" : ""}`}
-      >
+      <div className="min-w-0 flex-1 overflow-y-auto p-4 lg:min-h-0 lg:basis-0 lg:p-6">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4 md:mb-6">
+        <div className="mb-4 flex min-w-0 flex-col gap-3 md:mb-6">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl md:text-2xl font-bold text-foreground truncate">
@@ -767,13 +765,13 @@ export default function Itinerary() {
                 {isOnline ? "Online" : "Offline"}
               </span>
             </div>
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="mt-1 break-words text-sm text-muted-foreground">
               {trip.destination} · Budget:{" "}
               {formatMoney(Number(trip.budget_total), trip.currency)} ·{" "}
               {trip.status}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2 shrink-0">
+          <div className="flex min-w-0 flex-wrap gap-2">
             {/* Live Location Sharing */}
             <LiveLocationPanel tripId={trip.id} tripName={trip.name} />
             {/* Timeline Notifications */}
@@ -1050,11 +1048,11 @@ export default function Itinerary() {
         {/* Trip Info */}
         <div className="bg-card rounded-2xl p-4 md:p-5 shadow-card mb-4 md:mb-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-            <div className="text-center">
+            <div className="min-w-0 text-center">
               <p className="text-xs text-muted-foreground">
                 {t("destinations")}
               </p>
-              <p className="text-sm font-bold text-card-foreground">
+              <p className="break-words text-sm font-bold text-card-foreground">
                 {trip.destination}
               </p>
             </div>
@@ -1637,7 +1635,7 @@ export default function Itinerary() {
                     className={`flex ${msg.sender_id === user?.id ? "justify-end" : "justify-start"}`}
                   >
                     <div
-                      className={`max-w-[80%] px-3 py-2 rounded-xl text-sm ${
+                      className={`max-w-[80%] break-words px-3 py-2 rounded-xl text-sm ${
                         msg.sender_id === user?.id
                           ? "bg-primary text-primary-foreground"
                           : "bg-secondary text-secondary-foreground"
@@ -1683,7 +1681,7 @@ export default function Itinerary() {
           </div>
 
           {/* Desktop: side panel */}
-          <div className="hidden lg:flex w-[360px] shrink-0 border-l border-border flex-col bg-card animate-fade-in">
+          <div className="hidden w-[360px] shrink-0 flex-col border-l border-border bg-card animate-fade-in lg:flex lg:min-h-0">
             <div className="p-4 border-b border-border">
               <h3 className="font-semibold text-card-foreground flex items-center gap-2">
                 <MessageSquare className="w-4 h-4 text-primary" />
@@ -1705,7 +1703,7 @@ export default function Itinerary() {
                     className={`flex ${msg.sender_id === user?.id ? "justify-end" : "justify-start"}`}
                   >
                     <div
-                      className={`max-w-[80%] px-3 py-2 rounded-xl text-sm ${
+                      className={`max-w-[80%] break-words px-3 py-2 rounded-xl text-sm ${
                         msg.sender_id === user?.id
                           ? "bg-primary text-primary-foreground"
                           : "bg-secondary text-secondary-foreground"
