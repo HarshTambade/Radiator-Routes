@@ -1,6 +1,11 @@
-# 🗺️ Atlas AI
+# 🗺️ Radiator Routes
 
-> **Voice-first, regret-aware AI travel planner for Indian group trips — built entirely on free and open-source services.**
+> **Voice-first, constraint-checked AI travel planner for group trips, with optional local inference and offline trip access.**
+
+> **Research and patent note:** This repository contains a structured research-paper
+> manuscript and a patent-preparation technical disclosure. They distinguish implemented
+> mechanisms from unmeasured hypotheses and are not legal advice. Start at
+> [`docs/README.md`](./docs/README.md).
 
 [![React](https://img.shields.io/badge/React-18.3-61DAFB?logo=react)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)](https://www.typescriptlang.org)
@@ -35,7 +40,8 @@
 19. [Research & Prior Art](#-research--prior-art)
 20. [Deployment](#-deployment)
 21. [Contributing](#-contributing)
-22. [License](#-license)
+22. [Documentation](#-documentation)
+23. [License](#-license)
 
 ---
 
@@ -106,7 +112,7 @@ mindmap
 
 ## 🌟 Overview
 
-**Atlas AI** is an AI-powered group travel planner for India. Every integration is either
+**Radiator Routes** is an AI-powered group travel planner for India. Every integration is either
 completely free (no key) or free-tier with no credit card — there are no paid APIs anywhere in
 the stack.
 
@@ -390,7 +396,7 @@ Vite PWA Plugin + Workbox · Vitest + Testing Library · ESLint 9 (flat config) 
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                      Atlas AI                         │
+│ Radiator Routes │
 └──────────────────────────────────────────────────────────────┘
                              │
       ┌──────────────────────┼──────────────────────┐
@@ -897,7 +903,7 @@ Grounded in what the code does today. Full detail, with file-level evidence, in
 
 ```mermaid
 gantt
-    title Atlas AI — delivery roadmap
+    title Radiator Routes — delivery roadmap
     dateFormat YYYY-MM-DD
     axisFormat %b
     section Shipped
@@ -962,6 +968,9 @@ gantt
 | [`docs/REPORT.md`](./docs/REPORT.md) | **Project report** — problem, architecture, the three technical contributions, results, and an explicit account of what is *not* verified |
 | [`AUDIT.md`](./AUDIT.md) | What was measured, and what was found wrong? |
 | [`docs/RESEARCH.md`](./docs/RESEARCH.md) | What is genuinely novel against prior art? |
+| [`docs/RESEARCH_PAPER.md`](./docs/RESEARCH_PAPER.md) | Structured research-paper manuscript, research questions, evaluation protocol, metrics, and reproducibility checklist |
+| [`docs/PATENT_DISCLOSURE.md`](./docs/PATENT_DISCLOSURE.md) | Technical invention disclosure for patent counsel; not a legal opinion or filing-ready application |
+| [`docs/README.md`](./docs/README.md) | Documentation map, evidence policy, naming conventions, and publication guidance |
 | [`docs/BACKLOG.md`](./docs/BACKLOG.md) | What is broken, and what is the fix? |
 
 ### Research & prior art

@@ -1,4 +1,9 @@
-# Atlas AI — Research & Patent Dossier
+# Radiator Routes — Research & Patent Dossier
+
+> This dossier contains historical prior-art analysis and should be read with the
+> structured manuscript in [`RESEARCH_PAPER.md`](./RESEARCH_PAPER.md) and the
+> technical disclosure in [`PATENT_DISCLOSURE.md`](./PATENT_DISCLOSURE.md). It is
+> not legal advice or a professional patentability search.
 
 **Version:** 1.2 (pass 3)
 **Date:** 31 August 2026 (v1.0: 30 August 2026)

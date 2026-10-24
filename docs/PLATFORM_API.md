@@ -1,4 +1,7 @@
-# Atlas AI Platform API
+# Radiator Routes Platform API
+
+> The API was implemented while the product used the historical “Atlas AI” name.
+> Existing endpoint paths and database identifiers are unchanged for compatibility.
 
 Version **1.0.0** · Updated **2026-10-24**
 

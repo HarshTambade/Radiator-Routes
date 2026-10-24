@@ -1,6 +1,10 @@
-MIT License
-
+RADIATOR ROUTES
 Copyright (c) 2026 Harsh Tambade
+
+PROJECT SOURCE LICENSE
+=======================
+
+MIT License
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -20,32 +24,87 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----
+SCOPE OF THIS LICENSE
+=====================
 
-THIRD-PARTY NOTICES
+This MIT license applies only to original source code and original
+documentation in the Radiator Routes repository, unless a file or component
+contains a separate license notice. It does not transfer ownership of the
+Radiator Routes name, logos, trademarks, service marks, or other branding.
+Those may not be used to imply endorsement, sponsorship, or affiliation
+without prior written permission.
 
-This project depends on and/or consumes data from the following, which carry
-their own terms:
+When redistributing the project or a substantial portion of it:
 
-- @mlc-ai/web-llm — Apache License 2.0
-  On-device model weights are downloaded from the MLC/Hugging Face CDN and are
-  each subject to their own upstream model licence (Llama Community License,
-  Qwen License, Microsoft Research License, etc.). Review the licence of any
-  model you enable before commercial use.
+1. Include this license and its copyright notice.
+2. Preserve the license notices supplied with third-party components.
+3. Identify modifications made to the source code where required by an
+   applicable third-party license.
+4. Do not represent modified software as the official Radiator Routes release.
 
-- OpenStreetMap map data and tiles — Open Database License (ODbL) 1.0
-  Map data © OpenStreetMap contributors. https://www.openstreetmap.org/copyright
-  Tile usage must follow the OSMF Tile Usage Policy.
+THIRD-PARTY SOFTWARE, DATA, AND SERVICES
+========================================
 
-- Nominatim geocoding — ODbL, subject to the OSMF Nominatim Usage Policy.
+Radiator Routes integrates third-party open-source software, datasets, model
+weights, APIs, map tiles, and hosted services. These materials are not covered
+by the MIT license above. Their use, copying, modification, redistribution,
+attribution, rate limits, and commercial use are governed by their own
+licenses and terms. Users and distributors are responsible for reviewing and
+complying with the terms applicable to the version and service they use.
+
+The project currently includes or may access the following:
+
+* JavaScript and TypeScript dependencies:
+  Dependencies listed in package.json retain the licenses distributed by
+  their respective authors. Their license texts and notices control where
+  they differ from this file.
+
+* @mlc-ai/web-llm:
+  Distributed under the Apache License, Version 2.0. On-device model weights
+  are obtained separately and may be subject to an upstream model license,
+  including the Llama Community License, Qwen License, or Microsoft Research
+  License. Review the license for each selected model before redistribution
+  or commercial use.
+
+* OpenStreetMap data and tiles:
+  Map data © OpenStreetMap contributors and is available under the Open
+  Database License (ODbL) 1.0. See:
+  https://www.openstreetmap.org/copyright
+  Tile access must also comply with the OpenStreetMap Foundation Tile Usage
+  Policy.
+
+* Nominatim:
+  Geocoding data is subject to the ODbL and requests must comply with the
+  Nominatim Usage Policy:
   https://operations.osmfoundation.org/policies/nominatim/
 
-- Open-Meteo weather data — CC BY 4.0.
+* Open-Meteo:
+  Weather data is provided under the Creative Commons Attribution 4.0
+  International license (CC BY 4.0), subject to the provider's terms.
 
-- Wikipedia / Wikimedia content — CC BY-SA 4.0.
+* Wikipedia and Wikimedia:
+  Content may be available under the Creative Commons Attribution-ShareAlike
+  4.0 International license (CC BY-SA 4.0) or another notice attached to the
+  specific work. Check the source page before reuse.
 
-- OpenRouteService, OpenTripMap, Groq, Supabase, MyMemory — used under their
-  respective free-tier terms of service.
+* OpenRouteService, OpenTripMap, Groq, Supabase, and MyMemory:
+  These hosted APIs and services are used under their respective terms of
+  service, acceptable-use policies, quotas, and privacy policies. The MIT
+  license does not grant access to these services, API credentials, or their
+  returned content.
 
-The MIT licence above covers this project's own source code only. It does not
-grant rights to third-party data or model weights.
+ATTRIBUTION AND CONTENT DISCLAIMER
+===================================
+
+Attribution shown in the application, including the OpenStreetMap contributor
+notice, must remain visible where required by the applicable data license.
+Information, routes, weather, translations, generated itineraries, safety
+guidance, and other content supplied by external services are provided for
+general planning purposes only. They may be incomplete, inaccurate, delayed,
+or unavailable. Radiator Routes and its contributors do not warrant the
+accuracy, availability, legality, or suitability of third-party content and
+are not responsible for decisions made using it.
+
+The MIT license above covers this project's original source code only. It does
+not grant rights to third-party software, data, content, model weights, API
+services, trademarks, or other materials referenced by the project.

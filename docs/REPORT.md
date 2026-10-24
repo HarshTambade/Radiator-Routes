@@ -1,4 +1,8 @@
-# Atlas AI — Project Report
+# Radiator Routes — Project Report
+
+> Historical documents may refer to the project as **Atlas AI**, an earlier product
+> name. The current repository and product name is **Radiator Routes**. See
+> [`docs/README.md`](./README.md) for the documentation map and evidence policy.
 
 **Author:** Harsh Tambade
 **Date:** 31 August 2026
