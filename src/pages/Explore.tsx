@@ -19,6 +19,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { nominatimSearch } from "@/services/nominatim";
 import { otmRadius, otmDetails } from "@/services/opentripmap";
+import { getExactPlacePhoto, type DestinationPhoto } from "@/services/destinationImage";
 import {
   amadeusFlightOffers,
   amadeusHotelList,
@@ -50,9 +51,23 @@ function LazyMapFallback() {
   );
 }
 
-function PlaceImage({ src, alt, className }: { src?: string | null; alt: string; className: string }) {
-  const [failedSource, setFailedSource] = useState<string | null>(null);
-  if (!src || failedSource === src) {
+function PlaceImage({
+  src,
+  alt,
+  className,
+  images,
+}: {
+  src?: string | null;
+  alt: string;
+  className: string;
+  images?: DestinationPhoto[];
+}) {
+  const candidates = images?.length ? images : src ? [{ url: src, sourceUrl: "" }] : [];
+  const candidatesKey = candidates.map((candidate) => candidate.url).join("|");
+  const [failedState, setFailedState] = useState<{ key: string; urls: Set<string> } | null>(null);
+  const failedUrls = failedState?.key === candidatesKey ? failedState.urls : new Set<string>();
+  const activeImage = candidates.find((candidate) => !failedUrls.has(candidate.url));
+  if (!activeImage) {
     return (
       <div role="img" aria-label={`${alt} photo unavailable`} className={`${className} flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-orange-100 via-amber-50 to-slate-200 px-4 text-center`}>
         <MapPin className="h-6 w-6 text-primary" />
@@ -60,7 +75,35 @@ function PlaceImage({ src, alt, className }: { src?: string | null; alt: string;
       </div>
     );
   }
-  return <img src={src} alt={alt} onError={() => setFailedSource(src)} loading="lazy" decoding="async" className={className} />;
+  return (
+    <>
+      <img
+        src={activeImage.url}
+        alt={alt}
+        onError={() => setFailedState((previous) => ({
+          key: candidatesKey,
+          urls: new Set([...(previous?.key === candidatesKey ? previous.urls : []), activeImage.url]),
+        }))}
+        loading="lazy"
+        decoding="async"
+        className={className}
+      />
+      {activeImage.sourceUrl && (
+        <a
+          href={activeImage.sourceUrl}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(event) => event.stopPropagation()}
+          className="absolute bottom-1 left-2 z-10 max-w-[80%] truncate rounded bg-black/55 px-1.5 py-0.5 text-[9px] text-white/90 hover:text-white"
+          aria-label={`Photo source${activeImage.credit ? `: ${activeImage.credit}` : ""}${activeImage.license ? `, ${activeImage.license}` : ""}`}
+          title={[activeImage.credit, activeImage.license].filter(Boolean).join(" · ") || "Photo source and license"}
+        >
+          {activeImage.credit ? `${activeImage.credit} · ` : "Photo source"}
+          {activeImage.license || "Wikimedia Commons"}
+        </a>
+      )}
+    </>
+  );
 }
 
 // Expanded categories mapped to OpenTripMap "kinds"
@@ -89,66 +132,25 @@ function toFiveStars(rate: number | undefined): number | null {
   return Math.round(stars * 10) / 10;
 }
 
-// Fetch an accurate image for a place using Wikipedia/Wikimedia Commons API
-// Priority: OTM image → OTM preview → Wikimedia via wikidata → Wikipedia by name → category fallback
-async function fetchPlaceImage(place: any): Promise<string | null> {
-  // 1. Use OTM-provided image directly
-  if (
-    place.image &&
-    typeof place.image === "string" &&
-    place.image.startsWith("http")
-  ) {
-    return place.image;
-  }
-  if (
-    place.preview?.source &&
-    typeof place.preview.source === "string" &&
-    place.preview.source.startsWith("http")
-  ) {
-    return place.preview.source;
-  }
-
-  // 2. Try Wikimedia Commons via wikidata ID (most accurate)
-  if (place.wikidata) {
-    try {
-      const wd = place.wikidata;
-      const url = `https://commons.wikimedia.org/w/api.php?action=wbgetentities&ids=${wd}&props=claims&format=json&origin=*`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        const entity = data?.entities?.[wd];
-        // P18 = image claim in Wikidata
-        const imageClaim = entity?.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
-        if (imageClaim) {
-          // Convert file name to Commons URL
-          const fileName = imageClaim.replace(/ /g, "_");
-          const encoded = encodeURIComponent(fileName);
-          return `https://commons.wikimedia.org/wiki/Special:FilePath/${encoded}?width=600`;
-        }
-      }
-    } catch {
-      /* ignore */
+// Resolve only media belonging to the attraction itself. We never borrow a
+// nearby result's photo when an attraction has no matching image.
+async function fetchPlaceImage(place: any): Promise<DestinationPhoto[]> {
+  const candidates: DestinationPhoto[] = [];
+  for (const url of [place.image, place.preview?.source]) {
+    if (typeof url === "string" && /^https:\/\//i.test(url) && !candidates.some((item) => item.url === url)) {
+      candidates.push({ url, sourceUrl: "" });
     }
   }
 
-  // 3. Try Wikipedia page image by place name
-  if (place.name && place.name.trim().length > 2) {
-    try {
-      const encoded = encodeURIComponent(place.name.trim());
-      const url = `https://en.wikipedia.org/w/api.php?action=query&titles=${encoded}&prop=pageimages&pithumbsize=600&format=json&origin=*`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        const pages = data?.query?.pages || {};
-        const page = Object.values(pages)[0] as any;
-        if (page?.thumbnail?.source) return page.thumbnail.source;
-      }
-    } catch {
-      /* ignore */
-    }
+  const wikimediaPhoto = await getExactPlacePhoto({
+    name: typeof place.name === "string" ? place.name : "",
+    wikidata: place.wikidata,
+    wikipedia: place.wikipedia,
+  });
+  if (wikimediaPhoto && !candidates.some((item) => item.url === wikimediaPhoto.url)) {
+    candidates.push(wikimediaPhoto);
   }
-
-  return null;
+  return candidates;
 }
 
 type SearchCache = Record<string, any[]>;
@@ -267,8 +269,14 @@ export default function Explore() {
         // Enrich images in background — fetch Wikipedia/Wikidata images
         const enriched = await Promise.all(
           results.map(async (place: any) => {
-            const img = await fetchPlaceImage(place).catch(() => null);
-            return img ? { ...place, _resolvedImage: img } : place;
+            const images = await fetchPlaceImage(place).catch(() => []);
+            return images.length
+              ? {
+                  ...place,
+                  _resolvedImage: images[0].url,
+                  _imageCandidates: images,
+                }
+              : place;
           }),
         );
 
@@ -460,8 +468,14 @@ export default function Explore() {
       // Enrich with accurate images
       const enriched = await Promise.all(
         results.map(async (place: any) => {
-          const img = await fetchPlaceImage(place).catch(() => null);
-          return img ? { ...place, _resolvedImage: img } : place;
+          const images = await fetchPlaceImage(place).catch(() => []);
+          return images.length
+            ? {
+                ...place,
+                _resolvedImage: images[0].url,
+                _imageCandidates: images,
+              }
+            : place;
         }),
       );
       setRestaurantResults(enriched);
@@ -621,6 +635,7 @@ export default function Explore() {
                         src={selectedPlace._resolvedImage || selectedPlace.preview?.source || selectedPlace.image}
                         alt={selectedPlace.name}
                         className="w-full h-full object-cover"
+                        images={selectedPlace._imageCandidates}
                       />
                       <button
                         onClick={() => {
@@ -840,6 +855,7 @@ export default function Explore() {
                           src={placeImage}
                           alt={place.name}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          images={place._imageCandidates}
                         />
                         <div className="absolute top-3 right-3 flex gap-1.5">
                           {hasCoords && (
@@ -1438,6 +1454,7 @@ export default function Explore() {
                           src={placeImage}
                           alt={place.name}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          images={place._imageCandidates}
                         />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
                         <div className="absolute bottom-2 left-3">

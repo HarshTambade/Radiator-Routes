@@ -74,7 +74,7 @@ async function findWikipediaPhoto(title: string): Promise<DestinationPhoto | nul
     format: "json",
     formatversion: "2",
     redirects: "1",
-    prop: "pageimages",
+    prop: "pageimages|pageprops",
     piprop: "thumbnail|name",
     pilicense: "free",
     pithumbsize: "1000",
@@ -84,41 +84,112 @@ async function findWikipediaPhoto(title: string): Promise<DestinationPhoto | nul
   const response = await fetch(`https://en.wikipedia.org/w/api.php?${query}`);
   if (!response.ok) return null;
   const data = await response.json();
-  const page = (data?.query?.pages ?? []).find((item: any) => !item.missing && item.thumbnail?.source);
+  const page = (data?.query?.pages ?? []).find(
+    (item: any) => !item.missing && !item.pageprops?.disambiguation && item.thumbnail?.source,
+  );
   const imageUrl = page?.thumbnail?.source;
   if (!isWikimediaImageUrl(imageUrl)) return null;
 
   const fileTitle = typeof page.pageimage === "string" ? page.pageimage : "";
-  const filePageUrl = fileTitle
-    ? `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(fileTitle.replace(/ /g, "_"))}`
-    : `https://en.wikipedia.org/wiki/${encodeURIComponent(String(page.title).replace(/ /g, "_"))}`;
-
-  let credit: string | undefined;
-  let license: string | undefined;
   if (fileTitle) {
-    try {
-      const fileQuery = new URLSearchParams({
-        action: "query",
-        format: "json",
-        formatversion: "2",
-        prop: "imageinfo",
-        iiprop: "extmetadata",
-        titles: `File:${fileTitle}`,
-        origin: "*",
-      });
-      const fileResponse = await fetch(`https://commons.wikimedia.org/w/api.php?${fileQuery}`);
-      if (fileResponse.ok) {
-        const fileData = await fileResponse.json();
-        const metadata = fileData?.query?.pages?.[0]?.imageinfo?.[0]?.extmetadata;
-        credit = plainText(metadata?.Artist?.value);
-        license = plainText(metadata?.LicenseShortName?.value);
-      }
-    } catch {
-      // The photo remains usable if Commons attribution metadata is temporarily unavailable.
-    }
+    const commonsPhoto = await findCommonsPhoto(fileTitle).catch(() => null);
+    if (commonsPhoto) return commonsPhoto;
   }
 
-  return { url: imageUrl, sourceUrl: filePageUrl, credit, license };
+  return {
+    url: imageUrl,
+    sourceUrl: `https://en.wikipedia.org/wiki/${encodeURIComponent(String(page.title).replace(/ /g, "_"))}`,
+  };
+}
+
+async function findCommonsPhoto(fileTitle: string): Promise<DestinationPhoto | null> {
+  const fileQuery = new URLSearchParams({
+    action: "query",
+    format: "json",
+    formatversion: "2",
+    prop: "imageinfo",
+    iiprop: "url|extmetadata",
+    iiurlwidth: "1000",
+    titles: `File:${fileTitle}`,
+    origin: "*",
+  });
+  const response = await fetch(`https://commons.wikimedia.org/w/api.php?${fileQuery}`);
+  if (!response.ok) return null;
+  const data = await response.json();
+  const info = data?.query?.pages?.[0]?.imageinfo?.[0];
+  const url = info?.thumburl ?? info?.url;
+  if (!isWikimediaImageUrl(url)) return null;
+  return {
+    url,
+    sourceUrl: info.descriptionurl ?? `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(fileTitle.replace(/ /g, "_"))}`,
+    credit: plainText(info.extmetadata?.Artist?.value),
+    license: plainText(info.extmetadata?.LicenseShortName?.value),
+  };
+}
+
+function wikipediaTitle(value: string | undefined): string | null {
+  if (!value?.trim()) return null;
+  let title = value.trim();
+  const articlePath = title.match(/\/wiki\/([^?#]+)/i);
+  if (articlePath) title = articlePath[1];
+  title = title.replace(/^\w{2,3}:/, "");
+  try {
+    return decodeURIComponent(title).replace(/_/g, " ").trim() || null;
+  } catch {
+    return title.replace(/_/g, " ").trim() || null;
+  }
+}
+
+const placePhotoCache = new Map<string, Promise<DestinationPhoto | null>>();
+
+/** Find media for an exact attraction identity without falling back to a nearby, unrelated place. */
+export function getExactPlacePhoto(place: {
+  name: string;
+  wikidata?: string | null;
+  wikipedia?: string | null;
+}): Promise<DestinationPhoto | null> {
+  const title = wikipediaTitle(place.wikipedia);
+  const wikidata = place.wikidata?.trim();
+  const key = `${wikidata ?? ""}|${normalize(title ?? place.name)}`;
+  const cached = placePhotoCache.get(key);
+  if (cached) return cached;
+
+  const request = (async () => {
+    if (wikidata && /^Q\d+$/.test(wikidata)) {
+      try {
+        const query = new URLSearchParams({
+          action: "wbgetentities",
+          ids: wikidata,
+          props: "claims",
+          format: "json",
+          origin: "*",
+        });
+        const response = await fetch(`https://www.wikidata.org/w/api.php?${query}`);
+        if (response.ok) {
+          const data = await response.json();
+          const filename = data?.entities?.[wikidata]?.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
+          if (typeof filename === "string") {
+            const photo = await findCommonsPhoto(filename).catch(() => null);
+            if (photo) return photo;
+          }
+        }
+      } catch {
+        // Try the linked Wikipedia article or exact place name below.
+      }
+    }
+
+    const titles = [title, place.name.trim()].filter((value, index, all): value is string =>
+      Boolean(value) && all.indexOf(value) === index,
+    );
+    for (const candidate of titles) {
+      const photo = await findWikipediaPhoto(candidate).catch(() => null);
+      if (photo) return photo;
+    }
+    return null;
+  })();
+
+  placePhotoCache.set(key, request);
+  return request;
 }
 
 async function geocodeDestination(destination: string) {
