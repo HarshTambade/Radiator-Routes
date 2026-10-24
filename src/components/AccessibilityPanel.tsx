@@ -26,6 +26,13 @@ import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useLocation } from "react-router-dom";
 import { callGemini } from "@/services/gemini";
 import { errorMessage } from "@/lib/errors";
+import {
+  GROQ_BASE,
+  GROQ_VISION_MODEL,
+  groqMaxTokens,
+  groqModelParams,
+  stripReasoning,
+} from "@/lib/groqModels";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types & constants
@@ -193,14 +200,10 @@ async function identifyFromVideo(
     );
   }
 
-  // Groq's current multimodal chat models. Try the recommended one first,
-  // then a widely-available fallback. This survives Groq's model rotation.
-  const VISION_MODELS = [
-    "meta-llama/llama-4-scout-17b-16e-instruct",
-    "meta-llama/llama-4-maverick-17b-128e-instruct",
-    "llama-3.2-90b-vision-preview",
-    "llama-3.2-11b-vision-preview",
-  ];
+  // Groq's multimodal models are configured in lib/groqModels.ts. The list
+  // that used to be here named four models Groq has since shut down, so every
+  // request failed and the camera could never describe anything.
+  const VISION_MODELS = [GROQ_VISION_MODEL];
 
   const requestBody = (model: string) => ({
     model,
@@ -220,13 +223,14 @@ async function identifyFromVideo(
       },
     ],
     temperature: 0.2,
-    max_tokens: 450,
+    max_tokens: groqMaxTokens(450, model),
+    ...groqModelParams(model),
   });
 
   let lastErr: string | null = null;
   for (const model of VISION_MODELS) {
     try {
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const res = await fetch(`${GROQ_BASE}/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -242,7 +246,8 @@ async function identifyFromVideo(
         throw new Error(`Vision API error: ${lastErr}`);
       }
       const data = await res.json();
-      const content = data.choices?.[0]?.message?.content;
+      // Spoken to the user, so any inline reasoning must not reach TTS.
+      const content = stripReasoning(data.choices?.[0]?.message?.content ?? "");
       if (content) return content;
       lastErr = "No content in response";
     } catch (err: unknown) {

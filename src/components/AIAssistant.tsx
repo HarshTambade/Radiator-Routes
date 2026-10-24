@@ -39,6 +39,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import { streamChatMessage } from "@/services/aiChat";
+import { handleGeminiError } from "@/services/gemini";
 import { amadeusFlightOffers, amadeusHotelList } from "@/services/amadeus";
 import { trafficFlow, trafficIncidents } from "@/services/traffic";
 import { formatLocalDate } from "@/lib/date";
@@ -687,6 +688,8 @@ export default function AIAssistant() {
           toast({ title: "API key error", description: "AI API key is invalid or expired.", variant: "destructive" });
         } else if (msg === "NO_API_KEY") {
           toast({ title: "AI unavailable", description: "Set VITE_GROQ_API_KEY to enable the assistant.", variant: "destructive" });
+        } else if (msg === "MODEL_UNAVAILABLE") {
+          toast({ title: "AI model retired", description: handleGeminiError(e), variant: "destructive" });
         }
         if (!assistantSoFar) {
           setMessages((prev) => [

@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Jinny AI Chat Service — Full NLP Pipeline v2
 // Streaming chat + intent classification, over either backend:
-//   • Groq llama-3.3-70b-versatile (hosted, default)
+//   • Groq, model from lib/groqModels.ts (hosted, default)
 //   • WebLLM on WebGPU (on-device, private, works offline once cached)
 // The backend is the user's choice — see lib/aiProvider.ts.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -12,13 +12,18 @@ import { formatLocalDate } from "@/lib/date";
 import { formatMoney, formatMoneyTotals, parseBudgetInput } from "@/lib/currency";
 import { loadTripBudgets } from "@/services/tripBudget";
 import { getAIProvider, hasWebGPUAPI } from "@/lib/aiProvider";
+import {
+  GROQ_BASE,
+  GROQ_MODEL,
+  groqErrorCode,
+  groqMaxTokens,
+  groqModelParams,
+} from "@/lib/groqModels";
 
 // Re-exported so existing importers of `cityToIATA` from this module keep working.
 export { cityToIATA };
 
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string;
-const GROQ_BASE = "https://api.groq.com/openai/v1";
-const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Intent types
@@ -935,18 +940,15 @@ async function groqFetch(
       model: GROQ_MODEL,
       messages,
       temperature,
-      max_tokens: maxTokens,
+      max_tokens: groqMaxTokens(maxTokens),
       stream,
       stop: null,
+      ...groqModelParams(),
     }),
   });
 
   if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 401) throw new Error("INVALID_API_KEY");
-    if (res.status >= 500) throw new Error(`GROQ_SERVER_ERROR_${res.status}`);
-    throw new Error(`Groq API [${res.status}]: ${errText.slice(0, 200)}`);
+    throw new Error(groqErrorCode(res.status, await res.text().catch(() => "")));
   }
 
   return res;

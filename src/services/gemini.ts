@@ -5,7 +5,7 @@
 // the previous Gemini wrapper. It now dispatches to whichever backend the user
 // has selected in Settings:
 //
-//   "groq"   → hosted Groq LLaMA 3.3 70B (default; needs VITE_GROQ_API_KEY)
+//   "groq"   → hosted Groq, model from lib/groqModels.ts (default; needs VITE_GROQ_API_KEY)
 //   "webllm" → on-device WebLLM on WebGPU (no key, no network, private)
 //
 // Every exported signature is unchanged, so aiPlanner, dynamicReplan,
@@ -19,10 +19,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getAIProvider, hasWebGPUAPI } from "@/lib/aiProvider";
+import {
+  GROQ_BASE,
+  GROQ_MODEL,
+  groqErrorCode,
+  groqMaxTokens,
+  groqModelParams,
+} from "@/lib/groqModels";
 
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
-const GROQ_BASE = "https://api.groq.com/openai/v1";
-const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 /**
  * Resolves the backend to actually use for this call.
@@ -106,8 +111,9 @@ export async function callGemini(
     model: GROQ_MODEL,
     messages,
     temperature,
-    max_tokens: maxOutputTokens,
+    max_tokens: groqMaxTokens(maxOutputTokens),
     stream: false,
+    ...groqModelParams(),
   };
   if (jsonMode) body.response_format = { type: "json_object" };
 
@@ -120,13 +126,7 @@ export async function callGemini(
     body: JSON.stringify(body),
   });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 401) throw new Error("INVALID_API_KEY");
-    if (res.status >= 500) throw new Error(`GROQ_ERROR_${res.status}`);
-    throw new Error(`Groq API error [${res.status}]: ${errText.slice(0, 400)}`);
-  }
+  if (!res.ok) throw new Error(groqErrorCode(res.status, await res.text()));
 
   const data = await res.json();
   return data.choices?.[0]?.message?.content ?? "";
@@ -166,8 +166,9 @@ export async function callGeminiChat(
     model: GROQ_MODEL,
     messages: oaiMessages,
     temperature,
-    max_tokens: maxOutputTokens,
+    max_tokens: groqMaxTokens(maxOutputTokens),
     stream: false,
+    ...groqModelParams(),
   };
   if (jsonMode) body.response_format = { type: "json_object" };
 
@@ -180,12 +181,7 @@ export async function callGeminiChat(
     body: JSON.stringify(body),
   });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 401) throw new Error("INVALID_API_KEY");
-    throw new Error(`Groq API error [${res.status}]: ${errText.slice(0, 400)}`);
-  }
+  if (!res.ok) throw new Error(groqErrorCode(res.status, await res.text()));
 
   const data = await res.json();
   return data.choices?.[0]?.message?.content ?? "";
@@ -231,17 +227,13 @@ export async function streamGemini(
       model: GROQ_MODEL,
       messages: oaiMessages,
       temperature,
-      max_tokens: maxOutputTokens,
+      max_tokens: groqMaxTokens(maxOutputTokens),
       stream: true,
+      ...groqModelParams(),
     }),
   });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 401) throw new Error("INVALID_API_KEY");
-    throw new Error(`Groq stream error [${res.status}]: ${errText.slice(0, 400)}`);
-  }
+  if (!res.ok) throw new Error(groqErrorCode(res.status, await res.text()));
 
   if (!res.body) {
     const text = await callGeminiChat(
@@ -352,6 +344,8 @@ export function handleGeminiError(err: unknown): string {
     return "Groq API key is invalid or expired. Check your VITE_GROQ_API_KEY.";
   if (msg.startsWith("GROQ_ERROR_"))
     return "Groq service is temporarily unavailable. Please try again.";
+  if (msg === "MODEL_UNAVAILABLE")
+    return `The AI model "${GROQ_MODEL}" is no longer available on Groq. Set VITE_GROQ_MODEL to a current model (see console.groq.com/docs/models), or switch to on-device AI in Settings.`;
 
   return msg;
 }
