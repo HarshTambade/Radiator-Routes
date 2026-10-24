@@ -20,6 +20,8 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useTrips } from "@/hooks/useTrips";
 import { useLanguage } from "@/hooks/useLanguage";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import LanguageSwitcher from "./LanguageSwitcher";
 
 const NAV_ITEMS = [
@@ -53,6 +55,19 @@ export function AppSidebar({
   const { user, signOut } = useAuth();
   const { data: trips = [] } = useTrips();
   const { t } = useLanguage();
+  const { data: accountProfile } = useQuery({
+    queryKey: ["profile-summary", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("name, avatar_url")
+        .eq("id", user!.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user,
+  });
 
   const isActive = (url: string) => {
     if (url === "/itinerary") return location.pathname.startsWith("/itinerary");
@@ -60,7 +75,10 @@ export function AppSidebar({
   };
 
   const userName =
-    user?.user_metadata?.name || user?.email?.split("@")[0] || "Traveler";
+    accountProfile?.name ||
+    user?.user_metadata?.name ||
+    user?.email?.split("@")[0] ||
+    "Traveler";
 
   const effectiveCollapsed = mobileDrawer ? false : collapsed;
 
@@ -90,8 +108,15 @@ export function AppSidebar({
                 <p className="text-sm font-bold text-card-foreground truncate leading-tight">
                   Atlas AI
                 </p>
-                <p className="text-[10px] text-muted-foreground truncate leading-tight">
-                  {userName}
+                <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground truncate leading-tight">
+                  <span className="truncate">{userName}</span>
+                  {accountProfile?.avatar_url && (
+                    <img
+                      src={accountProfile.avatar_url}
+                      alt=""
+                      className="h-4 w-4 shrink-0 rounded-full object-cover"
+                    />
+                  )}
                 </p>
               </div>
             )}

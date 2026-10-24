@@ -2,7 +2,8 @@
 --
 -- Apply this file to an existing Supabase project whose base schema is already
 -- installed. It contains the database additions reflected in master_schema.sql:
--- friends, direct messages, shared expenses, and external platform API support.
+-- friends, direct messages, shared expenses, external platform APIs, and
+-- profile details/avatar storage.
 -- The statements are safe to re-run. This file can be run from the Supabase SQL
 -- Editor; CLI users can apply the corresponding files in supabase/migrations.
 
@@ -315,5 +316,49 @@ DROP TRIGGER IF EXISTS update_travel_orders_updated_at ON public.travel_orders;
 CREATE TRIGGER update_travel_orders_updated_at
   BEFORE UPDATE ON public.travel_orders
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- ---------------------------------------------------------------------------
+-- Profile details and profile photo storage
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS home_city TEXT,
+  ADD COLUMN IF NOT EXISTS home_country TEXT;
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('profile-avatars', 'profile-avatars', true, 5242880, ARRAY['image/webp', 'image/png']::text[])
+ON CONFLICT (id) DO UPDATE SET
+  public = EXCLUDED.public,
+  file_size_limit = EXCLUDED.file_size_limit,
+  allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+DROP POLICY IF EXISTS "Users can upload own profile avatars" ON storage.objects;
+CREATE POLICY "Users can upload own profile avatars"
+  ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'profile-avatars'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "Users can update own profile avatars" ON storage.objects;
+CREATE POLICY "Users can update own profile avatars"
+  ON storage.objects FOR UPDATE TO authenticated
+  USING (
+    bucket_id = 'profile-avatars'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  )
+  WITH CHECK (
+    bucket_id = 'profile-avatars'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "Users can delete own profile avatars" ON storage.objects;
+CREATE POLICY "Users can delete own profile avatars"
+  ON storage.objects FOR DELETE TO authenticated
+  USING (
+    bucket_id = 'profile-avatars'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
 
 COMMIT;

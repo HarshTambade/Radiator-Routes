@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useRegisterSW } from "virtual:pwa-register/react";
 import {
   getOfflineQueue,
   saveToOfflineQueue,
@@ -103,66 +104,59 @@ export function useOfflineStorage() {
 }
 
 /**
- * Detects a waiting service worker and exposes a one-call `update()` that
- * activates it and reloads. Also prunes TTL-expired IndexedDB records on mount.
+ * Registers the app's service worker, exposes a user-confirmed update action,
+ * and prunes TTL-expired IndexedDB records on mount.
  */
 export function useServiceWorkerUpdate() {
-  const [hasUpdate, setHasUpdate] = useState(false);
+  const [registration, setRegistration] = useState<ServiceWorkerRegistration>();
+  const {
+    needRefresh: [hasUpdate],
+    offlineReady: [offlineReady, setOfflineReady],
+    updateServiceWorker,
+  } = useRegisterSW({
+    immediate: true,
+    onRegisteredSW: (_serviceWorkerUrl, nextRegistration) => {
+      if (nextRegistration) setRegistration(nextRegistration);
+    },
+  });
 
   useEffect(() => {
     clearExpiredCaches().catch(() => {
       /* cache pruning is best-effort */
     });
 
-    if (!("serviceWorker" in navigator)) return;
-
-    let cancelled = false;
-
-    const watch = (registration: ServiceWorkerRegistration) => {
-      if (registration.waiting) setHasUpdate(true);
-
-      registration.addEventListener("updatefound", () => {
-        const installing = registration.installing;
-        if (!installing) return;
-        installing.addEventListener("statechange", () => {
-          if (installing.state === "installed" && navigator.serviceWorker.controller) {
-            if (!cancelled) setHasUpdate(true);
-          }
-        });
+    // Earlier app versions cached authenticated Supabase REST responses. Drop
+    // that cache when users upgrade so stale private data is not left behind.
+    if ("caches" in window) {
+      window.caches.delete("supabase-rest").catch(() => {
+        /* Cache Storage may be disabled by the browser */
       });
-    };
+    }
+  }, []);
 
-    navigator.serviceWorker.getRegistration().then((registration) => {
-      if (registration && !cancelled) watch(registration);
-    });
+  useEffect(() => {
+    if (!registration) return;
 
-    // Poll hourly so long-lived sessions still pick up a new deploy.
+    // Poll hourly so long-lived sessions can discover a new deploy without
+    // interrupting a trip form or replacing the current page automatically.
     const interval = setInterval(
       () => {
-        navigator.serviceWorker.getRegistration().then((registration) => {
-          registration?.update().catch(() => {
-            /* offline — retry next tick */
+        if (navigator.onLine) {
+          registration.update().catch(() => {
+            /* offline or temporarily unavailable — retry next tick */
           });
-          if (registration?.waiting && !cancelled) setHasUpdate(true);
-        });
+        }
       },
       60 * 60 * 1000,
     );
 
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
+    return () => clearInterval(interval);
+  }, [registration]);
 
-  const update = useCallback(async () => {
-    const registration = await navigator.serviceWorker.getRegistration();
-    if (!registration?.waiting) return;
-    registration.waiting.postMessage({ type: "SKIP_WAITING" });
-    window.location.reload();
-  }, []);
+  const update = useCallback(() => updateServiceWorker(true), [updateServiceWorker]);
+  const dismissOfflineReady = useCallback(() => setOfflineReady(false), [setOfflineReady]);
 
-  return { hasUpdate, update };
+  return { hasUpdate, offlineReady, dismissOfflineReady, update };
 }
 
 export default useOfflineStorage;

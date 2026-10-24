@@ -5,7 +5,6 @@ import { AppSidebar } from "./AppSidebar";
 import AIAssistant from "./AIAssistant";
 import MobileNav from "./MobileNav";
 import MobileHeader from "./MobileHeader";
-import PWAInstallPrompt from "./PWAInstallPrompt";
 import SOSPanel from "./SOSPanel";
 import AccessibilityPanel from "./AccessibilityPanel";
 import LanguageSwitcher from "./LanguageSwitcher";
@@ -227,8 +226,6 @@ export function ProtectedLayout() {
         </div>
       )}
 
-      {/* ── PWA Install Prompt ── */}
-      <PWAInstallPrompt />
     </div>
   );
 }

@@ -14,11 +14,21 @@ import { useToast } from "@/hooks/use-toast";
  */
 export function OfflineIndicator() {
   const isOnline = useOnlineStatus();
-  const { hasUpdate, update } = useServiceWorkerUpdate();
+  const { hasUpdate, offlineReady, dismissOfflineReady, update } =
+    useServiceWorkerUpdate();
   const { pending, phase, hasPending, conflicts, dismissConflicts, syncNow } =
     useOfflineSync();
   const { toast } = useToast();
   const wasOffline = useRef(false);
+
+  useEffect(() => {
+    if (!offlineReady) return;
+    toast({
+      title: "Ready for offline use",
+      description: "Atlas can reopen offline. Trips and map areas you save stay available without a connection.",
+    });
+    dismissOfflineReady();
+  }, [offlineReady, dismissOfflineReady, toast]);
 
   useEffect(() => {
     if (!isOnline) {
@@ -46,7 +56,7 @@ export function OfflineIndicator() {
   if (!isOnline) {
     return (
       <div
-        className="fixed bottom-0 left-0 right-0 z-50 bg-destructive p-3 text-sm text-destructive-foreground md:text-base"
+        className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] left-0 right-0 z-50 bg-destructive p-3 text-sm text-destructive-foreground md:bottom-0 md:text-base"
         role="status"
         aria-live="polite"
       >
@@ -68,7 +78,7 @@ export function OfflineIndicator() {
   if (conflicts.length > 0) {
     return (
       <div
-        className="fixed bottom-0 left-0 right-0 z-50 bg-destructive p-3 text-sm text-destructive-foreground md:text-base"
+        className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] left-0 right-0 z-50 bg-destructive p-3 text-sm text-destructive-foreground md:bottom-0 md:text-base"
         role="alert"
         aria-live="assertive"
       >
@@ -106,7 +116,7 @@ export function OfflineIndicator() {
     const syncing = phase === "syncing";
     return (
       <div
-        className="fixed bottom-0 left-0 right-0 z-50 bg-warning p-3 text-sm text-warning-foreground md:text-base"
+        className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] left-0 right-0 z-50 bg-warning p-3 text-sm text-warning-foreground md:bottom-0 md:text-base"
         role="status"
         aria-live="polite"
       >
@@ -138,7 +148,7 @@ export function OfflineIndicator() {
   if (hasUpdate) {
     return (
       <div
-        className="fixed bottom-0 left-0 right-0 z-50 bg-primary p-3 text-sm text-primary-foreground md:text-base"
+        className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] left-0 right-0 z-50 bg-primary p-3 text-sm text-primary-foreground md:bottom-0 md:text-base"
         role="status"
         aria-live="polite"
       >

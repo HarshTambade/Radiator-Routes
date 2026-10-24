@@ -56,6 +56,30 @@ function getInitials(name: string) {
   );
 }
 
+function ProfileAvatar({
+  name,
+  avatarUrl,
+  className,
+}: {
+  name: string;
+  avatarUrl?: string | null;
+  className: string;
+}) {
+  return (
+    <div className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-full ${className}`} aria-hidden="true">
+      <span>{getInitials(name)}</span>
+      {avatarUrl && (
+        <img
+          src={avatarUrl}
+          alt=""
+          className="absolute inset-0 z-10 h-full w-full object-cover"
+          onError={(event) => { event.currentTarget.style.display = "none"; }}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function Friends() {
   const { user } = useAuth();
   const { data: trips = [] } = useTrips();
@@ -514,9 +538,11 @@ export default function Friends() {
           >
             <ChevronLeft className="w-4 h-4 text-muted-foreground" />
           </button>
-          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary text-sm shrink-0">
-            {getInitials(chatWithUser.name)}
-          </div>
+          <ProfileAvatar
+            name={chatWithUser.name}
+            avatarUrl={chatWithUser.avatar_url}
+            className="w-9 h-9 bg-primary/10 font-bold text-primary text-sm"
+          />
           <div className="flex-1 min-w-0">
             <p className="font-semibold text-card-foreground text-sm truncate">
               {chatWithUser.name}
@@ -713,9 +739,11 @@ export default function Friends() {
                     key={person.id}
                     className="bg-card rounded-2xl p-4 shadow-card flex items-center gap-3"
                   >
-                    <div className="w-11 h-11 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center text-sm font-bold text-primary shrink-0">
-                      {getInitials(person.name)}
-                    </div>
+                    <ProfileAvatar
+                      name={person.name}
+                      avatarUrl={person.avatar_url}
+                      className="w-11 h-11 bg-gradient-to-br from-primary/20 to-primary/5 text-sm font-bold text-primary"
+                    />
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-card-foreground text-sm truncate">
                         {person.name}
@@ -834,9 +862,11 @@ export default function Friends() {
                     key={r.id}
                     className="bg-card rounded-2xl p-4 shadow-card flex items-center gap-3"
                   >
-                    <div className="w-11 h-11 rounded-full bg-gradient-to-br from-success/20 to-success/5 flex items-center justify-center text-sm font-bold text-success shrink-0">
-                      {getInitials(friend.name)}
-                    </div>
+                    <ProfileAvatar
+                      name={friend.name}
+                      avatarUrl={friend.avatar_url}
+                      className="w-11 h-11 bg-gradient-to-br from-success/20 to-success/5 text-sm font-bold text-success"
+                    />
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-card-foreground text-sm truncate">
                         {friend.name}
@@ -907,9 +937,11 @@ export default function Friends() {
                     key={r.id}
                     className="bg-card rounded-2xl p-4 shadow-card flex items-center gap-3"
                   >
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary shrink-0">
-                      {getInitials(r.sender?.name || "?")}
-                    </div>
+                    <ProfileAvatar
+                      name={r.sender?.name || "?"}
+                      avatarUrl={r.sender?.avatar_url}
+                      className="w-10 h-10 bg-primary/10 text-sm font-bold text-primary"
+                    />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-card-foreground">
                         {r.sender?.name || "Unknown"}

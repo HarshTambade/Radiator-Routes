@@ -623,7 +623,10 @@ export type Database = {
       profiles: {
         Row: {
           avatar_url: string | null;
+          bio: string;
           created_at: string;
+          home_city: string | null;
+          home_country: string | null;
           id: string;
           name: string;
           phone_number: string | null;
@@ -634,7 +637,10 @@ export type Database = {
         };
         Insert: {
           avatar_url?: string | null;
+          bio?: string;
           created_at?: string;
+          home_city?: string | null;
+          home_country?: string | null;
           id: string;
           name?: string;
           phone_number?: string | null;
@@ -645,7 +651,10 @@ export type Database = {
         };
         Update: {
           avatar_url?: string | null;
+          bio?: string;
           created_at?: string;
+          home_city?: string | null;
+          home_country?: string | null;
           id?: string;
           name?: string;
           phone_number?: string | null;

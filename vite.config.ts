@@ -52,17 +52,20 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       VitePWA({
-        registerType: "autoUpdate",
+        // Keep an open trip form stable. The app offers a visible reload action
+        // after an update is ready instead of replacing the page mid-session.
+        registerType: "prompt",
+        // Registration is managed by useRegisterSW in the app shell.
+        injectRegister: false,
         includeAssets: ["favicon.ico", "favicon.svg", "icons/*.png"],
         manifest: {
           id: "/",
           name: "Atlas AI",
-          short_name: "RadRoutes",
+          short_name: "Atlas",
           description: "AI-powered intelligent travel planning — itineraries, safety alerts, group trips & offline support.",
           theme_color: "#e8390e",
           background_color: "#f5f4f2",
           display: "standalone",
-          orientation: "portrait",
           scope: "/",
           start_url: "/",
           categories: ["travel", "navigation", "lifestyle"],
@@ -109,7 +112,7 @@ export default defineConfig(({ mode }) => {
           handle_links: "preferred",
           launch_handler: { client_mode: "auto" },
           edge_side_panel: { preferred_width: 320 },
-          display_override: ["minimal-ui", "standalone", "browser"],
+          display_override: ["standalone", "minimal-ui", "browser"],
         },
         workbox: {
           maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
@@ -216,20 +219,13 @@ export default defineConfig(({ mode }) => {
               },
             },
             {
-              urlPattern: /^https:\/\/commons\.wikimedia\.org\/.*/i,
+              // Cache the image files used by destination cards for offline
+              // viewing. Wikimedia API responses stay network-only.
+              urlPattern: /^https:\/\/(?:upload|thumb)\.wikimedia\.org\/.*\.(?:avif|gif|jpe?g|png|svg|webp)(?:\?.*)?$/i,
               handler: "CacheFirst",
               options: {
-                cacheName: "wikimedia",
+                cacheName: "wikimedia-images",
                 expiration: { maxEntries: 300, maxAgeSeconds: 60 * 60 * 24 * 30 },
-                cacheableResponse: { statuses: [0, 200] },
-              },
-            },
-            {
-              urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/.*/i,
-              handler: "StaleWhileRevalidate",
-              options: {
-                cacheName: "supabase-rest",
-                expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 },
                 cacheableResponse: { statuses: [0, 200] },
               },
             },
@@ -239,15 +235,6 @@ export default defineConfig(({ mode }) => {
               options: {
                 cacheName: "topo-maps",
                 expiration: { maxEntries: 1000, maxAgeSeconds: 60 * 60 * 24 * 30 },
-                cacheableResponse: { statuses: [0, 200] },
-              },
-            },
-            {
-              urlPattern: /^https:\/\/nominatim\.openstreetmap\.org\/search/i,
-              handler: "StaleWhileRevalidate",
-              options: {
-                cacheName: "nominatim-search",
-                expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 * 7 },
                 cacheableResponse: { statuses: [0, 200] },
               },
             },
