@@ -653,6 +653,8 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
     setInput("");
     if (err === "EMPTY_AUDIO") {
       toast({ title: "No speech detected", description: "Tap the mic and try again." });
+    } else if (err === "INTERRUPTED") {
+      toast({ title: "Voice input was interrupted", description: "Another app or tab may be using the microphone. Tap the mic and try again." });
     } else if (err === "PERMISSION_DENIED") {
       toast({
         title: "Mic blocked",

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isMicClaimed, onMicClaimChange, claimMic } from "@/lib/micCoordinator";
 import {
   speakText,
   startGroqRecording,
@@ -84,6 +85,55 @@ describe("web-speech recording", () => {
     rec.onend?.();
     expect(onTranscript).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
+  });
+});
+
+describe("microphone coordination", () => {
+  beforeEach(() => {
+    (window as unknown as { webkitSpeechRecognition: unknown }).webkitSpeechRecognition =
+      FakeRecognition;
+  });
+  afterEach(() => {
+    delete (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition;
+  });
+
+  it("holds the mic for the whole session and releases it on end", async () => {
+    const changes: boolean[] = [];
+    const unsubscribe = onMicClaimChange((claimed) => changes.push(claimed));
+    await startGroqRecording({});
+    expect(isMicClaimed()).toBe(true);
+    FakeRecognition.last!.onend?.();
+    expect(isMicClaimed()).toBe(false);
+    expect(changes).toEqual([true, false]);
+    unsubscribe();
+  });
+
+  it("releases the mic on abort, even before the browser fires onend", async () => {
+    const handle = await startGroqRecording({});
+    handle.abort();
+    expect(isMicClaimed()).toBe(false);
+  });
+
+  it("reports a browser-side abort instead of silently stopping", async () => {
+    const onError = vi.fn();
+    const onEnd = vi.fn();
+    await startGroqRecording({ onError, onEnd });
+    const rec = FakeRecognition.last!;
+    rec.onerror?.({ error: "aborted" });
+    rec.onend?.();
+    expect(onError).toHaveBeenCalledWith("INTERRUPTED");
+    expect(onEnd).not.toHaveBeenCalled();
+    expect(isMicClaimed()).toBe(false);
+  });
+
+  it("counts overlapping claims and releases idempotently", () => {
+    const a = claimMic();
+    const b = claimMic();
+    a();
+    a();
+    expect(isMicClaimed()).toBe(true);
+    b();
+    expect(isMicClaimed()).toBe(false);
   });
 });
 

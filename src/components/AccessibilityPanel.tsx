@@ -26,6 +26,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useLocation } from "react-router-dom";
 import { callGemini } from "@/services/gemini";
 import { errorMessage } from "@/lib/errors";
+import { claimMic } from "@/lib/micCoordinator";
 import {
   GROQ_BASE,
   GROQ_VISION_MODEL,
@@ -283,6 +284,28 @@ function createSR(lang = "en-IN") {
   rec.continuous = false;
   rec.interimResults = false;
   rec.lang = lang;
+
+  // Claim the microphone for the session so the "Hey Jinny" wake listener
+  // stands down instead of restarting and aborting this one (see
+  // lib/micCoordinator.ts). An "end" listener rather than `onend`, because
+  // callers assign their own `onend`.
+  let release: (() => void) | null = null;
+  const nativeStart = rec.start.bind(rec);
+  rec.start = () => {
+    release?.();
+    release = claimMic();
+    try {
+      nativeStart();
+    } catch (err) {
+      release();
+      release = null;
+      throw err;
+    }
+  };
+  rec.addEventListener("end", () => {
+    release?.();
+    release = null;
+  });
   return rec;
 }
 

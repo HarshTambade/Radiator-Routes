@@ -12,6 +12,8 @@
 // unchanged.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { claimMic } from "@/lib/micCoordinator";
+
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
 const GROQ_BASE = "https://api.groq.com/openai/v1";
 const WHISPER_MODEL = "whisper-large-v3-turbo";
@@ -158,6 +160,8 @@ function startWebSpeech(options: StartOptions): RecordingHandle {
   let aborted = false;
   let errored = false;
   let resolveStop: (() => void) | null = null;
+  // Held for the whole session so the wake-word listener stays off the mic.
+  const releaseMic = claimMic();
 
   recognition.onresult = (event: SpeechRecognitionEventLike) => {
     let interim = "";
@@ -177,9 +181,14 @@ function startWebSpeech(options: StartOptions): RecordingHandle {
   };
 
   recognition.onerror = (e: SpeechRecognitionErrorEventLike) => {
-    if (aborted || e.error === "aborted") return;
+    if (aborted) return;
     errored = true;
-    if (e.error === "no-speech") {
+    if (e.error === "aborted") {
+      // Not our abort() — the browser cancelled the session, usually because
+      // something else started listening. This used to be swallowed, so the
+      // mic switched itself off and nothing happened.
+      options.onError?.("INTERRUPTED");
+    } else if (e.error === "no-speech") {
       options.onError?.("EMPTY_AUDIO");
     } else if (e.error === "not-allowed") {
       options.onError?.("PERMISSION_DENIED");
@@ -196,6 +205,7 @@ function startWebSpeech(options: StartOptions): RecordingHandle {
   recognition.onend = () => {
     if (ended) return;
     ended = true;
+    releaseMic();
     const transcript = (finalTranscript.trim() || interimTranscript).trim();
     if (!aborted && !errored && transcript) options.onTranscript?.(transcript);
     if (resolveStop) {
@@ -207,7 +217,13 @@ function startWebSpeech(options: StartOptions): RecordingHandle {
 
   // start() throws synchronously (e.g. InvalidStateError) — let the caller
   // surface it once instead of also reporting it through onError.
-  recognition.start();
+  try {
+    recognition.start();
+  } catch (err) {
+    ended = true;
+    releaseMic();
+    throw err;
+  }
 
   return {
     engine: "web-speech",
@@ -234,6 +250,7 @@ function startWebSpeech(options: StartOptions): RecordingHandle {
       if (ended) return;
       aborted = true;
       ended = true;
+      releaseMic();
       try {
         recognition.abort();
       } catch {
@@ -260,9 +277,16 @@ function bestMimeType(): string {
 }
 
 async function startMediaRecorder(): Promise<RecordingHandle> {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 },
-  });
+  const releaseMic = claimMic();
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 },
+    });
+  } catch (err) {
+    releaseMic();
+    throw err;
+  }
 
   const mimeType = bestMimeType();
   const recorder = new MediaRecorder(
@@ -277,7 +301,10 @@ async function startMediaRecorder(): Promise<RecordingHandle> {
   };
   recorder.start(100);
 
-  const cleanupStream = () => stream.getTracks().forEach((t) => t.stop());
+  const cleanupStream = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    releaseMic();
+  };
 
   return {
     engine: "media-recorder",

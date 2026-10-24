@@ -44,6 +44,7 @@ import { amadeusFlightOffers, amadeusHotelList } from "@/services/amadeus";
 import { trafficFlow, trafficIncidents } from "@/services/traffic";
 import { formatLocalDate } from "@/lib/date";
 import { toAmount } from "@/lib/budget";
+import { isMicClaimed, onMicClaimChange } from "@/lib/micCoordinator";
 import { formatMoney, normalizeCurrencyCode } from "@/lib/currency";
 import { loadTripBudgets } from "@/services/tripBudget";
 import {
@@ -157,8 +158,21 @@ export default function AIAssistant() {
       return WAKE_PATTERNS.some((p) => t.includes(p));
     };
 
+    // The wake listener is a background listener: it must never compete with a
+    // mic the user started (Chrome aborts the older of two sessions, and this
+    // one used to restart and abort theirs). It stands down while any mic is
+    // claimed and resumes after release. See lib/micCoordinator.ts.
+    let running = false;
+    let restartTimer: number | undefined;
+    const scheduleStart = (delay: number) => {
+      window.clearTimeout(restartTimer);
+      restartTimer = window.setTimeout(() => {
+        try { start(); } catch { /* ignore */ }
+      }, delay);
+    };
+
     const start = () => {
-      if (!wakeActiveRef.current) return;
+      if (!wakeActiveRef.current || running || isMicClaimed()) return;
 
       const recognition = new SR();
       recognition.continuous = true;
@@ -169,12 +183,9 @@ export default function AIAssistant() {
 
       recognition.onstart = () => setWakeListening(true);
       recognition.onend = () => {
+        running = false;
         setWakeListening(false);
-        if (wakeActiveRef.current) {
-          window.setTimeout(() => {
-            try { start(); } catch { /* ignore */ }
-          }, 500);
-        }
+        if (wakeActiveRef.current && !isMicClaimed()) scheduleStart(500);
       };
       recognition.onerror = (e: any) => {
         setWakeListening(false);
@@ -216,12 +227,29 @@ export default function AIAssistant() {
         }
       };
 
-      try { recognition.start(); } catch { /* ignore */ }
+      try {
+        recognition.start();
+        running = true;
+      } catch { /* ignore */ }
     };
+
+    const unsubscribe = onMicClaimChange((claimed) => {
+      if (claimed) {
+        window.clearTimeout(restartTimer);
+        // abort(), not stop(): free the mic now rather than after Chrome
+        // finishes processing whatever it last heard.
+        try { wakeRecognitionRef.current?.abort(); } catch { /* ignore */ }
+      } else if (wakeActiveRef.current) {
+        // Give Chrome a moment to fully release the previous session.
+        scheduleStart(800);
+      }
+    });
 
     start();
 
     return () => {
+      unsubscribe();
+      window.clearTimeout(restartTimer);
       wakeActiveRef.current = false;
       try { wakeRecognitionRef.current?.stop(); } catch { /* ignore */ }
       setWakeListening(false);
@@ -791,7 +819,11 @@ export default function AIAssistant() {
     }
 
     if (isListeningRef.current) { await stopVoice(); return; }
-    if (isLoadingRef.current) return; // a reply is still streaming
+    if (isLoadingRef.current) {
+      // A reply is still streaming; say so rather than ignoring the tap.
+      toast({ title: "Jinny is still replying", description: "Tap the mic again once the answer finishes." });
+      return;
+    }
 
     stopSpeaking(); // avoid mic feedback from Jinny's voice
     pendingTranscriptRef.current = "";
@@ -819,6 +851,8 @@ export default function AIAssistant() {
             });
           } else if (err === "EMPTY_AUDIO") {
             toast({ title: "No speech detected", description: "Tap the mic and try again." });
+          } else if (err === "INTERRUPTED") {
+            toast({ title: "Voice input was interrupted", description: "Another app or tab may be using the microphone. Tap the mic and try again." });
           } else if (err === "NO_MICROPHONE") {
             toast({
               title: "No microphone found",
