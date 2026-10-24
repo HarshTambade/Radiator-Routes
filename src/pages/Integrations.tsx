@@ -1,17 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  ArrowRight,
   ArrowDownToLine,
   ArrowUpRight,
+  BookOpen,
+  Bot,
   Check,
+  ChevronDown,
   Clock3,
   Code2,
   Copy,
+  Database,
+  ExternalLink,
   FileJson2,
+  Globe2,
   KeyRound,
   LoaderCircle,
   Plus,
   RefreshCw,
+  Server,
   ShieldCheck,
   Trash2,
   Workflow,
@@ -31,7 +39,7 @@ import {
 } from "@/services/platformApi";
 import { useAuth } from "@/hooks/useAuth";
 
-type PanelTab = "overview" | "keys" | "mcp" | "rest";
+type PanelTab = "overview" | "keys" | "mcp" | "rest" | "guide";
 
 const DEFAULT_SCOPES: PlatformApiScope[] = ["trips:read", "budget:read"];
 
@@ -79,6 +87,330 @@ function CodeBlock({ code, label }: { code: string; label?: string }) {
         <CopyButton value={code} label="Copy" />
       </div>
       <pre className="overflow-x-auto p-4 text-xs leading-6"><code>{code}</code></pre>
+    </div>
+  );
+}
+
+function GuideSection({
+  id,
+  title,
+  description,
+  children,
+  defaultOpen = false,
+}: {
+  id: string;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details id={id} open={defaultOpen} className="group scroll-mt-6 rounded-2xl border border-border bg-card shadow-sm">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 md:p-6 [&::-webkit-details-marker]:hidden">
+        <span>
+          <span className="block font-semibold text-card-foreground">{title}</span>
+          <span className="mt-1 block text-sm leading-5 text-muted-foreground">{description}</span>
+        </span>
+        <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="space-y-5 border-t border-border p-5 md:p-6">{children}</div>
+    </details>
+  );
+}
+
+function GuideTable({ columns, rows }: { columns: string[]; rows: string[][] }) {
+  return (
+    <div className="overflow-x-auto rounded-xl border border-border">
+      <table className="w-full min-w-[620px] border-collapse text-left text-sm">
+        <thead className="bg-secondary/60 text-xs text-muted-foreground">
+          <tr>{columns.map((column) => <th key={column} className="px-3 py-2.5 font-semibold">{column}</th>)}</tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {rows.map((row, index) => (
+            <tr key={`${row[0]}-${index}`} className="align-top">
+              {row.map((cell, cellIndex) => (
+                <td key={`${cellIndex}-${cell}`} className="px-3 py-3 leading-5 text-muted-foreground">
+                  {cellIndex === 0 ? <code className="font-semibold text-card-foreground">{cell}</code> : cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DiagramNode({ icon: Icon, title, detail }: { icon: typeof Server; title: string; detail: string }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-border bg-background p-4">
+      <Icon className="mb-3 h-5 w-5 text-primary" />
+      <p className="text-sm font-semibold text-card-foreground">{title}</p>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p>
+    </div>
+  );
+}
+
+function PlatformApiGuide({ urls }: { urls: ReturnType<typeof platformApiUrls> | null }) {
+  const functionUrl = urls?.rest.replace(/\/v1$/, "") ?? "https://YOUR_PROJECT.supabase.co/functions/v1/platform-api";
+  const restBase = urls?.rest ?? "https://YOUR_PROJECT.supabase.co/functions/v1/platform-api/v1";
+  const publishableKey = supabasePublishableKey();
+  const mcpConfig = JSON.stringify({
+    mcpServers: {
+      "atlas-ai": {
+        type: "http",
+        url: urls?.mcp ?? `${functionUrl}/mcp`,
+        headers: { "x-api-key": "YOUR_ATLAS_API_KEY", apikey: publishableKey },
+      },
+    },
+  }, null, 2);
+  const envSetup = `export SUPABASE_URL="${functionUrl.replace("/functions/v1/platform-api", "")}"\nexport SUPABASE_PUBLISHABLE_KEY="${publishableKey}"\nexport ATLAS_API_KEY="rr_live_<your-key>"\nexport ATLAS_FUNCTION_URL="${functionUrl}"\nexport ATLAS_API_BASE="${restBase}"`;
+  const healthCheck = `curl -i "${functionUrl}/health" \\\n  -H "apikey: $SUPABASE_PUBLISHABLE_KEY"\n\ncurl -i "${functionUrl}/v1/openapi.json" \\\n  -H "apikey: $SUPABASE_PUBLISHABLE_KEY"`;
+  const migrationCommands = `supabase migration list --linked\nsupabase db push --linked`;
+  const listCalls = `curl "${restBase}/trips?limit=20&offset=0" -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "x-api-key: $ATLAS_API_KEY"\n\ncurl "${restBase}/orders?limit=20&offset=0" -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "x-api-key: $ATLAS_API_KEY"`;
+  const authHeaders = `-H "apikey: $SUPABASE_PUBLISHABLE_KEY" \\\n-H "x-api-key: $ATLAS_API_KEY" \\\n-H "Content-Type: application/json"`;
+  const createTrip = `curl -X POST "${restBase}/trips" \\\n  ${authHeaders} \\\n  -d '{"name":"Jaipur weekend","destination":"Jaipur","country":"India","start_date":"2026-11-12","end_date":"2026-11-14","budget_total":18000,"currency":"INR"}'`;
+  const budgetCall = `curl "${restBase}/trips/$TRIP_ID/budget" \\\n  -H "apikey: $SUPABASE_PUBLISHABLE_KEY" \\\n  -H "x-api-key: $ATLAS_API_KEY"`;
+  const planCall = `curl -X POST "${restBase}/trips/$TRIP_ID/plan" \\\n  ${authHeaders} \\\n  -d '{"travelers":2,"interests":["architecture","local food","markets"],"trip_type":"weekend cultural trip"}'`;
+  const orderCall = `curl -X POST "${restBase}/orders" \\\n  ${authHeaders} \\\n  -H "Idempotency-Key: jaipur-hotel-2026-11-v1" \\\n  -d '{"order_type":"hotel","item_name":"Two nights near Hawa Mahal","trip_id":"<trip-uuid>","provider":"Example hotel partner","quoted_amount":6800,"currency":"INR","details":{"check_in":"2026-11-12","nights":2}}'`;
+  const mcpDiscover = `curl -X POST "${functionUrl}/mcp" \\\n  -H "apikey: $SUPABASE_PUBLISHABLE_KEY" \\\n  -H "x-api-key: $ATLAS_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -H "MCP-Protocol-Version: 2026-07-28" \\\n  -H "Mcp-Method: server/discover" \\\n  -d '{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}'`;
+  const mcpToolCall = `curl -X POST "${functionUrl}/mcp" \\\n  -H "apikey: $SUPABASE_PUBLISHABLE_KEY" \\\n  -H "x-api-key: $ATLAS_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -H "MCP-Protocol-Version: 2026-07-28" \\\n  -H "Mcp-Method: tools/call" \\\n  -H "Mcp-Name: get_trip" \\\n  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_trip","arguments":{"trip_id":"<trip-uuid>"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}'`;
+
+  const sections = [
+    ["guide-setup", "Setup and deployment"],
+    ["guide-auth", "Keys and permissions"],
+    ["guide-rest", "REST calls"],
+    ["guide-mcp", "MCP connection"],
+    ["guide-limits", "Limits and errors"],
+    ["guide-testing", "Testing and troubleshooting"],
+    ["guide-security", "Security and references"],
+  ];
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary"><BookOpen className="h-3.5 w-3.5" /> Atlas AI Platform API · v1.0.0</div>
+            <h2 className="mt-3 text-xl font-bold text-card-foreground">API integration guide</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">Connect a server, app, or MCP-compatible AI client to Atlas AI trip planning, budget summaries, itinerary generation, and booking-request records.</p>
+          </div>
+          <a href="#guide-setup" className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">Start setup <ArrowRight className="h-4 w-4" /></a>
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            ["REST base", restBase],
+            ["MCP server", urls?.mcp ?? `${functionUrl}/mcp`],
+            ["OpenAPI document", urls?.openApi ?? `${functionUrl}/v1/openapi.json`],
+            ["Rate limit", "60 requests/minute per key"],
+          ].map(([label, value]) => <div key={label} className="min-w-0 rounded-xl bg-secondary/60 p-3"><span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span><code className="mt-1 block break-all text-xs text-card-foreground">{value}</code></div>)}
+        </div>
+        <nav aria-label="API guide sections" className="mt-5 flex flex-wrap gap-2">
+          {sections.map(([id, label]) => <a key={id} href={`#${id}`} className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-primary">{label}</a>)}
+        </nav>
+      </section>
+
+      <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
+        <h3 className="font-semibold text-card-foreground">How a request flows</h3>
+        <p className="mt-1 text-sm text-muted-foreground">Both REST and MCP use the same API key checks, scopes, owner rules, and rate counter.</p>
+        <div className="mt-5 grid items-stretch gap-2 md:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr]">
+          <DiagramNode icon={Globe2} title="REST or MCP client" detail="Sends project apikey and scoped rr_live key over HTTPS." />
+          <ArrowRight className="mx-auto my-auto hidden h-5 w-5 text-primary md:block" />
+          <DiagramNode icon={Server} title="Supabase gateway" detail="Routes the request to the deployed Edge Function." />
+          <ArrowRight className="mx-auto my-auto hidden h-5 w-5 text-primary md:block" />
+          <DiagramNode icon={ShieldCheck} title="platform-api" detail="Checks key, scope, ownership, inputs, and limits." />
+          <ArrowRight className="mx-auto my-auto hidden h-5 w-5 text-primary md:block" />
+          <DiagramNode icon={Database} title="Supabase data" detail="Reads or writes trips, expenses, keys, and request records." />
+        </div>
+        <div className="mt-3 rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-primary">Optional itinerary-generation branch</p>
+          <div className="grid gap-2 md:grid-cols-[1fr_auto_1fr] md:items-center">
+            <DiagramNode icon={Bot} title="ai-planner" detail="Called by platform-api; requires HF_API_KEY." />
+            <ArrowRight className="mx-auto h-5 w-5 rotate-90 text-primary md:rotate-0" />
+            <DiagramNode icon={Globe2} title="Hugging Face" detail="Model provider used by ai-planner." />
+          </div>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-muted-foreground">The service-role key is only used inside Edge Functions and is never sent to the integration client.</p>
+      </section>
+
+      <GuideSection id="guide-setup" title="Setup and deployment" description="Database prerequisites, Edge Function deployment, secrets, and health checks." defaultOpen>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-xl border border-border p-4">
+            <h4 className="flex items-center gap-2 text-sm font-semibold"><Database className="h-4 w-4 text-primary" /> Database</h4>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">For an empty project, apply <code>supabase/master_schema.sql</code> once. For an existing Atlas database, apply <code>supabase/migrations/20261024000001_platform_api.sql</code>. It adds API keys, rate-limit storage/function, and booking request records; it expects the trip schema and <code>update_updated_at_column()</code> to exist.</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">The broader <code>supabase/master_schema_updates.sql</code> also includes other additive app tables. Do not apply the fresh-install schema to a populated database.</p>
+          </div>
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+            <h4 className="text-sm font-semibold text-amber-900">If a migration says “profiles already exists”</h4>
+            <p className="mt-2 text-sm leading-6 text-amber-900">The remote schema and migration history may be out of sync. Inspect the linked migration list and compare the live schema first. Migration repair only records status; it does not run SQL. Mark a migration applied only after verifying all of its changes already exist.</p>
+          </div>
+        </div>
+        <CodeBlock label="Link and deploy" code={`supabase login\nsupabase link --project-ref dfvyuqxyjlkoovxmtikq\nsupabase functions deploy platform-api --project-ref dfvyuqxyjlkoovxmtikq\n\n# Needed for itinerary generation\nsupabase functions deploy ai-planner --project-ref dfvyuqxyjlkoovxmtikq\nsupabase secrets set HF_API_KEY="your-hugging-face-token" --project-ref dfvyuqxyjlkoovxmtikq`} />
+        <CodeBlock label="Apply migrations to an existing project" code={migrationCommands} />
+        <p className="text-xs leading-5 text-muted-foreground">If the remote schema already contains a table from a pending base migration, compare the live schema and migration history before proceeding. <code>supabase migration repair --linked --status applied &lt;version&gt;</code> only changes the migration ledger; use it only after confirming every statement from that migration is already applied.</p>
+        <CodeBlock label="Check function and OpenAPI" code={healthCheck} />
+        <div className="rounded-xl bg-secondary/60 p-4 text-sm leading-6 text-muted-foreground"><strong className="text-card-foreground">Expected health body:</strong> <code>{'{"status":"ok","version":"1.0.0"}'}</code>. A <code>503 not_ready</code> usually means the function cannot read <code>integration_api_keys</code>. The gateway `apikey` is required here; an Atlas key is not.</div>
+        <p className="text-xs leading-5 text-muted-foreground">Supabase provides <code>SUPABASE_URL</code>, <code>SUPABASE_ANON_KEY</code>, and <code>SUPABASE_SERVICE_ROLE_KEY</code> inside the function. Only add <code>HF_API_KEY</code> as a secret when planning is enabled. The platform function uses <code>verify_jwt = false</code> because it authenticates external requests itself.</p>
+        <CodeBlock label="Shell values for the examples" code={envSetup} />
+      </GuideSection>
+
+      <GuideSection id="guide-auth" title="Keys, scopes, and authentication" description="Create one credential per integration and only grant the permissions that client needs.">
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <h4 className="mb-2 text-sm font-semibold text-card-foreground">Required headers</h4>
+            <GuideTable columns={["Header", "Value and purpose"]} rows={[
+              ["apikey", "Supabase publishable/anon project key; gets through the Edge Function gateway."],
+              ["x-api-key", "Atlas rr_live_… secret; identifies the account and grants selected scopes."],
+              ["Authorization", "Optional alternative: Bearer rr_live_… instead of x-api-key."],
+            ]} />
+          </div>
+          <div className="rounded-xl border border-border p-4">
+            <h4 className="text-sm font-semibold">Credential lifecycle</h4>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-muted-foreground">
+              <li>Create keys in the API Keys tab; each account can have 10 active keys.</li>
+              <li>The complete key is displayed once; only its SHA-256 hash is stored.</li>
+              <li>Set expiry from 1–365 days, or choose no expiry.</li>
+              <li>Revoke an exposed or retired key immediately, then rotate the consumer.</li>
+            </ul>
+          </div>
+        </div>
+        <GuideTable columns={["Scope", "Access"]} rows={[
+          ["trips:read", "List trips and read accessible trip details."],
+          ["trips:write", "Create a new planning trip owned by the key owner."],
+          ["budget:read", "Read expense totals and remaining budget for an accessible trip."],
+          ["plans:generate", "Generate and save an unpublished AI itinerary."],
+          ["orders:read", "List and read the owner's booking request records."],
+          ["orders:write", "Record a booking request; no purchase or payment occurs."],
+        ]} />
+        <p className="text-sm leading-6 text-muted-foreground">Every data request also counts toward 60 requests per fixed one-minute window per key. Supabase's publishable/anon key is a public gateway identifier; never expose the service-role key.</p>
+      </GuideSection>
+
+      <GuideSection id="guide-rest" title="REST API calls" description="Versioned JSON endpoints for trips, budgets, AI plans, and booking requests.">
+        <p className="text-sm leading-6 text-muted-foreground">Base URL: <code className="break-all">{restBase}</code>. The live OpenAPI 3.1 document is at <code className="break-all">{urls?.openApi ?? `${functionUrl}/v1/openapi.json`}</code>. List endpoints accept <code>limit</code> (default 50, 1–100) and <code>offset</code> (default 0, maximum 10,000).</p>
+        <GuideTable columns={["Method", "Path", "Scope", "Result"]} rows={[
+          ["GET", "/trips", "trips:read", "List trips organized by or shared with the account."],
+          ["POST", "/trips", "trips:write", "Create a trip in planning status."],
+          ["GET", "/trips/{trip_id}", "trips:read", "Read an accessible trip."],
+          ["GET", "/trips/{trip_id}/budget", "budget:read", "Budget and recorded expense totals, grouped by currency."],
+          ["POST", "/trips/{trip_id}/plan", "plans:generate", "Generate and save an unpublished itinerary version."],
+          ["GET", "/orders", "orders:read", "List the account's booking request records."],
+          ["POST", "/orders", "orders:write", "Record a booking request; replay may return 200."],
+          ["GET", "/orders/{order_id}", "orders:read", "Read one owned booking request."],
+        ]} />
+        <CodeBlock label="List trips or booking requests" code={listCalls} />
+        <p className="text-xs leading-5 text-muted-foreground">List responses have <code>data</code> and <code>pagination</code> fields, including <code>limit</code>, <code>offset</code>, and <code>has_more</code>. Trip access requires organizer ownership or trip membership; orders are account-owned.</p>
+        <h4 className="text-sm font-semibold">Create a trip</h4>
+        <CodeBlock label="POST /trips" code={createTrip} />
+        <p className="text-xs leading-5 text-muted-foreground">Required: name, destination and valid YYYY-MM-DD start/end dates. Name and destination max 120 chars; country max 100; currency is a three-letter code; amount is 0–1,000,000,000; image URL must use HTTPS.</p>
+        <div className="grid gap-4 xl:grid-cols-2">
+          <div className="space-y-2"><h4 className="text-sm font-semibold">Read a budget</h4><CodeBlock label="GET /trips/{trip_id}/budget" code={budgetCall} /></div>
+          <div className="space-y-2"><h4 className="text-sm font-semibold">Generate an itinerary</h4><CodeBlock label="POST /trips/{trip_id}/plan" code={planCall} /></div>
+        </div>
+        <p className="text-xs leading-5 text-muted-foreground">Plan generation requires an India trip, INR currency, positive budget, and 1–14 inclusive days. Travelers must be 1–50; up to 12 interests of 40 chars each. The function validates up to 80 activities, at most 6/day, no overlaps, durations up to 14 hours, and cost at most 102% of budget. Generated plans are unpublished and should be reviewed.</p>
+        <h4 className="text-sm font-semibold">Create a booking request</h4>
+        <CodeBlock label="POST /orders with idempotency" code={orderCall} />
+        <p className="text-xs leading-5 text-muted-foreground">Allowed order types: flight, hotel, activity, transport, package, other. Use a unique Idempotency-Key (max 128 chars; letters, numbers, dot, underscore, colon, hyphen) for retries. It is unique per account. Reusing it returns the first request even if a later payload differs, so reuse only for the same operation. Details must be a JSON object up to 20,000 characters and cannot include payment, bank, password, token, secret, or authorization fields.</p>
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm leading-6 text-amber-900"><strong>Booking boundary:</strong> order calls create a <code>requested</code> record only. They do not contact providers, confirm availability, reserve travel, or charge payments. Budget summaries include recorded expenses, not pending booking requests; currency totals are not converted.</div>
+        <p className="text-xs leading-5 text-muted-foreground">REST uses HTTPS, JSON, GET and POST; preflight OPTIONS is supported. POST bodies declaring more than 1 MB are rejected. Successful responses are JSON; errors are non-2xx with an <code>error.code</code> and <code>request_id</code>.</p>
+      </GuideSection>
+
+      <GuideSection id="guide-mcp" title="Connect an MCP client" description="Remote stateless Streamable HTTP endpoint for compatible AI clients.">
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-xl bg-secondary/60 p-4"><span className="text-[10px] uppercase tracking-wide text-muted-foreground">Endpoint</span><code className="mt-1 block break-all text-xs">{urls?.mcp ?? `${functionUrl}/mcp`}</code></div>
+          <div className="rounded-xl bg-secondary/60 p-4"><span className="text-[10px] uppercase tracking-wide text-muted-foreground">Transport</span><p className="mt-1 text-sm font-semibold">Streamable HTTP over HTTPS</p></div>
+          <div className="rounded-xl bg-secondary/60 p-4"><span className="text-[10px] uppercase tracking-wide text-muted-foreground">Headers</span><p className="mt-1 text-xs"><code>apikey</code> + <code>x-api-key</code></p></div>
+        </div>
+        <p className="text-sm leading-6 text-muted-foreground">In the client's remote MCP server settings, enter the endpoint and both headers. Use a key scoped for that AI client. Some clients only support local stdio servers and need a compatible HTTP-to-stdio bridge.</p>
+        <CodeBlock label="Generic remote MCP client configuration" code={mcpConfig} />
+        <p className="text-xs leading-5 text-muted-foreground">This function supports the stateless 2026-07-28 discovery flow and legacy initialize versions 2025-11-25, 2025-06-18, 2025-03-26, and 2024-11-05. For 2026-07-28, request metadata and headers must match: MCP-Protocol-Version must be the same in both places, Mcp-Method must match JSON-RPC method, and tools/call also requires Mcp-Name matching the tool.</p>
+        <div className="grid gap-4 xl:grid-cols-2"><CodeBlock label="MCP discovery request" code={mcpDiscover} /><CodeBlock label="Call get_trip" code={mcpToolCall} /></div>
+        <GuideTable columns={["Tool", "Scope", "Purpose"]} rows={[
+          ["list_trips", "trips:read", "List accessible trips; default page only."],
+          ["get_trip", "trips:read", "Read a trip by UUID."],
+          ["create_trip", "trips:write", "Create a planning trip."],
+          ["get_trip_budget", "budget:read", "Summarize recorded spending by currency."],
+          ["generate_trip_plan", "plans:generate", "Generate and save a plan."],
+          ["create_booking_request", "orders:write", "Record a request only."],
+          ["list_booking_requests", "orders:read", "List booking request records; default page only."],
+        ]} />
+        <p className="text-xs leading-5 text-muted-foreground">Tool discovery filters by scopes, and the server checks authorization again on each call. MCP tools currently use default pagination; choose REST when a specific limit or offset is needed. Successful results include text content and structuredContent. Tool failures may return HTTP 200 with result.isError=true, so inspect that flag.</p>
+      </GuideSection>
+
+      <GuideSection id="guide-limits" title="Limits, response headers, and errors" description="Application-level ceilings and how clients should react to failures.">
+        <GuideTable columns={["Limit", "Value"]} rows={[
+          ["Active keys", "10 per account; expiry 1–365 days or never."],
+          ["Rate", "60 authenticated requests per fixed minute per key."],
+          ["List paging", "Default 50, max 100; offset up to 10,000."],
+          ["Request body", "POST body over 1 MB is rejected when declared Content-Length exceeds the cap."],
+          ["Trip fields", "Name/destination 120 chars; country 100; amount 0–1,000,000,000."],
+          ["Booking details", "20,000 serialized characters; object only; sensitive field names rejected recursively."],
+          ["Plan inputs", "India + INR, 1–14 days, 1–50 travelers, max 12 interests."],
+          ["Plan output", "1–80 activities, max 6/day, 14 hours/activity, total <=102% budget."],
+          ["Planner timeout", "50 seconds in platform-api; model provider quota/latency is separate."],
+        ]} />
+        <p className="text-sm leading-6 text-muted-foreground">Authenticated success and rate-limit responses include <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code>, and <code>X-RateLimit-Reset</code> (Unix seconds). On 429, wait until reset and retry with exponential backoff and jitter. Supabase Edge Function runtime and concurrency limits depend on the project plan.</p>
+        <GuideTable columns={["HTTP", "Code / meaning"]} rows={[
+          ["400", "invalid_request or sensitive_data_rejected — correct the body or field."],
+          ["401", "unauthorized — check gateway apikey, Atlas key, expiry, or revocation."],
+          ["403", "insufficient_scope — issue a key with the required scope."],
+          ["404", "not_found — route/resource absent or not visible to that owner."],
+          ["409", "key_limit_reached — revoke an unused key."],
+          ["413", "payload_too_large — reduce payload size."],
+          ["422", "Plan input/output not supported; check destination, dates, currency, pace, and budget."],
+          ["429", "rate_limit_exceeded — wait for X-RateLimit-Reset."],
+          ["502 / 503", "Planner/provider or database/configuration issue; inspect function status and logs."],
+          ["500", "internal_error — retain request_id, endpoint, timestamp, and status for investigation."],
+        ]} />
+        <CodeBlock label="REST error response" code={`{\n  "error": {\n    "code": "insufficient_scope",\n    "message": "This key needs the 'trips:read' scope.",\n    "request_id": "<request-uuid>"\n  }\n}`} />
+      </GuideSection>
+
+      <GuideSection id="guide-testing" title="Smoke checks and troubleshooting" description="Verify the service in development or staging with disposable accounts and trips.">
+        <ol className="list-decimal space-y-2 pl-5 text-sm leading-6 text-muted-foreground">
+          <li>Check health returns 200 and OpenAPI returns 200 with <code>openapi: 3.1.0</code>.</li>
+          <li>Call a data route without an Atlas key: expect 401. Call with a valid key lacking trips:read: expect 403. With the scope: expect GET /trips to return 200.</li>
+          <li>Use two test accounts. Account B should receive 404 when reading A's private trip, and B's order list should not include A's records.</li>
+          <li>Create a disposable trip, read its budget, and (if configured) generate a plan. It should be unpublished and contain activities.</li>
+          <li>POST one order twice using the same Idempotency-Key: first response 201, replay 200, same order ID.</li>
+          <li>In staging, exceed 60 requests with one key in a minute and confirm 429 and reset headers. Do not run this against a shared production key.</li>
+        </ol>
+        <CodeBlock label="Inspect Edge Function logs" code={`supabase functions logs platform-api --project-ref dfvyuqxyjlkoovxmtikq\nsupabase functions logs ai-planner --project-ref dfvyuqxyjlkoovxmtikq`} />
+        <GuideTable columns={["Symptom", "Check"]} rows={[
+          ["Failed to send a request to the Edge Function", "Network/CORS/gateway failure: inspect browser Network and console, URL, project apikey, and deployment."],
+          ["Edge Function returned a non-2xx status code", "Inspect JSON response for error.code/request_id; likely 401, 403, 429, or 503. The generic client text is not the underlying API error."],
+          ["Health 404", "Check /functions/v1/platform-api/health and redeploy current platform-api routing code."],
+          ["Health 503 not_ready", "Apply/verify platform API migration against the same Supabase project."],
+          ["401 or 403", "Check both apikey and rr_live key; then confirm expiry/revocation and key scopes."],
+          ["Plan 502/503", "Check ai-planner deploy, HF_API_KEY, model provider quota/latency, and function logs."],
+          ["profiles already exists during db push", "Remote schema/history mismatch. Compare migration list and live schema; do not drop data or blindly repair migration history."],
+          ["MCP header mismatch", "Align the 2026-07-28 protocol version metadata and headers; method and tool name must match the body."],
+        ]} />
+        <p className="text-xs leading-5 text-muted-foreground">Supabase's functions.invoke() surfaces a generic non-2xx message; inspect its response context/body in the browser Network panel to see the API error code. The function normalizes both the public /functions/v1/platform-api path and the Edge Runtime /platform-api path; redeploy if the hosted function is older.</p>
+      </GuideSection>
+
+      <GuideSection id="guide-security" title="Security and reference links" description="Production practices, product boundaries, and protocol/platform references.">
+        <ul className="list-disc space-y-2 pl-5 text-sm leading-6 text-muted-foreground">
+          <li>Use one key per connected integration, grant only necessary scopes, set an expiry, and keep the key in a server-side secret store.</li>
+          <li>Never put rr_live keys in browser bundles, URLs, screenshots, analytics, or public repositories. Never expose SUPABASE_SERVICE_ROLE_KEY.</li>
+          <li>Rotate by creating a replacement, updating and verifying the integration, then revoking the old key.</li>
+          <li>Trip access is checked against organizer/membership ownership; booking requests are account-owned.</li>
+          <li>AI output is model-generated. Review an itinerary before publishing or acting on it.</li>
+          <li>CORS currently allows cross-origin requests; CORS is not authorization. Data routes still need valid project and Atlas credentials.</li>
+          <li>Provider search, availability, booking confirmation/cancellation, payment, and refunds are outside the current order-request API.</li>
+        </ul>
+        <div className="grid gap-3 md:grid-cols-2">
+          {[
+            ["Supabase Edge Functions", "https://supabase.com/docs/guides/functions"],
+            ["Edge Function limits", "https://supabase.com/docs/guides/functions/limits"],
+            ["Function secrets", "https://supabase.com/docs/guides/functions/secrets"],
+            ["Database migrations", "https://supabase.com/docs/guides/deployment/database-migrations"],
+            ["Supabase API keys", "https://supabase.com/docs/guides/api/api-keys"],
+            ["OpenAPI 3.1 specification", "https://spec.openapis.org/oas/v3.1.2.html"],
+            ["MCP 2026-07-28 release notes", "https://blog.modelcontextprotocol.io/posts/2026-07-28/"],
+            ["MCP SDK protocol versions", "https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions"],
+            ["Hugging Face Inference Providers", "https://huggingface.co/docs/inference-providers/index"],
+          ].map(([label, href]) => <a key={href} href={href} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-3 rounded-xl border border-border p-3 text-sm font-medium text-card-foreground hover:border-primary/40 hover:text-primary"><span>{label}</span><ExternalLink className="h-4 w-4 shrink-0" /></a>)}
+        </div>
+      </GuideSection>
     </div>
   );
 }
@@ -231,6 +563,7 @@ export default function Integrations() {
     { id: "keys", label: "API keys", icon: KeyRound },
     { id: "mcp", label: "MCP server", icon: Code2 },
     { id: "rest", label: "REST API", icon: FileJson2 },
+    { id: "guide", label: "Full API guide", icon: BookOpen },
   ];
 
   return (
@@ -316,6 +649,14 @@ export default function Integrations() {
                 <Plus className="h-4 w-4" /> Create an API key
               </button>
             </div>
+          </section>
+
+          <section className="flex flex-col gap-4 rounded-2xl border border-primary/20 bg-primary/5 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="flex items-center gap-2 font-semibold text-card-foreground"><BookOpen className="h-4 w-4 text-primary" /> Full API integration guide</h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">Setup, diagrams, REST and MCP calls, limits, testing, errors, and troubleshooting.</p>
+            </div>
+            <button type="button" onClick={() => setTab("guide")} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">Open guide <ArrowRight className="h-4 w-4" /></button>
           </section>
 
           <div className="grid gap-4 lg:grid-cols-2">
@@ -524,6 +865,8 @@ export default function Integrations() {
           </div>
         </div>
       )}
+
+      {tab === "guide" && <PlatformApiGuide urls={urls} />}
 
       {!urls && <p className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-900">Set <code>VITE_SUPABASE_URL</code> to show integration endpoints.</p>}
     </div>
