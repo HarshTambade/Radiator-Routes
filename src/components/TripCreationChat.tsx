@@ -32,6 +32,9 @@ import { mergeTripStyle } from "@/lib/travelPreferences";
 import {
   startGroqRecording,
   transcribeWithGroq,
+  isBrowserSTTSupported,
+  isMediaRecorderSupported,
+  isGroqTranscriptionAvailable,
   type RecordingHandle,
 } from "@/services/groqVoice";
 import { getSavedLanguage } from "@/services/translate";
@@ -564,8 +567,11 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
       return;
     }
 
-    setIsTranscribing(true);
-    setInput("🎙️ Transcribing…");
+    // Only the Whisper path has a real transcription wait
+    if (handle.engine === "media-recorder") {
+      setIsTranscribing(true);
+      setInput("🎙️ Transcribing…");
+    }
 
     try {
       const audioBlob = await handle.stop();
@@ -621,19 +627,63 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
     }
   }, [toast]);
 
-  const startVoice = useCallback(async () => {
-    if (!navigator.mediaDevices) {
+  // Lets the recognition engine's onEnd reach the latest stopVoice
+  const stopVoiceRef = useRef(stopVoice);
+  useEffect(() => { stopVoiceRef.current = stopVoice; }, [stopVoice]);
+
+  const handleVoiceError = useCallback((err: string) => {
+    isListeningRef.current = false;
+    setIsListening(false);
+    recordingRef.current = null;
+    pendingTranscriptSlot.current = "";
+    setInput("");
+    if (err === "EMPTY_AUDIO") {
+      toast({ title: "No speech detected", description: "Tap the mic and try again." });
+    } else if (err === "PERMISSION_DENIED") {
       toast({
-        title: "Voice not supported",
-        description: "Audio recording isn't available in this browser.",
+        title: "Mic blocked",
+        description: "Please allow microphone access in your browser settings.",
         variant: "destructive",
       });
-      return;
+    } else if (err === "NO_MICROPHONE") {
+      toast({
+        title: "No microphone found",
+        description: "Connect a microphone and try again.",
+        variant: "destructive",
+      });
+    } else if (err === "SPEECH_SERVICE_UNAVAILABLE") {
+      toast({
+        title: "Speech service unreachable",
+        description: isGroqTranscriptionAvailable()
+          ? "Switching to backup transcription — tap the mic again."
+          : "This browser can't reach its speech service (common in Brave or offline). Please type instead.",
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Voice error",
+        description: `Recognition error: ${err}. Please try again.`,
+        variant: "destructive",
+      });
     }
+  }, [toast]);
 
+  const startVoice = useCallback(async () => {
     // Toggle off if already listening
     if (isListeningRef.current) {
       await stopVoice();
+      return;
+    }
+
+    if (
+      !isBrowserSTTSupported() &&
+      !(isMediaRecorderSupported() && isGroqTranscriptionAvailable())
+    ) {
+      toast({
+        title: "Voice not supported",
+        description: "Please use Chrome, Edge, or Safari, or type your answer.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -641,7 +691,11 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
       pendingTranscriptSlot.current = "";
       const handle = await startGroqRecording({
         language: getSavedLanguage(),
+        onInterim: (text) => setInput(text),
         onTranscript: (text) => { pendingTranscriptSlot.current = text; },
+        // Recognition ends by itself after a pause — submit what was heard
+        onEnd: () => { void stopVoiceRef.current(); },
+        onError: handleVoiceError,
       });
       recordingRef.current = handle;
       isListeningRef.current = true;
@@ -663,6 +717,12 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
             "Please allow microphone access in your browser settings.",
           variant: "destructive",
         });
+      } else if (msg.includes("speech_unsupported")) {
+        toast({
+          title: "Voice not supported",
+          description: errorMessage(err),
+          variant: "destructive",
+        });
       } else {
         toast({
           title: "Microphone error",
@@ -671,7 +731,7 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
         });
       }
     }
-  }, [stopVoice, toast]);
+  }, [handleVoiceError, stopVoice, toast]);
 
   const stepIcons: Record<Step, any> = {
     destination: MapPin,
@@ -822,7 +882,7 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
                 ? "Transcribing…"
                 : isListening
                   ? "Stop recording & send"
-                  : "Start voice input (Groq Whisper)"
+                  : "Start voice input"
             }
             className={`p-2 rounded-lg transition-colors ${
               isTranscribing
@@ -864,7 +924,7 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
             }}
             placeholder={
               isTranscribing
-                ? "Transcribing with Groq Whisper…"
+                ? "Transcribing…"
                 : isListening
                   ? "Recording… tap mic to stop"
                   : step === "interests"

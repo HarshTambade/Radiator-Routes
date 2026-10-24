@@ -914,7 +914,7 @@ const pipelineStages: PipelineStage[] = [
     title: "Capture",
     headline: "Your sentence is transcribed in the browser",
     detail:
-      "The Web Speech API handles this with no key and no upload. Only when a browser doesn't expose SpeechRecognition — and a Groq key is present — does it fall back to recording audio and sending it to Whisper. Read-aloud uses the browser's own speech synthesis.",
+      "The Web Speech API handles this with no key and no upload. Only when a browser doesn't expose SpeechRecognition, or its speech service turns out to be unreachable — and a Groq key is present — does it fall back to recording audio and sending it to Whisper. Read-aloud uses the browser's own speech synthesis.",
     meta: [
       { k: "Primary", v: "Web Speech API, on-device" },
       { k: "Alternatives kept", v: "3" },

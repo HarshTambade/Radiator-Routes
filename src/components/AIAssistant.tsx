@@ -192,16 +192,22 @@ export default function AIAssistant() {
           wakeActiveRef.current = false;
           try { recognition.stop(); } catch { /* ignore */ }
           setOpen(true);
-          if (ttsEnabledRef.current) speakJinny("At your service. Tap the mic to speak, or just type.");
           toast({
             title: "🧡 Jinny activated!",
             description: "Tap the mic to speak, or type your request.",
           });
-          window.setTimeout(() => {
+          // Open the mic only after the greeting finishes, so it doesn't
+          // hear Jinny's own voice (or get cut off by startVoice's stopSpeaking)
+          const listen = () => {
             if (!isListeningRef.current) {
               window.dispatchEvent(new CustomEvent("jinny-start-voice"));
             }
-          }, 900);
+          };
+          if (ttsEnabledRef.current) {
+            speakText("At your service. What can I do for you?", _ttsLang, listen);
+          } else {
+            window.setTimeout(listen, 900);
+          }
           break;
         }
       };
@@ -729,6 +735,10 @@ export default function AIAssistant() {
     }
   }, [sendMessage, toast, userLang]);
 
+  // Lets the recognition engine's onEnd reach the latest stopVoice
+  const stopVoiceRef = useRef(stopVoice);
+  useEffect(() => { stopVoiceRef.current = stopVoice; }, [stopVoice]);
+
   // ── Start voice input ──────────────────────────────────────────────────
   const startVoice = useCallback(async () => {
     if (!voiceSupported) {
@@ -742,6 +752,7 @@ export default function AIAssistant() {
     }
 
     if (isListeningRef.current) { await stopVoice(); return; }
+    if (isLoadingRef.current) return; // a reply is still streaming
 
     stopSpeaking(); // avoid mic feedback from Jinny's voice
     pendingTranscriptRef.current = "";
@@ -752,10 +763,13 @@ export default function AIAssistant() {
         language: userLang,
         onInterim: (text) => setInterimTranscript(text),
         onTranscript: (text) => { pendingTranscriptRef.current = text; },
+        // Recognition ends by itself after a pause — send what was heard
+        onEnd: () => { void stopVoiceRef.current(); },
         onError: (err) => {
           isListeningRef.current = false;
           setIsListening(false);
           recordingRef.current = null;
+          pendingTranscriptRef.current = "";
           setInput("");
           setInterimTranscript("");
           if (err === "PERMISSION_DENIED") {
@@ -764,7 +778,23 @@ export default function AIAssistant() {
               description: "Please allow microphone access in your browser settings.",
               variant: "destructive",
             });
-          } else if (err !== "EMPTY_AUDIO") {
+          } else if (err === "EMPTY_AUDIO") {
+            toast({ title: "No speech detected", description: "Tap the mic and try again." });
+          } else if (err === "NO_MICROPHONE") {
+            toast({
+              title: "No microphone found",
+              description: "Connect a microphone and try again.",
+              variant: "destructive",
+            });
+          } else if (err === "SPEECH_SERVICE_UNAVAILABLE") {
+            toast({
+              title: "Speech service unreachable",
+              description: isGroqTranscriptionAvailable()
+                ? "Switching to backup transcription — tap the mic again."
+                : "This browser can't reach its speech service (common in Brave or offline). Try Chrome, Edge or Safari, or type instead.",
+              variant: "destructive",
+            });
+          } else {
             toast({
               title: "Voice error",
               description: `Recognition error: ${err}. Please try again.`,

@@ -115,7 +115,18 @@ interface StartOptions {
   onInterim?: (text: string) => void;
   /** Called with an error string (any engine). */
   onError?: (err: string) => void;
+  /**
+   * Called when the Web-Speech engine ends by itself (the user stopped
+   * talking) rather than through stop()/abort(). onTranscript has already
+   * fired by then, so callers can finalise exactly as if stop() was pressed.
+   */
+  onEnd?: () => void;
 }
+
+// Set once Web Speech fails with a "network"-class error (Brave, Electron,
+// offline, or Google's speech service blocked). Later sessions then go
+// straight to the Groq Whisper fallback when one is configured.
+let webSpeechUnavailable = false;
 
 function langToBCP47(code: string): string {
   const c = (code ?? "en").trim().toLowerCase();
@@ -140,78 +151,89 @@ function startWebSpeech(options: StartOptions): RecordingHandle {
   recognition.lang = langToBCP47(options.language ?? "en");
 
   let finalTranscript = "";
-  let stopped = false;
-  let manuallyStopped = false;
+  // Safari (and Chrome when stopped mid-phrase) can end without ever marking
+  // the last result final — keep the latest interim text as a fallback.
+  let interimTranscript = "";
+  let ended = false;
+  let aborted = false;
+  let errored = false;
+  let resolveStop: (() => void) | null = null;
 
   recognition.onresult = (event: SpeechRecognitionEventLike) => {
     let interim = "";
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const result = event.results[i];
       const alt = result[0];
+      if (!alt) continue;
       if (result.isFinal) {
         finalTranscript += alt.transcript + " ";
       } else {
         interim += alt.transcript;
       }
     }
-    if (interim && options.onInterim) options.onInterim(interim.trim());
+    interimTranscript = interim.trim();
+    const live = `${finalTranscript}${interim}`.trim();
+    if (live && options.onInterim) options.onInterim(live);
   };
 
   recognition.onerror = (e: SpeechRecognitionErrorEventLike) => {
-    if (manuallyStopped) return;
-    if (e.error === "aborted") return;
+    if (aborted || e.error === "aborted") return;
+    errored = true;
     if (e.error === "no-speech") {
       options.onError?.("EMPTY_AUDIO");
-      return;
-    }
-    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+    } else if (e.error === "not-allowed") {
       options.onError?.("PERMISSION_DENIED");
-      return;
+    } else if (e.error === "audio-capture") {
+      options.onError?.("NO_MICROPHONE");
+    } else if (e.error === "network" || e.error === "service-not-allowed") {
+      webSpeechUnavailable = true;
+      options.onError?.("SPEECH_SERVICE_UNAVAILABLE");
+    } else {
+      options.onError?.(e.error ?? "UNKNOWN_ERROR");
     }
-    options.onError?.(e.error ?? "UNKNOWN_ERROR");
   };
 
   recognition.onend = () => {
-    stopped = true;
-    if (finalTranscript.trim() && options.onTranscript) {
-      options.onTranscript(finalTranscript.trim());
+    if (ended) return;
+    ended = true;
+    const transcript = (finalTranscript.trim() || interimTranscript).trim();
+    if (!aborted && !errored && transcript) options.onTranscript?.(transcript);
+    if (resolveStop) {
+      resolveStop();
+    } else if (!aborted && !errored) {
+      options.onEnd?.();
     }
   };
 
-  try {
-    recognition.start();
-  } catch (err) {
-    options.onError?.((err as Error).message ?? "START_FAILED");
-    throw err;
-  }
+  // start() throws synchronously (e.g. InvalidStateError) — let the caller
+  // surface it once instead of also reporting it through onError.
+  recognition.start();
 
   return {
     engine: "web-speech",
     stop: () =>
       new Promise<Blob | null>((resolve) => {
-        if (stopped) {
+        if (ended) {
           resolve(null);
           return;
         }
-        manuallyStopped = false;
-        const finish = () => {
-          window.setTimeout(() => resolve(null), 100);
-        };
-        recognition.onend = () => {
-          stopped = true;
-          if (finalTranscript.trim() && options.onTranscript)
-            options.onTranscript(finalTranscript.trim());
-          finish();
+        // Resolve once onend has delivered the transcript; the timeout guards
+        // against engines that never fire onend after stop().
+        const timer = window.setTimeout(() => recognition.onend?.(), 2000);
+        resolveStop = () => {
+          window.clearTimeout(timer);
+          resolve(null);
         };
         try {
           recognition.stop();
         } catch {
-          finish();
+          recognition.onend?.();
         }
       }),
     abort: () => {
-      manuallyStopped = true;
-      stopped = true;
+      if (ended) return;
+      aborted = true;
+      ended = true;
       try {
         recognition.abort();
       } catch {
@@ -296,14 +318,18 @@ async function startMediaRecorder(): Promise<RecordingHandle> {
 
 /**
  * Begin speech capture. Prefers the free browser SpeechRecognition; when the
- * browser doesn't support it (Firefox, some mobile) AND a Groq key is set,
- * falls back to MediaRecorder → Groq Whisper.
+ * browser doesn't support it (Firefox, some mobile) or its speech service has
+ * proven unreachable, AND a Groq key is set, falls back to MediaRecorder →
+ * Groq Whisper.
  */
 export async function startGroqRecording(
   options: StartOptions = {},
 ): Promise<RecordingHandle> {
+  const canUseWhisper =
+    isMediaRecorderSupported() && isGroqTranscriptionAvailable();
+
   // Primary — browser SpeechRecognition (no key needed)
-  if (isBrowserSTTSupported()) {
+  if (isBrowserSTTSupported() && !(webSpeechUnavailable && canUseWhisper)) {
     return startWebSpeech(options);
   }
 
@@ -387,69 +413,168 @@ const LANG_TO_BCP47: Record<string, string> = {
   pl: "pl-PL", sv: "sv-SE",
 };
 
-/** Speak text aloud with the browser's SpeechSynthesis API. */
-export function speakText(text: string, lang = "en"): void {
-  if (typeof window === "undefined" || !window.speechSynthesis) return;
+const MAX_SPOKEN_CHARS = 1200;
+// Chrome silently stops any single utterance after ~15 s, so long replies
+// are queued as sentence-sized chunks instead of one utterance.
+const MAX_CHUNK_CHARS = 180;
 
-  const plain = text
+// Utterances referenced only by the speech queue can be garbage-collected in
+// Chrome before they finish, which drops their onend. Hold them here.
+const heldUtterances: SpeechSynthesisUtterance[] = [];
+let speakToken = 0;
+
+/** Strip markdown, code, links and emoji so only readable prose is spoken. */
+export function toSpeakableText(text: string): string {
+  return text
     .replace(/```[\s\S]*?```/g, "")
-    .replace(/\*\*/g, "")
-    .replace(/\*/g, "")
-    .replace(/#{1,6}\s/g, "")
+    .replace(/`([^`]*)`/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/\*\*|__|[*_~]/g, "")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*(?:[-+•]|\d+\.)\s+/gm, "")
+    .replace(/\p{Extended_Pictographic}|\p{Regional_Indicator}|‍|️/gu, "")
     .replace(/\n{2,}/g, ". ")
-    .replace(/\n/g, " ")
-    .trim()
-    .slice(0, 500);
+    .replace(/\n/g, ". ")
+    .replace(/\s*\.(\s*\.)+/g, ".")
+    .replace(/([!?:;,])\./g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s.]+/, "")
+    .trim();
+}
+
+function chunkForSpeech(text: string): string[] {
+  const sentences = text.match(/[^.!?。！？]+[.!?。！？]*\s*/g) ?? [text];
+  const chunks: string[] = [];
+  let current = "";
+  const push = (s: string) => {
+    if (s.trim()) chunks.push(s.trim());
+  };
+  for (const sentence of sentences) {
+    if ((current + sentence).length <= MAX_CHUNK_CHARS) {
+      current += sentence;
+      continue;
+    }
+    push(current);
+    current = "";
+    if (sentence.length <= MAX_CHUNK_CHARS) {
+      current = sentence;
+      continue;
+    }
+    // A single over-long sentence — split it on word boundaries.
+    let part = "";
+    for (const word of sentence.split(/\s+/)) {
+      if ((part + " " + word).length > MAX_CHUNK_CHARS) {
+        push(part);
+        part = word;
+      } else {
+        part = part ? `${part} ${word}` : word;
+      }
+    }
+    current = part + " ";
+  }
+  push(current);
+  return chunks;
+}
+
+function pickVoice(
+  voices: SpeechSynthesisVoice[],
+  bcp47: string,
+): SpeechSynthesisVoice | undefined {
+  // Android reports "en_GB" rather than "en-GB"
+  const norm = (l: string) => l.replace("_", "-").toLowerCase();
+  const target = norm(bcp47);
+  const langPrefix = target.split("-")[0];
+  const quality = (v: SpeechSynthesisVoice) =>
+    /google|microsoft|siri|natural|premium|enhanced/i.test(v.name);
+  return (
+    voices.find((v) => norm(v.lang) === target && quality(v)) ||
+    voices.find((v) => norm(v.lang) === target) ||
+    voices.find((v) => norm(v.lang).startsWith(langPrefix)) ||
+    (langPrefix === "en"
+      ? voices.find(
+          (v) =>
+            norm(v.lang).startsWith("en") &&
+            !/zira|hazel/i.test(v.name),
+        )
+      : undefined)
+  );
+}
+
+/** Resolve the voice list, waiting briefly for browsers that load it lazily. */
+function loadVoices(): Promise<SpeechSynthesisVoice[]> {
+  const synth = window.speechSynthesis;
+  const voices = synth.getVoices();
+  if (voices.length) return Promise.resolve(voices);
+  return new Promise((resolve) => {
+    const done = () => {
+      window.clearTimeout(timer);
+      synth.removeEventListener?.("voiceschanged", done);
+      resolve(synth.getVoices());
+    };
+    // Some engines never fire voiceschanged — speak with the default voice.
+    const timer = window.setTimeout(done, 1500);
+    synth.addEventListener?.("voiceschanged", done);
+  });
+}
+
+/**
+ * Speak text aloud with the browser's SpeechSynthesis API. `onEnd` fires
+ * once the whole text has been spoken (not if it is interrupted).
+ */
+export function speakText(text: string, lang = "en", onEnd?: () => void): void {
+  if (typeof window === "undefined" || !window.speechSynthesis) return;
+  const synth = window.speechSynthesis;
+
+  const plain = toSpeakableText(text).slice(0, MAX_SPOKEN_CHARS);
   if (!plain) return;
 
-  window.speechSynthesis.cancel();
+  const token = ++speakToken;
+  const wasBusy = synth.speaking || synth.pending;
+  synth.cancel();
+  heldUtterances.length = 0;
 
-  const bcp47 = LANG_TO_BCP47[lang] ?? "en-GB";
-  const utter = new SpeechSynthesisUtterance(plain);
-  utter.lang = bcp47;
-  utter.rate = 1.0;
-  utter.pitch = 0.95;
-  utter.volume = 1;
+  const bcp47 = LANG_TO_BCP47[lang] ?? (lang.includes("-") ? lang : "en-GB");
 
-  const pickVoice = () => {
-    const voices = window.speechSynthesis.getVoices();
-    if (!voices.length) return;
+  void loadVoices().then((voices) => {
+    if (token !== speakToken) return; // superseded by a newer call / stop
+    const voice = pickVoice(voices, bcp47);
+    const chunks = chunkForSpeech(plain);
 
-    const langPrefix = bcp47.split("-")[0];
-    const preferred =
-      voices.find(
-        (v) =>
-          v.lang === bcp47 &&
-          (v.name.includes("Google") ||
-            v.name.includes("Microsoft") ||
-            v.name.includes("Siri")),
-      ) ||
-      voices.find((v) => v.lang === bcp47) ||
-      voices.find((v) => v.lang.startsWith(langPrefix)) ||
-      voices.find(
-        (v) =>
-          v.lang.startsWith("en") &&
-          !v.name.toLowerCase().includes("zira") &&
-          !v.name.toLowerCase().includes("hazel"),
-      );
-    if (preferred) utter.voice = preferred;
-    window.speechSynthesis.speak(utter);
-  };
+    const utterances = chunks.map((chunk, i) => {
+      const utter = new SpeechSynthesisUtterance(chunk);
+      utter.lang = voice?.lang ?? bcp47;
+      if (voice) utter.voice = voice;
+      utter.rate = 1.0;
+      utter.pitch = 0.95;
+      utter.volume = 1;
+      if (i === chunks.length - 1) {
+        utter.onend = () => {
+          if (token !== speakToken) return;
+          heldUtterances.length = 0;
+          onEnd?.();
+        };
+      }
+      return utter;
+    });
+    heldUtterances.splice(0, heldUtterances.length, ...utterances);
 
-  const voices = window.speechSynthesis.getVoices();
-  if (voices.length > 0) {
-    pickVoice();
-  } else {
-    window.speechSynthesis.onvoiceschanged = () => {
-      window.speechSynthesis.onvoiceschanged = null;
-      pickVoice();
+    const enqueue = () => {
+      if (token !== speakToken) return;
+      // Chrome can get stuck in a paused state after a tab switch
+      if (synth.paused) synth.resume();
+      utterances.forEach((u) => synth.speak(u));
     };
-  }
+    // Chrome drops an utterance queued in the same tick as cancel()
+    if (wasBusy) window.setTimeout(enqueue, 80);
+    else enqueue();
+  });
 }
 
 /** Stop any ongoing speech synthesis. */
 export function stopSpeaking(): void {
+  speakToken++;
+  heldUtterances.length = 0;
   if (typeof window !== "undefined" && window.speechSynthesis)
     window.speechSynthesis.cancel();
 }
@@ -457,8 +582,6 @@ export function stopSpeaking(): void {
 /** Pre-warm the voice list (call once on app load). */
 export function preloadVoices(): void {
   if (typeof window !== "undefined" && window.speechSynthesis) {
-    window.speechSynthesis.getVoices();
-    window.speechSynthesis.onvoiceschanged = () =>
-      window.speechSynthesis.getVoices();
+    void loadVoices();
   }
 }
