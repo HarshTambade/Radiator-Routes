@@ -36,6 +36,7 @@ const Guide = lazy(() => import("./pages/Guide"));
 const Friends = lazy(() => import("./pages/Friends"));
 const Community = lazy(() => import("./pages/Community"));
 const Profile = lazy(() => import("./pages/Profile"));
+const Integrations = lazy(() => import("./pages/Integrations"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 function RouteFallback() {
@@ -81,6 +82,7 @@ const App = () => (
                     <Route path="/friends" element={<Friends />} />
                     <Route path="/community" element={<Community />} />
                     <Route path="/profile" element={<Profile />} />
+                    <Route path="/integrations" element={<Integrations />} />
                   </Route>
                   <Route path="*" element={<NotFound />} />
                 </Routes>

@@ -135,6 +135,7 @@ the stack.
 | **AI reasoning transparency** | "Why This Plan" panel exposes selection criteria, budget logic and local tips |
 | **Dynamic replanning** | Weather/schedule disruptions trigger a fresh plan (`services/dynamicReplan.ts`) |
 | **Travel memory** | Learns preferences across trips and folds them into future plans |
+| **Platform API** | Scoped, revocable API keys, versioned REST/OpenAPI endpoints, and an MCP server for connected AI clients (`/integrations`) |
 
 All AI calls run in **JSON mode** with simplified prompts to prevent truncation. With neither a
 Groq key nor an on-device model, these surfaces show an "AI unavailable" notice and the rest of the
@@ -359,6 +360,10 @@ Leaflet + React-Leaflet · MapLibre GL JS · Nominatim / OpenStreetMap · OpenRo
 | **OpenRouteService** | Free tier | Routing, ETA, elevation |
 | **OpenTripMap** | Free tier | POI discovery |
 
+The Platform API adds a separate integration layer for MCP-compatible AI clients
+and REST consumers. It uses user-owned, scoped keys and never exposes the
+Supabase service-role credential. See [`docs/PLATFORM_API.md`](./docs/PLATFORM_API.md).
+
 ### Removed paid services
 
 These were replaced with free alternatives. The env vars are inert — setting them does nothing.
@@ -571,7 +576,7 @@ Radiator-Routes/
 │   │   ├── offlineCache.ts      # TTL cache over IndexedDB
 │   │   └── utils.ts
 │   │
-│   ├── pages/                   # 11 route components, all lazy-loaded
+│   ├── pages/                   # 12 route components, all lazy-loaded
 │   ├── services/                # 15 external-API modules
 │   ├── test/
 │   ├── App.tsx                  # Routing + providers + ErrorBoundary
@@ -579,7 +584,7 @@ Radiator-Routes/
 │   └── index.css
 │
 ├── supabase/
-│   ├── migrations/              # 12 incremental migrations
+│   ├── migrations/              # 14 incremental migrations
 │   ├── functions/
 │   ├── master_schema.sql        # Idempotent full schema
 │   └── SETUP_INSTRUCTIONS.md
@@ -612,6 +617,7 @@ Every page is `React.lazy()`-loaded, so each ships as its own chunk.
 | `/friends` | `Friends.tsx` | Protected |
 | `/community` | `Community.tsx` | Protected |
 | `/profile` | `Profile.tsx` | Protected |
+| `/integrations` | `Integrations.tsx` | Protected — API keys, MCP setup, REST/OpenAPI docs |
 | `*` | `NotFound.tsx` | Public |
 
 Protected routes sit behind `ProtectedLayout`, which redirects unauthenticated users to `/auth`.
@@ -639,6 +645,7 @@ Protected routes sit behind `ProtectedLayout`, which redirects unauthenticated u
 | `gnews.ts` | Wikipedia REST | No | Place context + curated advisories |
 | `translate.ts` | MyMemory | No | Falls back to source text on error |
 | `offlineTrip.ts` | IndexedDB + Cache API | No | Trip persistence + OSM tile pre-caching |
+| `platformApi.ts` | Supabase Edge Function | User session | Creates/lists/revokes scoped integration keys |
 
 Network calls go through `lib/http.ts`, which centralises timeout, retry and JSON handling, and
 `lib/errors.ts`, which normalises failures into a single taxonomy.
@@ -669,6 +676,13 @@ PostgreSQL via Supabase with **Row-Level Security on every table**.
 
 ### Community
 `communities` · `community_memberships` · `community_messages` · `community_events` · `event_rsvps`
+
+### External integrations
+`integration_api_keys` (hash-only keys, scopes, expiry and revocation) ·
+`integration_api_rate_limits` (atomic per-key limits) ·
+`travel_orders` (idempotent booking request records; no payment data)
+
+See [`docs/PLATFORM_API.md`](./docs/PLATFORM_API.md) for API and MCP setup.
 
 ### Status constraints
 
@@ -707,7 +721,7 @@ The script is idempotent, so it is safe to re-run against an existing database.
 supabase db push
 ```
 
-Or run the 12 files in `supabase/migrations/` in filename order. `20260222000002_*` fixes the
+Or run the 14 files in `supabase/migrations/` in filename order. `20260222000002_*` fixes the
 `trip_join_requests` status constraint and must not be skipped.
 
 ### Auth

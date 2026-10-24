@@ -13,6 +13,7 @@ import {
   UserCircle,
   AlertTriangle,
   Accessibility,
+  Cable,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -32,6 +33,7 @@ const DISCOVER_ITEMS = [
   { key: "friends" as const, url: "/friends", icon: Users },
   { key: "community" as const, url: "/community", icon: Globe },
   { key: "profile" as const, url: "/profile", icon: UserCircle },
+  { key: "integrations" as const, label: "API & Integrations", url: "/integrations", icon: Cable },
 ];
 
 interface AppSidebarProps {
@@ -203,7 +205,7 @@ export function AppSidebar({
           )}
           <div className="space-y-0.5">
             {DISCOVER_ITEMS.map((item) => {
-              const label = t(item.key);
+              const label = "label" in item ? item.label : t(item.key);
               return (
                 <Link
                   key={item.key}

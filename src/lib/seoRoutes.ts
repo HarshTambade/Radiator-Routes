@@ -177,6 +177,14 @@ export const ROUTE_SEO: readonly RouteSeo[] = [
     indexable: false,
     breadcrumbs: [HOME_CRUMB],
   },
+  {
+    pattern: "/integrations",
+    title: "API & Integrations",
+    description:
+      "Manage scoped API keys and connect Atlas AI to MCP-compatible clients or REST integrations.",
+    indexable: false,
+    breadcrumbs: [HOME_CRUMB],
+  },
 ];
 
 /** Metadata for any path that matches no route. */

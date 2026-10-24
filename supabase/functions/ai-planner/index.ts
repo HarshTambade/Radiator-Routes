@@ -164,7 +164,10 @@ function handleHFError(err: unknown): Response {
 
 // ─── Traveler memory loader ───────────────────────────────────────────────────
 
-async function loadMemoryContext(authHeader: string | null): Promise<string> {
+async function loadMemoryContext(
+  authHeader: string | null,
+  delegatedUserId: string | null = null,
+): Promise<string> {
   if (!authHeader) return "";
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -172,20 +175,32 @@ async function loadMemoryContext(authHeader: string | null): Promise<string> {
   if (!supabaseUrl || !supabaseKey) return "";
 
   try {
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
+    let profileQuery;
+    if (delegatedUserId) {
+      const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      if (!serviceRoleKey || authHeader !== `Bearer ${serviceRoleKey}`) return "";
+      const admin = createClient(supabaseUrl, serviceRoleKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      profileQuery = admin.from("profiles")
+        .select("preferences, travel_personality, travel_history")
+        .eq("id", delegatedUserId)
+        .maybeSingle();
+    } else {
+      const supabase = createClient(supabaseUrl, supabaseKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return "";
+      profileQuery = supabase.from("profiles")
+        .select("preferences, travel_personality, travel_history")
+        .eq("id", user.id)
+        .maybeSingle();
+    }
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return "";
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("preferences, travel_personality, travel_history")
-      .eq("id", user.id)
-      .single();
+    const { data: profile } = await profileQuery;
 
     if (!profile) return "";
 
@@ -290,7 +305,11 @@ Deno.serve(async (req: Request) => {
 
   // ── Load traveler memory (optional) ────────────────────────────────────────
   const authHeader = req.headers.get("Authorization");
-  const memoryContext = await loadMemoryContext(authHeader);
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const delegatedUserId = serviceRoleKey && authHeader === `Bearer ${serviceRoleKey}`
+    ? req.headers.get("x-platform-user-id")
+    : null;
+  const memoryContext = await loadMemoryContext(authHeader, delegatedUserId);
 
   // ── Route ───────────────────────────────────────────────────────────────────
 
@@ -298,9 +317,10 @@ Deno.serve(async (req: Request) => {
   // ACTION: plan-itinerary
   // ════════════════════════════════════════════════════════════════════════════
   if (action === "plan-itinerary") {
-    const { destination, days, travelers, budget, interests, tripType } =
+    const { destination, startDate: requestedStartDate, days, travelers, budget, interests, tripType } =
       params as {
         destination?: string;
+        startDate?: string;
         days?: number;
         travelers?: number;
         budget?: number;
@@ -313,14 +333,16 @@ Deno.serve(async (req: Request) => {
     if (!travelers) return errorResponse("travelers is required", 400);
     if (!budget) return errorResponse("budget is required", 400);
 
-    const startDate = todayIST();
+    const startDate = requestedStartDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedStartDate)
+      ? requestedStartDate
+      : todayIST();
 
     const systemPrompt =
-      "You are an expert Indian travel planner. You MUST respond with valid JSON only. " +
+      "You are an expert travel planner who uses accurate, destination-specific details. You MUST respond with valid JSON only. " +
       "No prose, no markdown fences, no explanation — output the JSON object and nothing else.";
 
     const userPrompt =
-      `Create a ${days}-day travel itinerary for ${travelers} traveller(s) visiting ${destination}, India.` +
+      `Create a ${days}-day travel itinerary for ${travelers} traveller(s) visiting ${destination}.` +
       memoryContext +
       `
 
@@ -356,7 +378,7 @@ Rules:
 - category must be one of: food, attraction, transport, shopping, accommodation, other
 - All costs in INR (₹)
 - Spread activities across all ${days} days (aim for 3–5 per day)
-- Use realistic Indian lat/lng coordinates for ${destination}
+- Use realistic latitude and longitude coordinates for ${destination}
 - Use ISO 8601 timestamps with +05:30 offset
 - Keep total_cost within ₹${budget}`;
 

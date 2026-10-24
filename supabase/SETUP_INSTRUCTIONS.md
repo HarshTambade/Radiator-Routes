@@ -3,7 +3,7 @@
 
 > **Project ID:** `dfvyuqxyjlkoovxmtikq`
 > **Project URL:** `https://dfvyuqxyjlkoovxmtikq.supabase.co`
-> **Single SQL file to run:** `supabase/master_schema.sql`
+> **New project:** run `supabase/master_schema.sql`. **Existing project:** apply the latest migrations.
 
 ---
 
@@ -44,17 +44,18 @@ Every step is done through the Supabase web dashboard unless explicitly noted.
 
 | Category | Count | Items |
 |---|---|---|
-| Tables | 15 | profiles, trips, trip_memberships, itineraries, activities, activity_votes, messages, disruption_events, trip_invites, trip_join_requests, communities, community_memberships, community_messages, community_events, event_rsvps |
-| Helper functions | 5 | is_trip_member, is_trip_organizer, get_trip_id_from_activity, get_trip_id_from_vote, is_community_member |
+| Tables | 22 | Trips, itineraries, social/community, friends, expenses, plus integration_api_keys, integration_api_rate_limits, and travel_orders |
+| Helper functions | 6 | Membership/organizer checks, activity/vote resolvers, community membership, and atomic API rate limiting |
 | Trigger functions | 4 | handle_new_user, auto_add_organizer_membership, update_community_member_count, auto_add_community_creator |
-| Triggers | 8 | on_auth_user_created, update_profiles_updated_at, update_trips_updated_at, trg_auto_add_organizer, update_itineraries_updated_at, update_communities_updated_at, trg_update_community_member_count, trg_auto_add_community_creator |
-| RLS policies | 38 | Full row-level security on all 15 tables |
-| Indexes | 24 | Performance indexes on all high-traffic columns |
-| Realtime tables | 4 | messages, activity_votes, community_messages, trip_join_requests |
+| Triggers | 11 | Profile/trip/community/expense/order timestamp and membership triggers |
+| RLS policies | 68 | User-facing tables use RLS; API credential/order tables are service-role-only with RLS enabled |
+| Indexes | 36 | Performance indexes on high-traffic columns and integration lookups |
+| Realtime tables | 8 | Messages, votes, join requests, friends and shared expenses |
 
 > ✅ The script is **idempotent** — safe to run multiple times. It drops and
-> recreates all policies and triggers on every run, so the database always ends
-> up in a consistent state.
+> recreates policies and triggers where needed. Integration credentials and
+> order records have no browser-facing RLS policy: they are accessed only by the
+> Edge Function service role after its own user and scope checks.
 
 ### Verify the schema ran correctly
 
@@ -62,7 +63,7 @@ After running, open a **new query** in the SQL Editor and run each block below
 to confirm everything was created:
 
 ```sql
--- Should return 15 rows
+-- Should return 22 rows
 SELECT tablename
 FROM   pg_tables
 WHERE  schemaname = 'public'
@@ -70,7 +71,7 @@ ORDER  BY tablename;
 ```
 
 ```sql
--- Should return 9 functions (5 helpers + 4 trigger functions)
+-- Should return 11 functions (6 helpers + 4 trigger functions + updated_at utility)
 SELECT routine_name
 FROM   information_schema.routines
 WHERE  routine_schema = 'public'
@@ -78,7 +79,7 @@ ORDER  BY routine_name;
 ```
 
 ```sql
--- Should return 8 triggers
+-- Should return 11 triggers
 SELECT tgname AS trigger_name, c.relname AS table_name
 FROM   pg_trigger t
 JOIN   pg_class  c ON t.tgrelid = c.oid
@@ -88,7 +89,7 @@ ORDER  BY c.relname, t.tgname;
 ```
 
 ```sql
--- Should return 38 policies
+-- Should return 68 user-facing policies (the service-role API tables have none)
 SELECT tablename, policyname
 FROM   pg_policies
 WHERE  schemaname = 'public'
@@ -96,7 +97,7 @@ ORDER  BY tablename, policyname;
 ```
 
 ```sql
--- Should return 4 realtime tables
+-- Should return 8 realtime tables
 SELECT tablename
 FROM   pg_publication_tables
 WHERE  pubname    = 'supabase_realtime'
@@ -169,7 +170,9 @@ AND    schemaname = 'public';
 
 ## STEP 5 — Deploy Edge Functions
 
-You need the **Supabase CLI** for this step.
+For an existing project, run `supabase/migrations/20261024000001_platform_api.sql`
+in the SQL Editor before deploying `platform-api`. CLI-managed projects can use
+`supabase db push` after linking instead.
 
 ### Install the CLI (if not already installed)
 
@@ -186,6 +189,10 @@ supabase link --project-ref dfvyuqxyjlkoovxmtikq
 
 When prompted for the database password enter the one you set in Step 1.
 
+```bash
+supabase db push
+```
+
 ### Deploy all functions at once
 
 From the project root folder run:
@@ -194,7 +201,7 @@ From the project root folder run:
 supabase functions deploy
 ```
 
-This deploys all 9 edge functions in the `supabase/functions/` directory.
+This deploys all 10 edge functions in the `supabase/functions/` directory.
 
 ### Or deploy them one by one
 
@@ -208,12 +215,13 @@ supabase functions deploy nominatim
 supabase functions deploy opentripmap
 supabase functions deploy tomtom
 supabase functions deploy openroute
+supabase functions deploy platform-api
 ```
 
 ### Verify deployment
 
 In the Supabase dashboard go to **Edge Functions** (left sidebar).
-You should see all 9 functions listed with a green status dot.
+You should see all 10 functions listed with a green status dot.
 
 ### Edge Functions Reference
 
@@ -228,6 +236,7 @@ You should see all 9 functions listed with a green status dot.
 | `opentripmap` | Points of interest around a location |
 | `tomtom` | Traffic flow, incidents, place search |
 | `openroute` | Full routing: directions, isochrones, matrix, geocoding |
+| `platform-api` | Scoped REST/OpenAPI and remote MCP API for trips, budgets, planning, and booking request records |
 
 ---
 
@@ -240,6 +249,10 @@ You should see all 9 functions listed with a green status dot.
    - `public.activity_votes`
    - `public.community_messages`
    - `public.trip_join_requests`
+   - `public.direct_messages`
+   - `public.friend_requests`
+   - `public.group_expenses`
+   - `public.expense_splits`
 
 If any table is missing or toggled off, run this in the SQL Editor:
 
@@ -257,6 +270,18 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='supabase_realtime' AND tablename='trip_join_requests') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.trip_join_requests;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='supabase_realtime' AND tablename='direct_messages') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.direct_messages;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='supabase_realtime' AND tablename='friend_requests') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.friend_requests;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='supabase_realtime' AND tablename='group_expenses') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.group_expenses;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='supabase_realtime' AND tablename='expense_splits') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.expense_splits;
   END IF;
 END;
 $$;
@@ -462,11 +487,11 @@ When you are ready to go live, complete every item below:
 ### Supabase Dashboard
 - [ ] Run `supabase/master_schema.sql` on the production project
 - [ ] Set all 6 secrets: `HF_API_KEY`, `AMADEUS_API_KEY`, `AMADEUS_API_SECRET`, `OPENTRIPMAP_API_KEY`, `TRAFFIC_API_KEY`, `ORS_API_KEY`
-- [ ] Deploy all 9 edge functions (`supabase functions deploy`)
+- [ ] Deploy all 10 edge functions (`supabase functions deploy`)
 - [ ] **Authentication → Providers → Email** — enable "Confirm email"
 - [ ] **Authentication → URL Configuration** — set Site URL to your production domain
 - [ ] **Authentication → URL Configuration** — add your production domain to Redirect URLs
-- [ ] **Database → Replication** — verify all 4 realtime tables are in the publication
+- [ ] **Database → Replication** — verify all 8 realtime tables are in the publication
 
 ### Frontend / Hosting (Vercel / Netlify / etc.)
 - [ ] Set `VITE_SUPABASE_URL` environment variable to the production project URL
