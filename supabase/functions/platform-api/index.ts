@@ -100,6 +100,16 @@ function getFunctionPath(url: URL): string {
   const marker = "/functions/v1/platform-api";
   const position = url.pathname.indexOf(marker);
   if (position >= 0) return url.pathname.slice(position + marker.length) || "/";
+
+  // Supabase's Edge Runtime can pass the function name as the path prefix
+  // without the public `/functions/v1` gateway segment. Normalize that form
+  // too so `/health`, `/mcp`, and versioned routes reach their handlers.
+  const runtimePrefix = "/platform-api";
+  const runtimePosition = url.pathname.indexOf(runtimePrefix);
+  if (runtimePosition >= 0) {
+    return url.pathname.slice(runtimePosition + runtimePrefix.length) || "/";
+  }
+
   return url.pathname;
 }
 
