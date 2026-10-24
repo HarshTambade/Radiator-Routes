@@ -2,3 +2,15 @@ project_id = "dfvyuqxyjlkoovxmtikq"
 
 [functions.platform-api]
 verify_jwt = false
+
+[functions.ai-planner]
+verify_jwt = true
+
+[functions.groq-proxy]
+verify_jwt = true
+
+[functions.openroute]
+verify_jwt = true
+
+[functions.opentripmap]
+verify_jwt = true

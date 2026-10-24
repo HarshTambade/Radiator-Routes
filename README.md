@@ -46,7 +46,7 @@ mindmap
   root((Radiator<br/>Routes))
     AI Layer
       Dual backend dispatch
-        Groq LLaMA 3.3 70B hosted
+        Groq GPT-OSS 120B hosted; Qwen vision
         WebLLM on-device WebGPU
         Capability-gated fallback
       Jinny assistant
@@ -74,13 +74,13 @@ mindmap
     Data Sources
       Free no key
         Open-Meteo weather
-        Nominatim OSM
+        OpenStreetMap tiles
         Wikipedia Wikimedia
         Web Speech API
         MyMemory translate
       Free tier optional key
         Groq inference
-        OpenRouteService
+        OpenRouteService routing + geocoding
         OpenTripMap
       Backend
         Supabase Postgres
@@ -137,9 +137,9 @@ the stack.
 | **Travel memory** | Learns preferences across trips and folds them into future plans |
 | **Platform API** | Scoped, revocable API keys, versioned REST/OpenAPI endpoints, and an MCP server for connected AI clients (`/integrations`) |
 
-All AI calls run in **JSON mode** with simplified prompts to prevent truncation. With neither a
-Groq key nor an on-device model, these surfaces show an "AI unavailable" notice and the rest of the
-app works normally.
+Hosted AI requests go through an authenticated Supabase proxy; provider secrets stay server-side.
+When the deployment has no Groq secret and the user has not selected an on-device model, AI surfaces
+show an "AI unavailable" notice while the rest of the app remains usable.
 
 See [AI Engines](#-ai-engines-hosted-or-on-device) for choosing a backend.
 
@@ -164,7 +164,7 @@ disruption replanner · group trade-off planner with per-traveller explanations.
 
 ### 🌍 Maps & navigation
 2D Leaflet + OpenStreetMap · 3D MapLibre GL globe · 360° street view · AR attraction viewer ·
-OpenRouteService distance/ETA per activity · Nominatim geocoding · navigation deep-links.
+OpenRouteService directions, geocoding, and elevation through authenticated Edge proxies · navigation deep-links.
 Heavy map and AR bundles are lazy-loaded behind `Suspense`.
 
 ### ⛅ Live data
@@ -193,13 +193,13 @@ Every AI surface runs against one of two interchangeable backends. The choice li
 
 | | **Groq** (default) | **WebLLM** (on-device) |
 |---|---|---|
-| Model | LLaMA 3.3 70B | LLaMA 3.2 1B/3B, Qwen 2.5 1.5B/3B, Phi 3.5 Mini, LLaMA 3.1 8B |
-| API key | `VITE_GROQ_API_KEY` | **None** |
+| Model | Server configured (default: GPT-OSS 120B) | LLaMA 3.2 1B/3B, Qwen 2.5 1.5B/3B, Phi 3.5 Mini, LLaMA 3.1 8B |
+| API key | Server-side Supabase secret | **None** |
 | Network | Required per request | One-time model download only |
 | Privacy | Prompts sent to Groq | **Prompts never leave the device** |
 | Works offline | No | **Yes, once cached** |
 | Speed | Fast | Slower; depends on your GPU |
-| Quality | Highest | Lower — 1–8 B parameters vs 70 B |
+| Quality | Hosted model configured by the deployment | Lower; depends on the selected local model |
 | Cost of entry | Free-tier signup | 0.7–4.3 GB download, WebGPU browser |
 
 ### Requirements for on-device
@@ -340,24 +340,24 @@ Anonymous caches — tiles, fonts, Wikipedia — survive logout so the app stays
 ### AI
 | Technology | Purpose |
 |---|---|
-| **Groq — `llama-3.3-70b-versatile`** | Hosted itinerary generation, chat, replanning, regret scoring |
+| **Groq — GPT-OSS 120B + Qwen 3.8 27B** | Hosted chat, vision, and transcription through an authenticated server proxy |
 | **WebLLM (`@mlc-ai/web-llm` 0.2.84)** | On-device inference on WebGPU — no key, private, offline |
 | **Web Speech API** | Browser-native STT and TTS — no key, no network |
-| **Groq Whisper** | Optional STT fallback when a Groq key is present |
+| **Groq Whisper** | Optional STT fallback when the deployment has a Groq secret and the user is signed in |
 
 ### Maps & geospatial
-Leaflet + React-Leaflet · MapLibre GL JS · Nominatim / OpenStreetMap · OpenRouteService.
+Leaflet + React-Leaflet · MapLibre GL JS · OpenStreetMap tiles · OpenRouteService Pelias geocoding and routing.
 
 ### External APIs
 | API | Key required | Purpose |
 |---|---|---|
 | **Open-Meteo** | No | 7-day weather forecast |
-| **Nominatim / OSM** | No | Geocoding, reverse geocoding, tiles |
+| **OpenStreetMap tiles** | No | Map tiles and attribution |
 | **Wikipedia / Wikimedia REST** | No | Place context, imagery, safety advisories |
 | **MyMemory** | No | Translation (1000 req/day per IP) |
 | **WebLLM / MLC** | No | On-device LLM inference (opt-in) |
-| **Groq** | Free tier | Hosted LLM inference |
-| **OpenRouteService** | Free tier | Routing, ETA, elevation |
+| **Groq** | Provider account | Hosted LLM inference through a server-side secret |
+| **OpenRouteService** | Free tier | Authenticated routing, geocoding, ETA, elevation |
 | **OpenTripMap** | Free tier | POI discovery |
 
 The Platform API adds a separate integration layer for MCP-compatible AI clients
@@ -371,10 +371,10 @@ These were replaced with free alternatives. The env vars are inert — setting t
 | Removed | Replaced by |
 |---|---|
 | Amadeus | Deep-links to Google Flights, Kiwi, Skyscanner, Booking.com (`services/amadeus.ts`) |
-| TomTom Traffic | Time-of-day estimation + Nominatim + ORS (`services/traffic.ts`) |
+| TomTom Traffic | Time-of-day estimation + authenticated OpenRouteService geocoding/routing (`services/traffic.ts`) |
 | Mappls Web Maps SDK | OpenStreetMap + MapLibre GL |
 | GNews *(key was hardcoded in source)* | Wikipedia REST + curated advisories (`services/gnews.ts`) |
-| OpenAI GPT-4o | Groq LLaMA 3.3 70B |
+| OpenAI GPT-4o | Groq GPT-OSS 120B for chat; Qwen 3.8 27B for vision |
 
 > `services/traffic.ts` still exports functions named `tomtomSearch`, `tomtomNearbySearch` and so
 > on. These are compatibility shims over free providers, kept so existing callers didn't need to
@@ -396,7 +396,7 @@ Vite PWA Plugin + Workbox · Vitest + Testing Library · ESLint 9 (flat config) 
       ┌──────────────────────┼──────────────────────┐
       │                      │                      │
 ┌─────▼──────┐      ┌────────▼───────┐     ┌────────▼────────┐
-│  React 18  │      │    Supabase    │     │   Groq LLaMA    │
+│  React 18  │      │    Supabase    │     │  Groq GPT-OSS   │
 │ Vite 8 /TS │      │ Postgres + RLS │     │  3.3 70B (JSON  │
 │  PWA shell │      │  + Realtime    │     │      mode)      │
 └─────┬──────┘      └────────┬───────┘     └────────┬────────┘
@@ -423,9 +423,9 @@ Vite PWA Plugin + Workbox · Vitest + Testing Library · ESLint 9 (flat config) 
 
 ```
 Speech  →  Web Speech API (in-browser STT)
-              │  └─ optional: Groq Whisper when a key is set
+              │  └─ optional: Groq Whisper when the server secret is set
               ▼
-        Groq LLaMA 3.3 (JSON mode)
+        Groq GPT-OSS (JSON mode)
               │
               ▼
         { destination, start_date, end_date, travelers,
@@ -493,19 +493,34 @@ Only the Supabase pair is required. See `.env.example` for the annotated source 
 VITE_SUPABASE_URL="https://your-project.supabase.co"
 VITE_SUPABASE_PUBLISHABLE_KEY="your-publishable-key"
 
-# ── Optional: all free tier, no credit card ─────────────────────────────
-VITE_GROQ_API_KEY=""          # AI chat, planning, regret engine, replanning
-VITE_ORS_API_KEY=""           # routing, ETA, elevation — 2000 req/day
-VITE_OPENTRIPMAP_API_KEY=""   # POI discovery — 1000 req/day
 ```
 
-No key needed for Open-Meteo, Nominatim/OpenStreetMap, MapLibre GL, Wikipedia/Wikimedia or the
-Web Speech API.
+Provider credentials are stored as Supabase Edge Function secrets and are only
+used by authenticated, quota-limited server proxies:
+
+```sh
+supabase secrets set GROQ_API_KEY="..." ORS_API_KEY="..." OPENTRIPMAP_API_KEY="..."
+```
+
+For browser-based REST or MCP clients, allow only the exact production origins
+that should use the API. Requests from server-side clients without an `Origin`
+header remain supported:
+
+```sh
+supabase secrets set PLATFORM_API_ALLOWED_ORIGINS="https://app.example.com"
+```
+
+Set `HF_API_KEY` if the `ai-planner` itinerary endpoint is enabled. `GROQ_MODEL`
+and `GROQ_VISION_MODEL` are optional server-side model overrides. No provider
+key is needed for Open-Meteo, OpenStreetMap tiles, MapLibre, Wikimedia, or the
+on-device WebLLM path. Geocoding uses the authenticated OpenRouteService proxy.
 
 > ⚠️ Every `VITE_*` variable is **inlined into the client bundle** and is therefore public by
-> design. Never put a service-role key, a secret, or any key that can spend money in a `VITE_*`
-> variable. Restrict each free-tier key by HTTP referrer in its provider dashboard, and rely on
-> Supabase Row-Level Security — not key secrecy — for data protection.
+> design. Never put a service-role key, provider credential, or any key that can
+> spend money in a `VITE_*` variable. If an earlier deployment used a provider
+> key in a `VITE_*` variable, rotate that provider key after moving it to Edge
+> Function secrets. Supabase Row-Level Security, server-side owner checks, and
+> per-user/project quotas protect data and provider usage.
 
 ---
 
@@ -637,10 +652,10 @@ Protected routes sit behind `ProtectedLayout`, which redirects unauthenticated u
 | `travelMemory.ts` | via `gemini.ts` | Optional | Cross-trip preference learning |
 | `groqVoice.ts` | Web Speech API | No | Groq Whisper only as fallback |
 | `climate.ts` | Open-Meteo | No | 7-day forecast, WMO code mapping |
-| `nominatim.ts` | Nominatim / OSM | No | Geocoding + reverse geocoding |
-| `openroute.ts` | OpenRouteService | Optional | Direct browser calls |
-| `opentripmap.ts` | OpenTripMap | Optional | Empty results without a key |
-| `traffic.ts` | Nominatim + ORS | No | Time-of-day traffic estimation |
+| `nominatim.ts` | OpenRouteService Pelias | Server secret | Compatibility adapter over authenticated geocoding proxy |
+| `openroute.ts` | OpenRouteService | Server secret | Authenticated Edge Function proxy |
+| `opentripmap.ts` | OpenTripMap | Server secret | Authenticated Edge Function proxy |
+| `traffic.ts` | Local estimates + ORS | Server secret | Time-of-day traffic estimation and proxied routing/geocoding |
 | `amadeus.ts` | Deep-links | No | Google Flights, Kiwi, Skyscanner, Booking.com |
 | `gnews.ts` | Wikipedia REST | No | Place context + curated advisories |
 | `translate.ts` | MyMemory | No | Falls back to source text on error |
@@ -1037,7 +1052,7 @@ git push origin feat/your-feature
 - **Styling** — Tailwind utilities; no inline styles except genuinely dynamic values
 - **Network** — route new calls through `lib/http.ts`
 - **Database** — every new table needs RLS policies
-- **Keys** — never hardcode; `import.meta.env.VITE_*` only, and never for secrets
+- **Keys** — browser `VITE_*` values are public; provider secrets belong in Supabase Edge Function secrets
 - **Offline** — new heavy third-party origins need a runtime caching rule in `vite.config.ts`
 
 `npm run verify` must pass before a PR.
@@ -1054,7 +1069,7 @@ git push origin feat/your-feature
 | **Web Speech API over hosted STT** | Zero cost, zero latency, no audio leaves the device |
 | **Vite 8 / Rolldown** | Faster builds; declarative priority-based chunking |
 | **Route-level `lazy()`** | Landing visitors don't download the planner, maps or PDF engine |
-| **Open-Meteo, Nominatim, ORS** | Free and open, no per-request billing |
+| **Open-Meteo and OpenStreetMap tiles** | Public services with usage policies; ORS geocoding/routing needs a server credential |
 | **`generateSW` over `injectManifest`** | Declarative caching config; no service-worker source to maintain |
 
 ---
@@ -1095,7 +1110,7 @@ SOFTWARE.
 ## 🙏 Acknowledgements
 
 [Groq](https://groq.com) · [Supabase](https://supabase.com) ·
-[Open-Meteo](https://open-meteo.com) · [OpenStreetMap & Nominatim](https://www.openstreetmap.org) ·
+[Open-Meteo](https://open-meteo.com) · [OpenStreetMap](https://www.openstreetmap.org) ·
 [OpenRouteService](https://openrouteservice.org) · [OpenTripMap](https://opentripmap.io) ·
 [Wikipedia & Wikimedia](https://www.wikipedia.org) · [MapLibre](https://maplibre.org) ·
 [Leaflet](https://leafletjs.com) · [Radix UI](https://www.radix-ui.com) ·

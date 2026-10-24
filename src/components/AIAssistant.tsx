@@ -920,10 +920,12 @@ export default function AIAssistant() {
         const msg: string = errorMessage(e) ?? "";
         if (msg === "RATE_LIMIT") {
           toast({ title: "Rate limited", description: "Too many requests. Please wait a moment.", variant: "destructive" });
-        } else if (msg === "INVALID_API_KEY") {
-          toast({ title: "API key error", description: "AI API key is invalid or expired.", variant: "destructive" });
+        } else if (msg === "AUTH_REQUIRED" || msg === "INVALID_API_KEY") {
+          toast({ title: "Sign in again", description: "Your hosted AI session expired. Sign in and retry.", variant: "destructive" });
         } else if (msg === "NO_API_KEY") {
-          toast({ title: "AI unavailable", description: "Set VITE_GROQ_API_KEY to enable the assistant.", variant: "destructive" });
+          toast({ title: "AI unavailable", description: "Sign in to use hosted AI, or switch to on-device AI in Settings.", variant: "destructive" });
+        } else if (msg === "NO_SESSION" || msg === "BACKEND_UNAVAILABLE") {
+          toast({ title: "Hosted AI unavailable", description: handleGeminiError(e), variant: "destructive" });
         } else if (msg === "MODEL_UNAVAILABLE") {
           toast({ title: "AI model retired", description: handleGeminiError(e), variant: "destructive" });
         }
@@ -932,8 +934,8 @@ export default function AIAssistant() {
             ...prev,
             {
               role: "assistant",
-              content: msg === "NO_API_KEY"
-                ? "Hosted AI isn't configured because this build has no Groq API key. You can switch to on-device AI in Settings after downloading a model. Weather, maps and curated safety guidance need network access. For local development, configure `VITE_GROQ_API_KEY`."
+              content: ["NO_API_KEY", "NO_SESSION", "BACKEND_UNAVAILABLE"].includes(msg)
+                ? `${handleGeminiError(e)} Weather, maps and curated safety guidance need network access.`
                 : "Sorry, I encountered an error. Please try again.",
             },
           ]);
@@ -999,8 +1001,8 @@ export default function AIAssistant() {
         toast({ title: "No speech detected", description: "Please try again." });
       } else if (msg === "RATE_LIMIT") {
         toast({ title: "Rate limited", description: "Please wait a moment.", variant: "destructive" });
-      } else if (msg === "INVALID_API_KEY") {
-        toast({ title: "API key error", description: "Groq API key is invalid.", variant: "destructive" });
+      } else if (msg === "AUTH_REQUIRED" || msg === "INVALID_API_KEY") {
+        toast({ title: "Sign in again", description: "Your hosted AI session expired. Sign in and retry.", variant: "destructive" });
       } else {
         toast({ title: "Transcription failed", description: "Could not understand audio. Please type instead.", variant: "destructive" });
       }
@@ -1020,7 +1022,7 @@ export default function AIAssistant() {
       toast({
         title: "Voice not supported",
         description:
-          "Please use Chrome, Edge, or Safari. Firefox needs VITE_GROQ_API_KEY for voice.",
+          "Please use Chrome, Edge, or Safari. Voice transcription requires a signed-in account and hosted AI configuration.",
         variant: "destructive",
       });
       return;

@@ -45,11 +45,22 @@ DECLARE
   v_window TIMESTAMPTZ := date_trunc('minute', now());
   v_count INTEGER;
 BEGIN
+  IF p_api_key_id IS NULL OR p_limit IS NULL OR p_limit < 1 OR p_limit > 10000 THEN
+    RAISE EXCEPTION 'invalid API rate limit arguments' USING ERRCODE = '22023';
+  END IF;
+
   INSERT INTO public.integration_api_rate_limits (api_key_id, window_start, request_count)
   VALUES (p_api_key_id, v_window, 1)
   ON CONFLICT (api_key_id, window_start)
   DO UPDATE SET request_count = public.integration_api_rate_limits.request_count + 1
+  WHERE public.integration_api_rate_limits.request_count < p_limit
   RETURNING request_count INTO v_count;
+  IF NOT FOUND THEN
+    SELECT request_count INTO v_count FROM public.integration_api_rate_limits
+    WHERE api_key_id = p_api_key_id AND window_start = v_window;
+    RETURN QUERY SELECT FALSE, 0, v_window + interval '1 minute';
+    RETURN;
+  END IF;
 
   -- Opportunistic cleanup keeps the table bounded without requiring pg_cron.
   IF random() < 0.01 THEN
@@ -57,7 +68,7 @@ BEGIN
     WHERE window_start < now() - interval '2 days';
   END IF;
 
-  RETURN QUERY SELECT v_count <= p_limit, greatest(0, p_limit - v_count), v_window + interval '1 minute';
+  RETURN QUERY SELECT TRUE, greatest(0, p_limit - v_count), v_window + interval '1 minute';
 END;
 $$;
 

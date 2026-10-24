@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { nominatimSearch } from "@/services/nominatim";
 import {
   saveTripOffline,
   getOfflineTripData,
@@ -80,16 +81,10 @@ export function useOfflineTrip(tripId?: string) {
             const query = country
               ? `${destination}, ${country}`
               : destination;
-            const res = await fetch(
-              `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
-              { headers: { "Accept-Language": "en" } },
-            );
-            if (res.ok) {
-              const geo = await res.json();
-              if (geo.length > 0) {
-                lat = parseFloat(geo[0].lat);
-                lng = parseFloat(geo[0].lon);
-              }
+            const geo = await nominatimSearch(query, 1);
+            if (geo.length > 0) {
+              lat = parseFloat(geo[0].lat);
+              lng = parseFloat(geo[0].lon);
             }
           } catch {
             // geo optional — tiles still cached if activity coords available

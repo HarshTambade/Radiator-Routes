@@ -5,27 +5,16 @@
 // (https://console.groq.com/docs/deprecations). `llama-3.3-70b-versatile` was
 // shut down on 16 Aug 2026 and was hard-coded in three files, so every AI
 // surface failed at once with a 404 `model_not_found`. Model IDs now live here
-// and can be overridden per deployment without a code change:
-//
-//   VITE_GROQ_MODEL         chat / planning / JSON    (default openai/gpt-oss-120b)
-//   VITE_GROQ_VISION_MODEL  camera scene description  (default qwen/qwen3.8-27b)
+// and are configured on the server with GROQ_MODEL and GROQ_VISION_MODEL.
 // ─────────────────────────────────────────────────────────────────────────────
-
-export const GROQ_BASE = "https://api.groq.com/openai/v1";
-
-const env = (name: string): string | undefined => {
-  const value = (import.meta.env[name] as string | undefined)?.trim();
-  return value ? value : undefined;
-};
 
 /** Groq's listed replacement for llama-3.3-70b-versatile. */
 export const DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b";
 /** Groq's current multimodal model (text + image input). */
 export const DEFAULT_GROQ_VISION_MODEL = "qwen/qwen3.8-27b";
 
-export const GROQ_MODEL = env("VITE_GROQ_MODEL") ?? DEFAULT_GROQ_MODEL;
-export const GROQ_VISION_MODEL =
-  env("VITE_GROQ_VISION_MODEL") ?? DEFAULT_GROQ_VISION_MODEL;
+export const GROQ_MODEL = DEFAULT_GROQ_MODEL;
+export const GROQ_VISION_MODEL = DEFAULT_GROQ_VISION_MODEL;
 
 /** gpt-oss models reason before answering; others do not take these params. */
 function isReasoningModel(model: string): boolean {
@@ -70,7 +59,7 @@ export function stripReasoning(text: string): string {
  */
 export function groqErrorCode(status: number, body: string): string {
   if (status === 429) return "RATE_LIMIT";
-  if (status === 401) return "INVALID_API_KEY";
+  if (status === 401) return "AUTH_REQUIRED";
   if (status === 404 || /model_not_found|model_decommissioned|decommissioned/i.test(body)) {
     return "MODEL_UNAVAILABLE";
   }

@@ -1,21 +1,24 @@
+import { ProviderAuthError, readJsonObject, readProviderJson, requireProviderUser } from "../_shared/providerAuth.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Expose-Headers": "X-RateLimit-Remaining-Minute, X-RateLimit-Reset-Minute, X-RateLimit-Remaining-Day, X-RateLimit-Reset-Day",
 };
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-function jsonResponse(data: unknown, status = 200): Response {
+function jsonResponse(data: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders, "Cache-Control": "no-store", "Content-Type": "application/json", ...extraHeaders },
   });
 }
 
-function errorResponse(message: string, status = 500): Response {
-  return jsonResponse({ error: message }, status);
+function errorResponse(message: string, status = 500, extraHeaders: Record<string, string> = {}): Response {
+  return jsonResponse({ error: message }, status, extraHeaders);
 }
 
 // ─── main handler ─────────────────────────────────────────────────────────────
@@ -30,15 +33,17 @@ Deno.serve(async (req: Request) => {
     return errorResponse("Method not allowed", 405);
   }
 
+  let rateHeaders: Record<string, string> = {};
   try {
+    const principal = await requireProviderUser(req, "opentripmap");
+    rateHeaders = principal.rateHeaders;
     const OPENTRIPMAP_API_KEY = Deno.env.get("OPENTRIPMAP_API_KEY");
     if (!OPENTRIPMAP_API_KEY) {
-      return errorResponse("OPENTRIPMAP_API_KEY is not configured", 500);
+      return errorResponse("The place search service is not configured.", 503, rateHeaders);
     }
 
-    // Parse request body
-    const body = await req.json().catch(() => null);
-    if (!body || typeof body.action !== "string") {
+    const body = await readJsonObject(req, 16_384);
+    if (typeof body.action !== "string") {
       return errorResponse("Request body must include an 'action' field", 400);
     }
 
@@ -95,12 +100,20 @@ Deno.serve(async (req: Request) => {
           );
         }
 
-        if (radius < 0 || radius > 100_000) {
+        if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+          return errorResponse("lat and lon must be valid coordinates", 400);
+        }
+
+        if (!Number.isFinite(radius) || radius < 1 || radius > 100_000) {
           return errorResponse(
             "radius must be between 0 and 100000 metres",
             400,
           );
         }
+        if (!Number.isInteger(limit) || limit < 1 || limit > 50) return errorResponse("limit must be from 1 to 50", 400);
+        if (typeof kinds !== "string" || kinds.length > 300) return errorResponse("kinds must be a string of at most 300 characters", 400);
+        if (rate !== undefined && (!Number.isFinite(rate) || rate < 1 || rate > 3)) return errorResponse("rate must be from 1 to 3", 400);
+        if (format !== "json" && format !== "geojson") return errorResponse("format must be json or geojson", 400);
 
         url =
           `${baseUrl}/radius` +
@@ -120,9 +133,10 @@ Deno.serve(async (req: Request) => {
       case "details": {
         const { xid } = params as { xid?: string };
 
-        if (!xid || xid.trim() === "") {
+        if (typeof xid !== "string" || xid.trim() === "") {
           return errorResponse("xid is required for the 'details' action", 400);
         }
+        if (xid.length > 100 || !/^[a-z0-9_-]+$/i.test(xid.trim())) return errorResponse("xid is invalid", 400);
 
         url = `${baseUrl}/xid/${encodeURIComponent(xid.trim())}?apikey=${OPENTRIPMAP_API_KEY}`;
         break;
@@ -146,7 +160,7 @@ Deno.serve(async (req: Request) => {
           kinds?: string;
         };
 
-        if (!name || name.trim() === "") {
+        if (typeof name !== "string" || name.trim() === "") {
           return errorResponse(
             "name is required for the 'autosuggest' action",
             400,
@@ -159,6 +173,13 @@ Deno.serve(async (req: Request) => {
             400,
           );
         }
+        if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+          return errorResponse("lat and lon must be valid coordinates", 400);
+        }
+        if (!Number.isFinite(radius) || radius < 1 || radius > 100_000) return errorResponse("radius must be from 1 to 100000 metres", 400);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 50) return errorResponse("limit must be from 1 to 50", 400);
+        if (name.length > 200) return errorResponse("name must be 200 characters or fewer", 400);
+        if (kinds !== undefined && (typeof kinds !== "string" || kinds.length > 300)) return errorResponse("kinds must be a string of at most 300 characters", 400);
 
         url =
           `${baseUrl}/autosuggest` +
@@ -206,6 +227,18 @@ Deno.serve(async (req: Request) => {
             400,
           );
         }
+        const coords = [bbox.lon_min, bbox.lat_min, bbox.lon_max, bbox.lat_max];
+        if (!coords.every(Number.isFinite)
+          || bbox.lon_min < -180 || bbox.lon_max > 180
+          || bbox.lat_min < -90 || bbox.lat_max > 90
+          || bbox.lon_min >= bbox.lon_max || bbox.lat_min >= bbox.lat_max
+          || bbox.lon_max - bbox.lon_min > 10 || bbox.lat_max - bbox.lat_min > 10) {
+          return errorResponse("bbox coordinates are invalid or cover too large an area", 400);
+        }
+        if (!Number.isInteger(limit) || limit < 1 || limit > 50) return errorResponse("limit must be from 1 to 50", 400);
+        if (typeof kinds !== "string" || kinds.length > 300) return errorResponse("kinds must be a string of at most 300 characters", 400);
+        if (rate !== undefined && (!Number.isFinite(rate) || rate < 1 || rate > 3)) return errorResponse("rate must be from 1 to 3", 400);
+        if (format !== "json" && format !== "geojson") return errorResponse("format must be json or geojson", 400);
 
         url =
           `${baseUrl}/bbox` +
@@ -236,31 +269,21 @@ Deno.serve(async (req: Request) => {
       headers: {
         Accept: "application/json",
       },
+      signal: AbortSignal.timeout(12_000),
     });
 
     if (!response.ok) {
-      const text = await response.text();
-      console.error(`OpenTripMap API error [${response.status}]:`, text);
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        parsed = { raw: text };
-      }
-
-      return errorResponse(
-        `OpenTripMap API error [${response.status}]: ${JSON.stringify(parsed)}`,
-        response.status >= 500 ? 502 : response.status,
-      );
+      console.error(`OpenTripMap upstream failed with HTTP ${response.status}`);
+      return errorResponse("The place search provider could not complete the request.", response.status >= 500 ? 502 : 400, rateHeaders);
     }
 
-    const data = await response.json();
-    return jsonResponse(data);
+    const data = await readProviderJson(response, 4 * 1024 * 1024);
+    return jsonResponse(data, 200, rateHeaders);
   } catch (error: unknown) {
-    console.error("OpenTripMap function error:", error);
-    const message =
-      error instanceof Error ? error.message : "Internal server error";
-    return errorResponse(message, 500);
+    const status = error instanceof ProviderAuthError ? error.status : error instanceof DOMException && error.name === "TimeoutError" ? 504 : 502;
+    const headers = error instanceof ProviderAuthError ? error.headers : rateHeaders;
+    if (status >= 500 && !(error instanceof ProviderAuthError)) console.error("OpenTripMap proxy failed", error instanceof Error ? error.name : "unknown_error");
+    const message = error instanceof ProviderAuthError ? error.message : status === 504 ? "The place search request timed out. Please retry." : "The place search request could not be completed.";
+    return errorResponse(message, status, headers);
   }
 });

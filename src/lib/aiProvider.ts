@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Two backends serve every AI surface in the app:
 //
-//   "groq"   — hosted Groq LLaMA 3.3 70B. Fast, high quality, needs a key and
+//   "groq"   — hosted Groq GPT-OSS chat / Qwen vision. Needs server configuration and
 //              a network connection. Prompts leave the device.
 //   "webllm" — MLC WebLLM running in-browser on WebGPU. No key, no network
 //              after the one-time model download, nothing leaves the device.

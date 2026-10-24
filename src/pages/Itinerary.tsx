@@ -56,6 +56,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { planItinerary } from "@/services/aiPlanner";
 import { nominatimSearch } from "@/services/nominatim";
+import { orsDirections } from "@/services/openroute";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useSeo } from "@/hooks/useSeo";
@@ -324,26 +325,11 @@ export default function Itinerary() {
         return;
       }
 
-      const ORS_KEY = import.meta.env.VITE_ORS_API_KEY as string;
-      const res = await fetch(
-        "https://api.openrouteservice.org/v2/directions/driving-car/json",
-        {
-          method: "POST",
-          headers: {
-            Authorization: ORS_KEY,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            coordinates: [
-              [oLon, oLat],
-              [dLon, dLat],
-            ],
-            units: "km",
-          }),
-        },
-      );
-      if (!res.ok) throw new Error("Route fetch failed");
-      const data = await res.json();
+      const data = await orsDirections({
+        origin: { lat: oLat, lon: oLon },
+        destination: { lat: dLat, lon: dLon },
+        profile: "driving-car",
+      }) as any;
       const summary = data.routes?.[0]?.summary;
       if (summary) {
         const dist = `${(summary.distance ?? 0).toFixed(1)} km`;

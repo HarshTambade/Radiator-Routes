@@ -102,9 +102,10 @@ export async function checkPlatformApiHealth(): Promise<boolean> {
 }
 
 export function supabasePublishableKey() {
-  return (
+  const key = (
     (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
-    (import.meta.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY as string | undefined) ??
-    "YOUR_SUPABASE_PUBLISHABLE_KEY"
-  );
+    (import.meta.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY as string | undefined)
+  )?.trim();
+  if (!key) throw new Error("The Supabase publishable key is not configured.");
+  return key;
 }

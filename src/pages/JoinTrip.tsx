@@ -37,22 +37,26 @@ export default function JoinTrip() {
   useEffect(() => {
     const loadInvite = async () => {
       if (!inviteCode) return;
-      // Fetch invite - need to use a public approach since user might not be a member
-      // We'll use an edge function or RPC for this
-      // For now, if user is logged in, we try to get the invite info
-      const { data, error } = await supabase
-        .from("trip_invites")
-        .select("*, trips(name, destination, start_date, end_date)")
-        .eq("invite_code", inviteCode)
-        .single();
+      // The RPC resolves only this invite code and returns the minimum trip
+      // preview needed for the join screen. Direct table reads stay member-only
+      // so invite codes cannot be enumerated.
+      const { data, error } = await supabase.rpc("lookup_trip_invite", {
+        p_invite_code: inviteCode,
+      });
+      const row = data?.[0];
 
-      if (error || !data) {
+      if (error || !row) {
         setLoading(false);
         return;
       }
 
-      setInvite(data);
-      setTrip((data as any).trips);
+      setInvite(row);
+      setTrip({
+        name: row.trip_name,
+        destination: row.destination,
+        start_date: row.start_date,
+        end_date: row.end_date,
+      });
       setLoading(false);
     };
     loadInvite();

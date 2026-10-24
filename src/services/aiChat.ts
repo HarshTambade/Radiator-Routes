@@ -12,8 +12,9 @@ import { formatLocalDate } from "@/lib/date";
 import { formatMoney, formatMoneyTotals, parseBudgetInput } from "@/lib/currency";
 import { loadTripBudgets } from "@/services/tripBudget";
 import { getAIProvider, hasWebGPUAPI } from "@/lib/aiProvider";
+import { isSupabaseConfigured } from "@/integrations/supabase/client";
+import { groqProxyFetch } from "@/services/groqProxy";
 import {
-  GROQ_BASE,
   GROQ_MODEL,
   groqErrorCode,
   groqMaxTokens,
@@ -23,7 +24,6 @@ import {
 // Re-exported so existing importers of `cityToIATA` from this module keep working.
 export { cityToIATA };
 
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Intent types
@@ -912,12 +912,12 @@ function buildMessages(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * True when either backend can serve a chat turn: a Groq key is configured, or
- * on-device WebLLM is selected on a WebGPU-capable browser (no key needed).
+ * True when either backend can serve a chat turn: Supabase can reach the hosted
+ * proxy, or on-device WebLLM is selected on a WebGPU-capable browser.
  */
 export function isChatAvailable(): boolean {
   if (getAIProvider() === "webllm" && hasWebGPUAPI()) return true;
-  return !!GROQ_API_KEY && GROQ_API_KEY.length > 10;
+  return isSupabaseConfigured;
 }
 
 /**
@@ -938,12 +938,9 @@ async function groqFetch(
 ): Promise<Response> {
   if (!isChatAvailable()) throw new Error("NO_API_KEY");
 
-  const res = await fetch(`${GROQ_BASE}/chat/completions`, {
+  const res = await groqProxyFetch("chat/completions", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: GROQ_MODEL,
       messages,

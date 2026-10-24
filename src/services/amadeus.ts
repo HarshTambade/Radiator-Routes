@@ -4,7 +4,8 @@
 // Amadeus test keys expire quickly and return sparse data. This module keeps
 // the same public surface so existing callers are unchanged, but builds real
 // deep-links to free services (Google Flights, Kiwi, Skyscanner, Booking.com)
-// and enriches results via Nominatim / OpenTripMap. No API key required.
+// and enriches results via the authenticated OpenRouteService geocoder and
+// OpenTripMap proxy. Provider credentials stay on the server.
 //
 // Prices are clearly-labelled estimates; the deep-link is the source of truth.
 // ─────────────────────────────────────────────────────────────────────────────

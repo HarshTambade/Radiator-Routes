@@ -851,6 +851,22 @@ export type Database = {
         Args: { p_community_id: string };
         Returns: boolean;
       };
+      lookup_trip_invite: {
+        Args: { p_invite_code: string };
+        Returns: {
+          id: string;
+          trip_id: string;
+          invite_code: string;
+          status: string;
+          max_uses: number | null;
+          uses: number;
+          expires_at: string | null;
+          trip_name: string;
+          destination: string | null;
+          start_date: string;
+          end_date: string;
+        }[];
+      };
       is_trip_member: { Args: { p_trip_id: string }; Returns: boolean };
       is_trip_organizer: { Args: { p_trip_id: string }; Returns: boolean };
     };

@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Traffic & search — free / open replacements for the TomTom API
 // ─────────────────────────────────────────────────────────────────────────────
-// Uses Nominatim (OSM) for search & reverse geocoding and returns a
+// Uses the authenticated OpenRouteService Pelias proxy for geocoding and returns a
 // deterministic best-effort traffic estimate derived from time-of-day.
 // Keeps the same public surface so existing callers stay wire-compatible.
 // ORS-backed helpers (route, isochrone, matrix) are re-exported thin wrappers
@@ -14,8 +14,6 @@ import {
   orsIsochrone,
   orsMatrix,
 } from "./openroute";
-
-const ORS_API_KEY = import.meta.env.VITE_ORS_API_KEY as string | undefined;
 
 type Coord = [number, number]; // [lon, lat]
 interface WaypointParam { lat: number; lon: number }
@@ -104,7 +102,7 @@ export async function tomtomSearch(params: {
   };
 }
 
-/** Category search near coordinates — Nominatim keyword search. */
+/** Category search near coordinates through the authenticated geocoding proxy. */
 export async function tomtomCategorySearch(params: {
   query: string;
   lat: number;
@@ -237,7 +235,3 @@ export async function tomtom(body: {
       );
   }
 }
-
-// Preserve export just so imports don't break in transitive callers that used
-// the old ORS_API_KEY constant (none remain, but this keeps tree-shaking clean).
-export const __ORS_API_KEY_UNUSED__ = ORS_API_KEY;

@@ -4,9 +4,8 @@
 // Traffic conditions come from services/traffic.ts (time-of-day estimation,
 // no paid provider)
 
-const ORS_API_KEY = import.meta.env.VITE_ORS_API_KEY as string;
 const OPEN_METEO_BASE = "https://api.open-meteo.com/v1";
-const ORS_BASE = "https://api.openrouteservice.org";
+import { orsDirections, orsGeocode } from "@/services/openroute";
 
 // ── WMO Weather interpretation codes ────────────────────────────────────────
 export const WMO_CODES: Record<number, { label: string; emoji: string; severe: boolean }> = {
@@ -199,28 +198,12 @@ export async function getWeatherForecast(params: {
 
 export async function geocodeDestination(destination: string): Promise<{ lat: number; lon: number } | null> {
   try {
-    const url =
-      `${ORS_BASE}/geocode/search` +
-      `?api_key=${ORS_API_KEY}` +
-      `&text=${encodeURIComponent(destination)}` +
-      `&size=1`;
-
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!res.ok) return null;
-    const data = await res.json();
+    const data = await orsGeocode({ query: destination, size: 1 }) as any;
     const coords = data?.features?.[0]?.geometry?.coordinates;
     if (!coords) return null;
     return { lat: coords[1], lon: coords[0] };
   } catch {
-    // Fallback: Nominatim
-    try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(destination)}&format=json&limit=1`,
-        { headers: { "User-Agent": "RadiatorRoutes/1.0" } }
-      );
-      const data = await res.json();
-      if (data?.[0]) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-    } catch {/* ignore */}
+    // Geocoding shares the authenticated, quota-controlled provider proxy.
     return null;
   }
 }
@@ -369,10 +352,6 @@ export async function getClimateAwareRoute(params: {
 }): Promise<ClimateAwareRoute> {
   const { originLat, originLon, destLat, destLon, profile = "driving-car", date } = params;
 
-  if (!ORS_API_KEY) {
-    throw new Error("ORS API key (VITE_ORS_API_KEY) is not configured");
-  }
-
   // Get weather at destination
   let weatherAlongRoute = "Weather data unavailable";
   const avoidanceReasons: string[] = [];
@@ -393,33 +372,12 @@ export async function getClimateAwareRoute(params: {
   }
 
   // Get ORS route
-  const routeRes = await fetch(`${ORS_BASE}/v2/directions/${profile}/json`, {
-    method: "POST",
-    headers: {
-      Authorization: ORS_API_KEY,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({
-      coordinates: [
-        [originLon, originLat],
-        [destLon, destLat],
-      ],
-      instructions: true,
-      instructions_format: "text",
-      language: "en",
-      units: "km",
-      elevation: true,
-      geometry: true,
-    }),
-  });
-
-  if (!routeRes.ok) {
-    const txt = await routeRes.text();
-    throw new Error(`ORS route error [${routeRes.status}]: ${txt}`);
-  }
-
-  const routeData = await routeRes.json();
+  const routeData = await orsDirections({
+    origin: { lat: originLat, lon: originLon },
+    destination: { lat: destLat, lon: destLon },
+    profile,
+    elevation: true,
+  }) as any;
   const route = routeData.routes?.[0];
 
   if (!route) throw new Error("No route found between these locations.");

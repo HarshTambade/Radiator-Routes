@@ -532,7 +532,7 @@ const allFeatures: Feature[] = [
   {
     icon: Cpu,
     title: "Hosted or On-Device AI",
-    desc: "Groq LLaMA 3.3 70B, or WebLLM on your own GPU with no key and nothing leaving the device. One switch, same features.",
+    desc: "Groq GPT-OSS for hosted chat and Qwen for vision, or WebLLM on your device without a hosted AI provider.",
     color: "text-violet-500 bg-violet-500/10",
     tag: "Privacy & Offline",
   },
@@ -566,8 +566,8 @@ const allFeatures: Feature[] = [
   },
   {
     icon: IndianRupee,
-    title: "Zero Paid APIs",
-    desc: "Every integration is free or free-tier with no card. Only Supabase is required; everything else degrades gracefully.",
+    title: "Choose Your Integrations",
+    desc: "Hosted services use the provider accounts and limits you configure. On-device AI works without a hosted AI provider; enable only the integrations your deployment needs.",
     color: "text-emerald-600 bg-emerald-600/10",
     tag: "Privacy & Offline",
   },
@@ -661,7 +661,7 @@ const allFeatures: Feature[] = [
   {
     icon: Compass,
     title: "Place Discovery",
-    desc: "Interest-ranked attractions and restaurants over OpenTripMap, Nominatim and Wikipedia, with photos and context.",
+    desc: "Interest-ranked attractions and restaurants over OpenTripMap, OpenRouteService geocoding and Wikipedia, with photos and context.",
     color: "text-lime-600 bg-lime-500/10",
     tag: "Explore",
   },
@@ -731,7 +731,7 @@ const categoryColors: Record<string, string> = {
 /* ─── AI engines ─── */
 
 const engineComparison = [
-  { label: "Model", groq: "LLaMA 3.3 70B", local: "LLaMA 3.2 / Qwen 2.5 / Phi 3.5, 1B–8B" },
+  { label: "Model", groq: "GPT-OSS 120B / Qwen vision", local: "LLaMA 3.2 / Qwen 2.5 / Phi 3.5, 1B–8B" },
   { label: "API key", groq: "Free-tier key", local: "None" },
   { label: "Network", groq: "Every request", local: "One-time model download" },
   { label: "Prompts", groq: "Sent to Groq", local: "Never leave the device" },
@@ -787,7 +787,7 @@ const techStack = [
   { name: "Supabase Realtime", category: "Backend", color: "text-green-500" },
   { name: "Row-Level Security", category: "Backend", color: "text-green-500" },
 
-  { name: "Groq LLaMA 3.3 70B", category: "AI", color: "text-primary" },
+  { name: "Groq GPT-OSS 120B + Qwen vision", category: "AI", color: "text-primary" },
   { name: "WebLLM on WebGPU", category: "AI", color: "text-primary" },
   { name: "Web Speech API (STT + TTS)", category: "AI", color: "text-primary" },
   { name: "JSON-mode structured output", category: "AI", color: "text-primary" },
@@ -798,7 +798,7 @@ const techStack = [
 
   { name: "Leaflet + OpenStreetMap", category: "Maps", color: "text-orange-500" },
   { name: "MapLibre GL JS", category: "Maps", color: "text-orange-500" },
-  { name: "Nominatim geocoding", category: "Maps", color: "text-orange-500" },
+  { name: "OpenRouteService Pelias geocoding", category: "Maps", color: "text-orange-500" },
   { name: "OpenRouteService", category: "Maps", color: "text-orange-500" },
 
   { name: "vite-plugin-pwa + Workbox", category: "Offline", color: "text-slate-500" },
@@ -914,7 +914,7 @@ const pipelineStages: PipelineStage[] = [
     title: "Capture",
     headline: "Your sentence is transcribed in the browser",
     detail:
-      "The Web Speech API handles this with no key and no upload. Only when a browser doesn't expose SpeechRecognition, or its speech service turns out to be unreachable — and a Groq key is present — does it fall back to recording audio and sending it to Whisper. Read-aloud uses the browser's own speech synthesis.",
+      "The Web Speech API handles this with no key and no upload. Only when a browser doesn't expose SpeechRecognition, or its speech service turns out to be unreachable — and the deployment has its Groq server secret — does it fall back to recording audio and sending it to Whisper. Read-aloud uses the browser's own speech synthesis.",
     meta: [
       { k: "Primary", v: "Web Speech API, on-device" },
       { k: "Alternatives kept", v: "3" },
@@ -1456,15 +1456,16 @@ const quickstart = [
   { cmd: "git clone https://github.com/HarshTambade/Radiator-Routes.git", note: "MIT licensed" },
   { cmd: "npm install", note: "No paid registry, no private packages" },
   { cmd: "cp .env.example .env", note: "Two Supabase values are all that's required" },
-  { cmd: "npm run dev", note: "Everything else degrades gracefully without a key" },
+  { cmd: "npm run dev", note: "Provider secrets are optional and server-side" },
 ];
 
 const requiredEnv = [
   { key: "VITE_SUPABASE_URL", need: "Required", desc: "Auth, database and realtime" },
-  { key: "VITE_SUPABASE_PUBLISHABLE_KEY", need: "Required", desc: "The anon publishable key" },
-  { key: "VITE_GROQ_API_KEY", need: "Optional", desc: "Free tier. Skip it and use on-device AI" },
-  { key: "VITE_ORS_API_KEY", need: "Optional", desc: "Routing and elevation, 2k requests a day" },
-  { key: "VITE_OPENTRIPMAP_API_KEY", need: "Optional", desc: "Place discovery, 1k requests a day" },
+  { key: "VITE_SUPABASE_PUBLISHABLE_KEY", need: "Required", desc: "Public browser key for the Supabase project" },
+  { key: "GROQ_API_KEY", need: "Server secret", desc: "Hosted AI through an authenticated, quota-limited proxy" },
+  { key: "ORS_API_KEY", need: "Server secret", desc: "Routing and elevation through an authenticated proxy" },
+  { key: "OPENTRIPMAP_API_KEY", need: "Server secret", desc: "Place discovery through an authenticated proxy" },
+  { key: "PLATFORM_API_ALLOWED_ORIGINS", need: "Optional server secret", desc: "Exact browser origins allowed to call the REST/MCP API" },
 ];
 
 /* ─── What isn't here yet ───
@@ -1553,11 +1554,11 @@ const roadmap: {
 const faqs: { q: string; a: string }[] = [
   {
     q: "What does it cost to use?",
-    a: "Nothing, and there's no card anywhere in the flow. Every integration is free or free-tier: Groq for hosted inference, Open-Meteo for weather, OpenStreetMap and Nominatim for maps and geocoding, Wikipedia for place context, OpenRouteService for routing. Paid services that an earlier version of this project assumed were removed and replaced, not left behind as dead configuration.",
+    a: "The app can run on free tiers, but provider accounts have their own limits and policies. Groq handles hosted inference, Open-Meteo provides weather, OpenStreetMap supplies map tiles, OpenRouteService handles authenticated routing and geocoding, and Wikipedia provides place context.",
   },
   {
     q: "Do I need an API key?",
-    a: "To run your own copy, only the Supabase URL and publishable key. Voice input needs no key at all because it uses the browser's own speech recognition. A Groq key is free and optional — pick the on-device engine instead and there's no key in the picture at all.",
+    a: "To run your own copy, you need the Supabase URL and publishable key. Voice input needs no provider key because it uses the browser's own speech recognition. Hosted AI needs a Groq secret configured on the server; it is optional if you choose the on-device engine instead.",
   },
   {
     q: "How private is on-device mode really?",
@@ -2452,7 +2453,7 @@ export default function Landing() {
                     {
                       icon: Cpu,
                       title: "Two AI engines",
-                      desc: "Hosted Groq LLaMA 3.3 70B, or WebLLM on your own GPU with no key",
+                      desc: "Hosted Groq GPT-OSS, or WebLLM on your own device without a hosted AI provider",
                       color: "text-violet-500",
                       bg: "bg-violet-500/5",
                     },
@@ -4086,9 +4087,9 @@ export default function Landing() {
                       </h3>
                     </div>
                     <p className="text-sm text-muted-foreground leading-relaxed mb-6">
-                      Two required, three optional, none of them paid. Leave an
-                      optional one blank and that feature degrades with a notice
-                      instead of breaking the app.
+                      Add the two public Supabase values to the browser build.
+                      Store provider credentials as Supabase Edge Function
+                      secrets; never publish them in a VITE_* variable.
                     </p>
                     <ul className="space-y-2.5">
                       {requiredEnv.map((env) => (
@@ -4116,7 +4117,7 @@ export default function Landing() {
                     </ul>
                     <div className="mt-5 flex items-center gap-2 text-[11px] text-muted-foreground">
                       <Server className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                      Skip the Groq key entirely and use the on-device engine.
+                      Skip the hosted AI secret and use the on-device engine.
                     </div>
                   </div>
                 </div>

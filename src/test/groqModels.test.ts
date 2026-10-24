@@ -26,7 +26,7 @@ describe("groqModels", () => {
 
   it("keeps the existing well-known codes", () => {
     expect(groqErrorCode(429, "")).toBe("RATE_LIMIT");
-    expect(groqErrorCode(401, "")).toBe("INVALID_API_KEY");
+    expect(groqErrorCode(401, "")).toBe("AUTH_REQUIRED");
     expect(groqErrorCode(503, "")).toBe("GROQ_ERROR_503");
     expect(groqErrorCode(400, '{"error":{"message":"bad temperature"}}')).toBe(
       "Groq API error [400]: bad temperature",

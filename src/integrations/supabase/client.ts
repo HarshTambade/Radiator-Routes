@@ -31,21 +31,15 @@ if (!isSupabaseConfigured) {
     .filter(Boolean)
     .join(", ");
 
-  // Fail loudly in dev so the misconfiguration is obvious immediately.
-  if (import.meta.env.DEV) {
-    throw new Error(
-      `[supabase] Missing required environment variable(s): ${missing}. ` +
-        `Copy .env.example to .env and fill them in.`,
-    );
-  }
-  console.error(
-    `[supabase] Missing ${missing}. Auth, trips and realtime features are disabled.`,
+  throw new Error(
+    `[supabase] Missing required environment variable(s): ${missing}. ` +
+      `Configure the Supabase URL and publishable key before starting or building the app.`,
   );
 }
 
 export const supabase = createClient<Database>(
-  url ?? "http://localhost:54321",
-  anonKey ?? "missing-anon-key",
+  url!,
+  anonKey!,
   {
     auth: {
       storage: typeof window !== "undefined" ? window.localStorage : undefined,

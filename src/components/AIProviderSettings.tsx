@@ -23,10 +23,9 @@ import {
   type WebGPUStatus,
 } from "@/lib/aiProvider";
 import { useToast } from "@/hooks/use-toast";
+import { isSupabaseConfigured } from "@/integrations/supabase/client";
 
-const GROQ_CONFIGURED =
-  typeof import.meta.env.VITE_GROQ_API_KEY === "string" &&
-  (import.meta.env.VITE_GROQ_API_KEY as string).length > 10;
+const GROQ_CONFIGURED = isSupabaseConfigured;
 
 type LoadState =
   | { phase: "idle" }
@@ -176,13 +175,13 @@ export function AIProviderSettings() {
           onSelect={() => chooseProvider("groq")}
           icon={Cloud}
           title="Groq (hosted)"
-          subtitle="LLaMA 3.3 70B"
+          subtitle="Hosted AI"
           bullets={[
             { icon: Zap, text: "Fastest, highest quality" },
             { icon: WifiOff, text: "Needs a connection" },
           ]}
           warning={
-            GROQ_CONFIGURED ? null : "No VITE_GROQ_API_KEY configured — this option won't work."
+            GROQ_CONFIGURED ? null : "Hosted AI is not configured for this deployment."
           }
         />
         <ProviderCard

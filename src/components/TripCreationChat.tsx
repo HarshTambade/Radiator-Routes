@@ -276,7 +276,7 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
 
         setAiLoading(true);
         try {
-          // Auto-detect country via Nominatim geocoding if not provided
+          // Auto-detect country via the authenticated geocoding proxy if not provided
           if (!country) {
             try {
               const geoResults = await nominatimSearch(dest, 1);
@@ -623,10 +623,10 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
           description: "Please wait a moment.",
           variant: "destructive",
         });
-      } else if (msg === "INVALID_API_KEY") {
+      } else if (msg === "AUTH_REQUIRED" || msg === "INVALID_API_KEY") {
         toast({
-          title: "API key error",
-          description: "Groq API key is invalid.",
+          title: "Sign in again",
+          description: "Your hosted AI session expired. Sign in and retry.",
           variant: "destructive",
         });
       } else {

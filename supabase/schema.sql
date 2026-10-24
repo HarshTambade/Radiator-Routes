@@ -267,7 +267,6 @@ CREATE POLICY "Organizer can delete trips"
 DROP POLICY IF EXISTS "Members can view memberships"  ON public.trip_memberships;
 DROP POLICY IF EXISTS "Organizer can add members"     ON public.trip_memberships;
 DROP POLICY IF EXISTS "Organizer can remove members"  ON public.trip_memberships;
-DROP POLICY IF EXISTS "Users can add own membership"  ON public.trip_memberships;
 
 CREATE POLICY "Members can view memberships"
   ON public.trip_memberships FOR SELECT
@@ -281,12 +280,8 @@ CREATE POLICY "Organizer can remove members"
   ON public.trip_memberships FOR DELETE
   USING (public.is_trip_organizer(trip_id));
 
--- Allow the auto-add trigger (SECURITY DEFINER) and self-join flows to insert
-CREATE POLICY "Users can add own membership"
-  ON public.trip_memberships
-  AS PERMISSIVE FOR INSERT
-  TO authenticated
-  WITH CHECK (auth.uid() = user_id);
+-- Membership inserts are organizer-managed. Invitees request access and are
+-- added by the organizer after approval.
 
 -- Trigger: auto-add organizer as 'organizer' member when a trip is created
 CREATE OR REPLACE FUNCTION public.auto_add_organizer_membership()
@@ -567,15 +562,53 @@ CREATE TABLE IF NOT EXISTS public.trip_invites (
 
 ALTER TABLE public.trip_invites ENABLE ROW LEVEL SECURITY;
 
--- Any authenticated user can look up an invite by code (needed for the join flow)
+-- Invitees resolve one high-entropy code through lookup_trip_invite().
 DROP POLICY IF EXISTS "Anyone can read invite by code"  ON public.trip_invites;
 DROP POLICY IF EXISTS "Members can view trip invites"   ON public.trip_invites;
 DROP POLICY IF EXISTS "Organizer can create invites"    ON public.trip_invites;
 DROP POLICY IF EXISTS "Organizer can delete invites"    ON public.trip_invites;
 
-CREATE POLICY "Anyone can read invite by code"
+CREATE POLICY "Members can view trip invites"
   ON public.trip_invites FOR SELECT
-  USING (true);
+  USING (public.is_trip_member(trip_id));
+
+CREATE OR REPLACE FUNCTION public.lookup_trip_invite(p_invite_code TEXT)
+RETURNS TABLE (
+  id UUID, trip_id UUID, invite_code TEXT, status TEXT, max_uses INTEGER,
+  uses INTEGER, expires_at TIMESTAMPTZ, trip_name TEXT, destination TEXT,
+  start_date DATE, end_date DATE
+)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT i.id, i.trip_id, i.invite_code, i.status, i.max_uses, i.uses,
+         i.expires_at, t.name, t.destination, t.start_date, t.end_date
+  FROM public.trip_invites i
+  JOIN public.trips t ON t.id = i.trip_id
+  WHERE i.invite_code = p_invite_code
+    AND i.status IN ('active', 'pending')
+    AND (i.expires_at IS NULL OR i.expires_at > now())
+    AND (i.max_uses IS NULL OR i.uses < i.max_uses)
+  LIMIT 1;
+$$;
+REVOKE ALL ON FUNCTION public.lookup_trip_invite(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.lookup_trip_invite(TEXT) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.is_valid_trip_invite(p_invite_id UUID, p_trip_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.trip_invites i
+    WHERE i.id = p_invite_id AND i.trip_id = p_trip_id
+      AND i.status IN ('active', 'pending')
+      AND (i.expires_at IS NULL OR i.expires_at > now())
+      AND (i.max_uses IS NULL OR i.uses < i.max_uses)
+  );
+$$;
+REVOKE ALL ON FUNCTION public.is_valid_trip_invite(UUID, UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_valid_trip_invite(UUID, UUID) TO authenticated;
 
 CREATE POLICY "Organizer can create invites"
   ON public.trip_invites FOR INSERT
@@ -612,8 +645,12 @@ CREATE POLICY "Users can view own requests"
   USING (auth.uid() = user_id OR public.is_trip_member(trip_id));
 
 CREATE POLICY "Users can create join requests"
-  ON public.trip_join_requests FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+  ON public.trip_join_requests FOR INSERT TO authenticated
+  WITH CHECK (
+    auth.uid() = user_id AND status = 'pending'
+    AND invite_id IS NOT NULL
+    AND public.is_valid_trip_invite(invite_id, trip_id)
+  );
 
 CREATE POLICY "Organizer can update requests"
   ON public.trip_join_requests FOR UPDATE
@@ -654,7 +691,7 @@ DROP POLICY IF EXISTS "Creator can delete community"       ON public.communities
 
 CREATE POLICY "Anyone can view public communities"
   ON public.communities FOR SELECT
-  USING (is_public = true);
+  USING (is_public = true OR created_by = auth.uid() OR public.is_community_member(id));
 
 CREATE POLICY "Auth users can create communities"
   ON public.communities FOR INSERT
@@ -688,7 +725,7 @@ CREATE OR REPLACE FUNCTION public.is_community_member(p_community_id UUID)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER STABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 BEGIN
   RETURN EXISTS (
@@ -698,17 +735,37 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.is_community_public(p_community_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql SECURITY DEFINER STABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.communities c
+    WHERE c.id = p_community_id AND c.is_public
+  );
+$$;
+
 DROP POLICY IF EXISTS "Anyone can view community members" ON public.community_memberships;
+DROP POLICY IF EXISTS "Visible community members" ON public.community_memberships;
 DROP POLICY IF EXISTS "Users can join communities"        ON public.community_memberships;
 DROP POLICY IF EXISTS "Users can leave communities"       ON public.community_memberships;
 
-CREATE POLICY "Anyone can view community members"
+CREATE POLICY "Visible community members"
   ON public.community_memberships FOR SELECT
-  USING (true);
+  USING (
+    user_id = auth.uid()
+    OR public.is_community_member(community_id)
+    OR public.is_community_public(community_id)
+  );
 
 CREATE POLICY "Users can join communities"
-  ON public.community_memberships FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+  ON public.community_memberships FOR INSERT TO authenticated
+  WITH CHECK (
+    auth.uid() = user_id
+    AND role = 'member'
+    AND public.is_community_public(community_id)
+  );
 
 CREATE POLICY "Users can leave communities"
   ON public.community_memberships FOR DELETE
@@ -804,6 +861,19 @@ CREATE TABLE IF NOT EXISTS public.community_events (
 
 ALTER TABLE public.community_events ENABLE ROW LEVEL SECURITY;
 
+CREATE OR REPLACE FUNCTION public.can_view_community_event(p_event_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql SECURITY DEFINER STABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.community_events e
+    JOIN public.communities c ON c.id = e.community_id
+    WHERE e.id = p_event_id
+      AND (c.is_public OR public.is_community_member(c.id))
+  );
+$$;
+
 DROP POLICY IF EXISTS "Members can view events"    ON public.community_events;
 DROP POLICY IF EXISTS "Members can create events"  ON public.community_events;
 DROP POLICY IF EXISTS "Creator can update events"  ON public.community_events;
@@ -811,7 +881,7 @@ DROP POLICY IF EXISTS "Creator can delete events"  ON public.community_events;
 
 CREATE POLICY "Members can view events"
   ON public.community_events FOR SELECT
-  USING (public.is_community_member(community_id));
+  USING (public.is_community_public(community_id) OR public.is_community_member(community_id));
 
 CREATE POLICY "Members can create events"
   ON public.community_events FOR INSERT
@@ -848,15 +918,16 @@ DROP POLICY IF EXISTS "Users can delete own RSVP" ON public.event_rsvps;
 
 CREATE POLICY "Members can view RSVPs"
   ON public.event_rsvps FOR SELECT
-  USING (true);
+  USING (public.can_view_community_event(event_id));
 
 CREATE POLICY "Users can RSVP"
-  ON public.event_rsvps FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+  ON public.event_rsvps FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() = user_id AND public.can_view_community_event(event_id));
 
 CREATE POLICY "Users can update own RSVP"
   ON public.event_rsvps FOR UPDATE
-  USING (auth.uid() = user_id);
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id AND public.can_view_community_event(event_id));
 
 CREATE POLICY "Users can delete own RSVP"
   ON public.event_rsvps FOR DELETE

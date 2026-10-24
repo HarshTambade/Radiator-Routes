@@ -277,6 +277,11 @@ Deno.serve(async (req: Request) => {
     return errorResponse("Method not allowed", 405);
   }
 
+  const plannerServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!plannerServiceRoleKey || req.headers.get("Authorization") !== `Bearer ${plannerServiceRoleKey}`) {
+    return errorResponse("This planner endpoint is available only through the platform API.", 401);
+  }
+
   // ── Parse body ──────────────────────────────────────────────────────────────
   let body: Record<string, unknown>;
   try {

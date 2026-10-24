@@ -24,11 +24,11 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useLocation } from "react-router-dom";
-import { callGemini } from "@/services/gemini";
+import { callGemini, isGroqAvailable } from "@/services/gemini";
+import { groqProxyFetch } from "@/services/groqProxy";
 import { errorMessage } from "@/lib/errors";
 import { claimMic } from "@/lib/micCoordinator";
 import {
-  GROQ_BASE,
   GROQ_VISION_MODEL,
   groqMaxTokens,
   groqModelParams,
@@ -189,15 +189,11 @@ async function identifyFromVideo(
   ctx.drawImage(video, 0, 0);
   const base64 = canvas.toDataURL("image/jpeg", 0.7).split(",")[1];
 
-  const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
-
-  // No API key: describe based on general context so the app still works.
-  if (!GROQ_API_KEY) {
+  // Hosted image recognition uses the authenticated server proxy.
+  if (!isGroqAvailable()) {
     return (
-      "The camera is active and I can see the scene, but on-device image " +
-      "recognition isn't available in this build. To enable full scene " +
-      "description, add a free VITE_GROQ_API_KEY from console.groq.com. " +
-      "For now, please use the description tools or ask AI for help."
+      "The camera is active, but hosted image recognition is not configured " +
+      "for this deployment. Please use the description tools or ask AI for help."
     );
   }
 
@@ -231,14 +227,11 @@ async function identifyFromVideo(
   let lastErr: string | null = null;
   for (const model of VISION_MODELS) {
     try {
-      const res = await fetch(`${GROQ_BASE}/chat/completions`, {
+      const res = await groqProxyFetch("chat/completions", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${GROQ_API_KEY}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody(model)),
-      });
+      }, "vision");
       if (!res.ok) {
         lastErr = `${res.status} ${res.statusText}`;
         // 404 / 400 typically mean the model was deprecated — try the next one

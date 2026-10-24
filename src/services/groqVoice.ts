@@ -1,9 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Atlas AI — Voice service (free, browser-native)
 // ─────────────────────────────────────────────────────────────────────────────
-// • Speech-to-Text  → Web Speech API (SpeechRecognition), no API key needed.
-//                     Falls back to Groq Whisper only when a valid key is set
-//                     AND the browser does not support SpeechRecognition.
+// • Speech-to-Text  → Web Speech API (SpeechRecognition), no provider key needed.
+//                     Falls back to authenticated Groq Whisper when configured
+//                     server-side and the browser speech path is unavailable.
 // • Text-to-Speech  → Browser SpeechSynthesis (language-aware).
 //
 // Keeps the previous public surface (startGroqRecording, transcribeWithGroq,
@@ -13,9 +13,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { claimMic } from "@/lib/micCoordinator";
+import { isSupabaseConfigured } from "@/integrations/supabase/client";
+import { groqProxyFetch } from "@/services/groqProxy";
 
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
-const GROQ_BASE = "https://api.groq.com/openai/v1";
 const WHISPER_MODEL = "whisper-large-v3-turbo";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ export function isMediaRecorderSupported(): boolean {
 }
 
 export function isGroqTranscriptionAvailable(): boolean {
-  return !!GROQ_API_KEY && GROQ_API_KEY.length > 10;
+  return isSupabaseConfigured;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -346,8 +346,8 @@ async function startMediaRecorder(): Promise<RecordingHandle> {
 /**
  * Begin speech capture. Prefers the free browser SpeechRecognition; when the
  * browser doesn't support it (Firefox, some mobile) or its speech service has
- * proven unreachable, AND a Groq key is set, falls back to MediaRecorder →
- * Groq Whisper.
+ * proven unreachable, AND the server-side Groq proxy is configured, falls back
+ * to MediaRecorder → Groq Whisper.
  */
 export async function startGroqRecording(
   options: StartOptions = {},
@@ -360,7 +360,7 @@ export async function startGroqRecording(
     return startWebSpeech(options);
   }
 
-  // Fallback — MediaRecorder + Groq Whisper (needs a key)
+  // Fallback — MediaRecorder + Groq Whisper (needs a signed-in session)
   if (!isMediaRecorderSupported()) {
     throw new Error(
       "SPEECH_UNSUPPORTED: This browser cannot capture voice. Please use Chrome, Edge, or Safari.",
@@ -368,7 +368,7 @@ export async function startGroqRecording(
   }
   if (!isGroqTranscriptionAvailable()) {
     throw new Error(
-      "SPEECH_UNSUPPORTED: Voice recognition is not supported in this browser. Set VITE_GROQ_API_KEY to enable the fallback transcription engine.",
+      "SPEECH_UNSUPPORTED: Voice recognition is not supported in this browser, and hosted transcription needs a signed-in account.",
     );
   }
   return startMediaRecorder();
@@ -392,7 +392,7 @@ export async function transcribeWithGroq(
 
   if (!isGroqTranscriptionAvailable()) {
     throw new Error(
-      "TRANSCRIPTION_UNAVAILABLE: Set VITE_GROQ_API_KEY to enable audio transcription in this browser.",
+      "TRANSCRIPTION_UNAVAILABLE: Hosted transcription needs a signed-in account and server configuration.",
     );
   }
 
@@ -410,16 +410,15 @@ export async function transcribeWithGroq(
   const langCode = (language ?? "en").split("-")[0];
   if (langCode && langCode !== "en") formData.append("language", langCode);
 
-  const res = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
+  const res = await groqProxyFetch("audio/transcriptions", {
     method: "POST",
-    headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
     body: formData,
   });
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
     if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 401) throw new Error("INVALID_API_KEY");
+    if (res.status === 401) throw new Error("AUTH_REQUIRED");
     throw new Error(`Whisper [${res.status}]: ${errText.slice(0, 200)}`);
   }
 

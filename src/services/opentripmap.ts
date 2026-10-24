@@ -1,15 +1,7 @@
-// OpenTripMap — place / POI discovery. Free tier, key optional.
-// Without a key the functions resolve to empty results so the Explore page
-// falls back to curated destinations instead of erroring.
+// OpenTripMap access is proxied by Supabase so its provider key is never
+// embedded in the browser bundle.
 
-import { getJson, qs } from "@/lib/http";
-
-const BASE_URL = "https://api.opentripmap.com/0.1/en/places";
-const API_KEY = import.meta.env.VITE_OPENTRIPMAP_API_KEY as string | undefined;
-
-export function isOpenTripMapConfigured(): boolean {
-  return Boolean(API_KEY && API_KEY.length > 8);
-}
+import { supabase } from "@/integrations/supabase/client";
 
 export interface OTMPlace {
   xid: string;
@@ -42,19 +34,42 @@ export interface OTMPlaceDetail {
   preview?: { source?: string; height?: number; width?: number };
   wikipedia_extracts?: { title?: string; text?: string; html?: string };
   point?: { lon: number; lat: number };
-  bbox?: {
-    lon_min: number;
-    lat_min: number;
-    lon_max: number;
-    lat_max: number;
-  };
+  bbox?: { lon_min: number; lat_min: number; lon_max: number; lat_max: number };
   url?: string;
   wikidata?: string;
   info?: { descr?: string; image?: string; src?: string };
 }
 
-/** Places within a radius (metres) of a point. */
-export async function otmRadius(params: {
+async function invokeOpenTripMap<T>(action: string, params: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.functions.invoke("opentripmap", {
+    body: { action, ...params },
+  });
+  if (error) {
+    const fallback = error.message || "OpenTripMap request failed.";
+    const response = error.context;
+    if (response instanceof Response) {
+      let providerMessage: string | undefined;
+      try {
+        providerMessage = (await response.clone().json() as { error?: string }).error;
+      } catch {
+        // The edge gateway may return a non-JSON error page.
+      }
+      throw new Error(providerMessage || `${fallback} (HTTP ${response.status})`);
+    }
+    throw new Error(fallback);
+  }
+  if (data === null || data === undefined) throw new Error("OpenTripMap returned an empty response.");
+  return data as T;
+}
+
+/** True when the app can reach the authenticated server proxy. */
+export function isOpenTripMapConfigured(): boolean {
+  return Boolean(import.meta.env.VITE_SUPABASE_URL && (
+    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY
+  ));
+}
+
+export function otmRadius(params: {
   lat: number;
   lon: number;
   radius?: number;
@@ -63,54 +78,16 @@ export async function otmRadius(params: {
   rate?: number;
   format?: string;
 }): Promise<OTMPlace[]> {
-  const {
-    lat,
-    lon,
-    radius = 5000,
-    kinds = "interesting_places",
-    limit = 20,
-    rate,
-    format = "json",
-  } = params;
-
-  if (lat === undefined || lon === undefined)
-    throw new Error("lat and lon are required for radius search");
-  if (radius < 0 || radius > 100_000)
-    throw new Error("radius must be between 0 and 100000 metres");
-  if (!isOpenTripMapConfigured()) return [];
-
-  return getJson<OTMPlace[]>(
-    `${BASE_URL}/radius${qs({
-      radius,
-      lon,
-      lat,
-      kinds,
-      limit,
-      format,
-      rate,
-      apikey: API_KEY,
-    })}`,
-    { label: "OpenTripMap radius" },
-  );
+  return invokeOpenTripMap("radius", params);
 }
 
-/** Full detail for a place by its OpenTripMap xid. */
-export async function otmDetails(xid: string): Promise<OTMPlaceDetail> {
+export function otmDetails(xid: string): Promise<OTMPlaceDetail> {
   const id = xid?.trim();
   if (!id) throw new Error("xid is required for details");
-  if (!isOpenTripMapConfigured())
-    throw new Error(
-      "OpenTripMap is not configured. Set VITE_OPENTRIPMAP_API_KEY to load place details.",
-    );
-
-  return getJson<OTMPlaceDetail>(
-    `${BASE_URL}/xid/${encodeURIComponent(id)}${qs({ apikey: API_KEY })}`,
-    { label: "OpenTripMap details" },
-  );
+  return invokeOpenTripMap("details", { xid: id });
 }
 
-/** Name search near a point. */
-export async function otmAutosuggest(params: {
+export function otmAutosuggest(params: {
   name: string;
   lat: number;
   lon: number;
@@ -118,78 +95,25 @@ export async function otmAutosuggest(params: {
   limit?: number;
   kinds?: string;
 }): Promise<OTMPlace[]> {
-  const { name, lat, lon, radius = 50_000, limit = 10, kinds } = params;
-
-  if (!name?.trim()) throw new Error("name is required for autosuggest");
-  if (lat === undefined || lon === undefined)
-    throw new Error("lat and lon are required for autosuggest");
-  if (!isOpenTripMapConfigured()) return [];
-
-  return getJson<OTMPlace[]>(
-    `${BASE_URL}/autosuggest${qs({
-      name: name.trim(),
-      radius,
-      lon,
-      lat,
-      limit,
-      kinds,
-      apikey: API_KEY,
-    })}`,
-    { label: "OpenTripMap autosuggest" },
-  );
+  if (!params.name?.trim()) throw new Error("name is required for autosuggest");
+  return invokeOpenTripMap("autosuggest", params);
 }
 
-/** Places inside a bounding box. */
-export async function otmBbox(params: {
+export function otmBbox(params: {
   bbox: { lon_min: number; lat_min: number; lon_max: number; lat_max: number };
   kinds?: string;
   limit?: number;
   rate?: number;
   format?: string;
 }): Promise<OTMPlace[]> {
-  const {
-    bbox,
-    kinds = "interesting_places",
-    limit = 20,
-    rate,
-    format = "json",
-  } = params;
-
-  if (
-    !bbox ||
-    bbox.lon_min === undefined ||
-    bbox.lat_min === undefined ||
-    bbox.lon_max === undefined ||
-    bbox.lat_max === undefined
-  ) {
-    throw new Error("bbox with lon_min, lat_min, lon_max, lat_max is required");
-  }
-  if (!isOpenTripMapConfigured()) return [];
-
-  return getJson<OTMPlace[]>(
-    `${BASE_URL}/bbox${qs({ ...bbox, kinds, limit, format, rate, apikey: API_KEY })}`,
-    { label: "OpenTripMap bbox" },
-  );
+  if (!params.bbox) throw new Error("bbox is required");
+  return invokeOpenTripMap("bbox", params);
 }
 
-/** Unified action dispatcher (kept for wire compatibility). */
 export async function opentripmap(body: {
   action: "radius" | "details" | "autosuggest" | "bbox";
   [key: string]: unknown;
 }): Promise<OTMPlace[] | OTMPlaceDetail> {
   const { action, ...params } = body;
-  switch (action) {
-    case "radius":
-      return otmRadius(params as Parameters<typeof otmRadius>[0]);
-    case "details":
-      return otmDetails(params.xid as string);
-    case "autosuggest":
-      return otmAutosuggest(params as Parameters<typeof otmAutosuggest>[0]);
-    case "bbox":
-      return otmBbox(params as Parameters<typeof otmBbox>[0]);
-    default:
-      throw new Error(
-        `Unknown action: "${action}". Supported: radius, details, autosuggest, bbox`,
-      );
-  }
+  return invokeOpenTripMap(action, params);
 }

@@ -5,7 +5,7 @@
 // the previous Gemini wrapper. It now dispatches to whichever backend the user
 // has selected in Settings:
 //
-//   "groq"   → hosted Groq, model from lib/groqModels.ts (default; needs VITE_GROQ_API_KEY)
+//   "groq"   → hosted Groq through the authenticated server-side provider proxy
 //   "webllm" → on-device WebLLM on WebGPU (no key, no network, private)
 //
 // Every exported signature is unchanged, so aiPlanner, dynamicReplan,
@@ -13,21 +13,20 @@
 // modification.
 //
 // It *never* hard-fails when a backend is unavailable: each entry point throws
-// a well-known error string (NO_API_KEY / RATE_LIMIT / INVALID_API_KEY /
+// a well-known error string (NO_API_KEY / NO_SESSION / RATE_LIMIT / AUTH_REQUIRED /
 // NO_WEBGPU / WEBLLM_LOAD_FAILED) that callers already surface via
 // handleGeminiError().
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getAIProvider, hasWebGPUAPI } from "@/lib/aiProvider";
+import { isSupabaseConfigured } from "@/integrations/supabase/client";
+import { groqProxyFetch } from "@/services/groqProxy";
 import {
-  GROQ_BASE,
   GROQ_MODEL,
   groqErrorCode,
   groqMaxTokens,
   groqModelParams,
 } from "@/lib/groqModels";
-
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
 
 /**
  * Resolves the backend to actually use for this call.
@@ -61,21 +60,21 @@ interface OAIMessage {
 
 // ── Availability probe ─────────────────────────────────────────────────────
 
-/** True when a Groq key is configured. */
+/** True when the authenticated server proxy can be reached. */
 export function isGroqAvailable(): boolean {
-  return !!GROQ_API_KEY && GROQ_API_KEY.length > 10;
+  return isSupabaseConfigured;
 }
 
 /**
  * True when *some* backend can serve a request. WebLLM needs no key, so having
- * it selected on a WebGPU browser is enough — even with no Groq key at all.
+ * it selected on a WebGPU browser is enough — even when hosted AI is not configured.
  */
 export function isLLMAvailable(): boolean {
   return activeProvider() === "webllm" || isGroqAvailable();
 }
 
 function assertKey(): void {
-  if (!isGroqAvailable()) throw new Error("NO_API_KEY");
+  if (!isGroqAvailable()) throw new Error("BACKEND_UNAVAILABLE");
 }
 
 // ── Non-streaming completion ───────────────────────────────────────────────
@@ -117,12 +116,9 @@ export async function callGemini(
   };
   if (jsonMode) body.response_format = { type: "json_object" };
 
-  const res = await fetch(`${GROQ_BASE}/chat/completions`, {
+  const res = await groqProxyFetch("chat/completions", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 
@@ -172,12 +168,9 @@ export async function callGeminiChat(
   };
   if (jsonMode) body.response_format = { type: "json_object" };
 
-  const res = await fetch(`${GROQ_BASE}/chat/completions`, {
+  const res = await groqProxyFetch("chat/completions", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 
@@ -217,12 +210,9 @@ export async function streamGemini(
     })),
   ];
 
-  const res = await fetch(`${GROQ_BASE}/chat/completions`, {
+  const res = await groqProxyFetch("chat/completions", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: GROQ_MODEL,
       messages: oaiMessages,
@@ -337,15 +327,19 @@ export function handleGeminiError(err: unknown): string {
 
   // ── Hosted (Groq) ──
   if (msg === "NO_API_KEY")
-    return "AI features need either a free Groq API key (VITE_GROQ_API_KEY — grab one at https://console.groq.com) or on-device AI enabled in Settings.";
+    return "Hosted AI is unavailable. Sign in and try again, or switch to on-device AI in Settings.";
+  if (msg === "NO_SESSION")
+    return "Sign in to use hosted AI, or switch to on-device AI in Settings.";
+  if (msg === "BACKEND_UNAVAILABLE")
+    return "Hosted AI is not configured for this deployment. Switch to on-device AI in Settings.";
   if (msg === "RATE_LIMIT")
     return "AI rate limit exceeded. Please wait a moment and try again, or switch to on-device AI in Settings.";
-  if (msg === "INVALID_API_KEY")
-    return "Groq API key is invalid or expired. Check your VITE_GROQ_API_KEY.";
+  if (msg === "AUTH_REQUIRED" || msg === "INVALID_API_KEY")
+    return "Your hosted AI session is invalid or expired. Sign in again and retry.";
   if (msg.startsWith("GROQ_ERROR_"))
     return "Groq service is temporarily unavailable. Please try again.";
   if (msg === "MODEL_UNAVAILABLE")
-    return `The AI model "${GROQ_MODEL}" is no longer available on Groq. Set VITE_GROQ_MODEL to a current model (see console.groq.com/docs/models), or switch to on-device AI in Settings.`;
+    return `The hosted AI model "${GROQ_MODEL}" is unavailable. Contact the deployment operator or switch to on-device AI in Settings.`;
 
   return msg;
 }

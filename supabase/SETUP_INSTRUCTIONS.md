@@ -44,11 +44,11 @@ Every step is done through the Supabase web dashboard unless explicitly noted.
 
 | Category | Count | Items |
 |---|---|---|
-| Tables | 22 | Trips, itineraries, social/community, friends, expenses, plus integration_api_keys, integration_api_rate_limits, and travel_orders |
-| Helper functions | 6 | Membership/organizer checks, activity/vote resolvers, community membership, and atomic API rate limiting |
+| Tables | 23 | Trips, itineraries, social/community, friends, expenses, API keys/orders, and provider quota counters |
+| Database functions | 18 | Authorization helpers, triggers, invite lookup, API-key creation, trip listing, and rate limits |
 | Trigger functions | 4 | handle_new_user, auto_add_organizer_membership, update_community_member_count, auto_add_community_creator |
 | Triggers | 11 | Profile/trip/community/expense/order timestamp and membership triggers |
-| RLS policies | 68 | User-facing tables use RLS; API credential/order tables are service-role-only with RLS enabled |
+| RLS policies | 70 | User-facing tables use RLS; API credential/order tables are service-role-only with RLS enabled |
 | Indexes | 36 | Performance indexes on high-traffic columns and integration lookups |
 | Realtime tables | 8 | Messages, votes, join requests, friends and shared expenses |
 
@@ -63,7 +63,7 @@ After running, open a **new query** in the SQL Editor and run each block below
 to confirm everything was created:
 
 ```sql
--- Should return 22 rows
+-- Should return 23 rows
 SELECT tablename
 FROM   pg_tables
 WHERE  schemaname = 'public'
@@ -71,7 +71,7 @@ ORDER  BY tablename;
 ```
 
 ```sql
--- Should return 11 functions (6 helpers + 4 trigger functions + updated_at utility)
+-- Should return 18 functions
 SELECT routine_name
 FROM   information_schema.routines
 WHERE  routine_schema = 'public'
@@ -89,7 +89,7 @@ ORDER  BY c.relname, t.tgname;
 ```
 
 ```sql
--- Should return 68 user-facing policies (the service-role API tables have none)
+-- Should return 70 policies
 SELECT tablename, policyname
 FROM   pg_policies
 WHERE  schemaname = 'public'
@@ -151,12 +151,18 @@ AND    schemaname = 'public';
 
 | Secret Name | Value | Where to get it |
 |---|---|---|
-| `HF_API_KEY` | `hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) |
-| `AMADEUS_API_KEY` | `<your_amadeus_api_key>` | [developers.amadeus.com](https://developers.amadeus.com) → My Apps |
-| `AMADEUS_API_SECRET` | `<your_amadeus_api_secret>` | Same Amadeus app page |
-| `OPENTRIPMAP_API_KEY` | `<your_opentripmap_api_key>` | [opentripmap.io/product](https://opentripmap.io/product) |
-| `TRAFFIC_API_KEY` | `<your_tomtom_api_key>` | [developer.tomtom.com](https://developer.tomtom.com) |
-| `ORS_API_KEY` | *(your key)* | [openrouteservice.org/dev/#/signup](https://openrouteservice.org/dev/#/signup) — free tier gives 2 000 req/day |
+| `GROQ_API_KEY` | `<your_groq_api_key>` | [console.groq.com](https://console.groq.com) — hosted AI proxy |
+| `ORS_API_KEY` | `<your_openrouteservice_key>` | [openrouteservice.org](https://openrouteservice.org) — authenticated routing proxy |
+| `OPENTRIPMAP_API_KEY` | `<your_opentripmap_api_key>` | [opentripmap.io/product](https://opentripmap.io/product) — authenticated place-search proxy |
+| `HF_API_KEY` | `<your_huggingface_token>` | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) — optional `ai-planner` endpoint |
+
+Optional server-side model overrides are `GROQ_MODEL` and `GROQ_VISION_MODEL`.
+Never add provider credentials to a `VITE_*` variable; those values are public
+in the built browser bundle. Previously exposed provider keys should be rotated.
+For browser-based external REST/MCP clients, set `PLATFORM_API_ALLOWED_ORIGINS`
+to a comma-separated list of exact production origins (for example,
+`https://app.example.com`). Requests from server-side clients without an
+`Origin` header remain supported.
 
 > ⚠️ **Never commit secrets to Git.** These are set only in the Supabase dashboard.
 
@@ -170,9 +176,10 @@ AND    schemaname = 'public';
 
 ## STEP 5 — Deploy Edge Functions
 
-For an existing project, run `supabase/migrations/20261024000001_platform_api.sql`
-in the SQL Editor before deploying `platform-api`. CLI-managed projects can use
-`supabase db push` after linking instead.
+For an existing project, apply all pending migrations before deploying the
+functions. This includes the platform API, RLS/provider quota hardening,
+atomic API-key creation, and bounded rate-limit counter migrations. CLI-managed
+projects can run `supabase db push --linked` after linking.
 
 ### Install the CLI (if not already installed)
 
@@ -193,50 +200,34 @@ When prompted for the database password enter the one you set in Step 1.
 supabase db push
 ```
 
-### Deploy all functions at once
+### Deploy the active production functions
 
-From the project root folder run:
-
-```bash
-supabase functions deploy
-```
-
-This deploys all 10 edge functions in the `supabase/functions/` directory.
-
-### Or deploy them one by one
+Deploy the functions used by the current app. Do not use bare `supabase functions deploy` here: the repository contains retired handlers that return HTTP 410 so an accidental all-functions deploy cannot restore old provider proxies.
 
 ```bash
-supabase functions deploy ai-chat
-supabase functions deploy ai-planner
-supabase functions deploy dynamic-replan
-supabase functions deploy travel-memory
-supabase functions deploy amadeus
-supabase functions deploy nominatim
-supabase functions deploy opentripmap
-supabase functions deploy tomtom
+supabase functions deploy groq-proxy
 supabase functions deploy openroute
+supabase functions deploy opentripmap
 supabase functions deploy platform-api
+
+# Needed only when the Platform API itinerary scope is enabled
+supabase functions deploy ai-planner
 ```
 
 ### Verify deployment
 
-In the Supabase dashboard go to **Edge Functions** (left sidebar).
-You should see all 10 functions listed with a green status dot.
+In the Supabase dashboard go to **Edge Functions** (left sidebar). You should see `groq-proxy`, `openroute`, `opentripmap`, and `platform-api`; add `ai-planner` only if itinerary generation is enabled. Remove or redeploy any old remote `ai-chat`, `dynamic-replan`, `travel-memory`, `amadeus`, `nominatim`, or `tomtom` functions so the previous provider-backed handlers are no longer available.
 
 ### Edge Functions Reference
 
 | Function | Purpose |
 |---|---|
-| `ai-chat` | Streaming AI assistant "Jinny" via HuggingFace (SSE), with user personalization |
-| `ai-planner` | Itinerary generation, regret-counterfactual planning, intent extraction |
-| `dynamic-replan` | Real-time disruption detection and automatic itinerary replanning |
-| `travel-memory` | Learns from trip history to personalise future AI suggestions |
-| `amadeus` | Flights, hotels, city search, POIs, activities, safety ratings |
-| `nominatim` | OpenStreetMap geocoding (forward & reverse) — no API key needed |
-| `opentripmap` | Points of interest around a location |
-| `tomtom` | Traffic flow, incidents, place search |
-| `openroute` | Full routing: directions, isochrones, matrix, geocoding |
+| `groq-proxy` | Authenticated chat, vision, and transcription; provider credential stays server-side |
+| `openroute` | Authenticated directions, isochrones, matrix, geocoding, and elevation via HeiGIT |
+| `opentripmap` | Authenticated place search with bounded requests |
 | `platform-api` | Scoped REST/OpenAPI and remote MCP API for trips, budgets, planning, and booking request records |
+| `ai-planner` | Optional internal itinerary-generation endpoint; accepts service-role calls only |
+| Retired handlers | `ai-chat`, `dynamic-replan`, `travel-memory`, `amadeus`, `nominatim`, and `tomtom` return HTTP 410 |
 
 ---
 
@@ -332,9 +323,9 @@ After completing all steps above, verify the following in the browser:
 - [ ] Creating a trip auto-adds the creator as an `organizer` in **trip_memberships**
 - [ ] Trip group chat messages appear in **Database → messages** in real time
 - [ ] Community creation adds the creator as `admin` in **community_memberships**
-- [ ] "Hey Jinny" AI chat responds (requires `HF_API_KEY` secret to be set)
-- [ ] Map loads with Mappls tiles
-- [ ] Invite link flow: generate a link, open in incognito, request to join, approve as organizer
+- [ ] Hosted AI responds through `groq-proxy` when `GROQ_API_KEY` is configured; WebLLM works after downloading a local model
+- [ ] Map loads with the configured MapLibre/OpenStreetMap tiles
+- [ ] Invite link flow: the recipient resolves one invite through `lookup_trip_invite`, requests to join, and the organizer approves
 
 ---
 
@@ -376,44 +367,36 @@ auth.users  (Supabase-managed)
 | `activity_votes` | Trip members | Trip members (own user_id) | Own votes only | Own votes only |
 | `messages` | Trip members | Trip members (own sender_id) | — | — |
 | `disruption_events` | Trip members | Trip members | — | — |
-| `trip_invites` | Anyone authenticated | Organizer only | — | Organizer only |
+| `trip_invites` | Trip members; invite recipient by exact code via RPC | Organizer only | — | Organizer only |
 | `trip_join_requests` | Own request + trip members | Self only | Organizer only | — |
-| `communities` | Public communities | Authenticated (own created_by) | Creator only | Creator only |
-| `community_memberships` | Anyone | Self only | — | Self only |
+| `communities` | Public communities, own private communities, or member communities | Authenticated (own created_by) | Creator only | Creator only |
+| `community_memberships` | Own row, same community, or public community | Self only on public communities | — | Self only |
 | `community_messages` | Community members | Community members (own sender_id) | — | — |
-| `community_events` | Community members | Community members (own created_by) | Creator only | Creator only |
-| `event_rsvps` | Anyone | Self only | Self only | Self only |
+| `community_events` | Public communities or community members | Community members (own created_by) | Creator only | Creator only |
+| `event_rsvps` | Public events or community members | Self on a visible event | Self on a visible event | Self |
 
 ---
 
 ## API Keys & Services Reference
 
-| Service | Key / Token | Used In | Notes |
+| Service | Credential location | Used by | Protection |
 |---|---|---|---|
-| HuggingFace | `hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` | ai-chat, ai-planner, dynamic-replan, travel-memory | Free tier has rate limits — upgrade for production |
-| Amadeus | Key: `<your_amadeus_api_key>` | amadeus function | Uses **test** environment by default |
-| Amadeus | Secret: `<your_amadeus_api_secret>` | amadeus function | Switch base URL for production |
-| OpenTripMap | `<your_opentripmap_api_key>` | opentripmap function | |
-| TomTom | `<your_tomtom_api_key>` | tomtom function | |
-| OpenRouteService | *(register for free)* | openroute + tomtom | 2 000 req/day free |
-| Mappls (frontend) | `<your_mappls_frontend_key>` | MapplsMap component | In frontend `.env` |
-| Mappls (backend) | `<your_mappls_backend_key>` | server-side map ops | |
-| Nominatim | No key required | nominatim function | OpenStreetMap public API |
-| Web Speech API | No key required | Voice / "Hey Jinny" | Chrome/Edge natively supported |
+| Groq | `GROQ_API_KEY` Edge Function secret | `groq-proxy` for chat, vision, and transcription | Supabase user JWT plus per-user and project quotas |
+| OpenRouteService | `ORS_API_KEY` Edge Function secret | `openroute` | Supabase user JWT, bounded inputs, per-user and project quotas |
+| OpenTripMap | `OPENTRIPMAP_API_KEY` Edge Function secret | `opentripmap` | Supabase user JWT, bounded inputs, per-user and project quotas |
+| Hugging Face | `HF_API_KEY` Edge Function secret | Optional `ai-planner` platform itinerary generation | Service-side only; do not add to frontend builds |
+| Open-Meteo | No provider key | Weather forecasts | Public service usage policies apply |
+| Web Speech / WebLLM | No provider key | Browser voice and opt-in local inference | Browser/device capability dependent |
 
 ---
 
 ## AI Model Details
 
-All AI edge functions use **HuggingFace Inference API**.
-
-| Setting | Value |
-|---|---|
-| Endpoint | `https://router.huggingface.co/v1/chat/completions` |
-| Model | `mistralai/Mistral-7B-Instruct-v0.3` |
-| Auth | Bearer token from `HF_API_KEY` secret |
-| Streaming | Enabled for `ai-chat` (Server-Sent Events) |
-| JSON output | Enforced via system prompt in ai-planner, dynamic-replan, travel-memory |
+The browser uses an authenticated `groq-proxy` for hosted chat/vision/audio or
+WebLLM for local inference. The proxy defaults to `openai/gpt-oss-120b` and
+`qwen/qwen3.8-27b`; deployments may override them with server-only
+`GROQ_MODEL` and `GROQ_VISION_MODEL` secrets. The separate `ai-planner`
+function used by the Platform API requires `HF_API_KEY`.
 
 ---
 
@@ -428,12 +411,15 @@ SELECT tgname FROM pg_trigger WHERE tgrelid = 'public.trips'::regclass;
 You should see `trg_auto_add_organizer`. If missing, re-run `master_schema.sql`.
 
 ### "row violates row-level security policy" on trip_memberships INSERT
-The `"Users can add own membership"` policy (AS PERMISSIVE) must exist. Check:
+Only a trip organizer can insert another trip member. The old self-insert policy
+allowed users to join a trip by supplying its UUID and must not exist. Check:
 ```sql
 SELECT policyname FROM pg_policies
 WHERE schemaname = 'public' AND tablename = 'trip_memberships';
 ```
-If missing, re-run `master_schema.sql`.
+If `Users can add own membership` is listed, apply migration
+`20261024000003_platform_hardening.sql`. Organizer approval and trip creation
+use the organizer policy and security-definer trigger.
 
 ### Profile not created after sign up
 The `on_auth_user_created` trigger on `auth.users` creates the profile row.
@@ -467,16 +453,16 @@ Subsequent calls within the warm window are fast.
 - Firefox: enable `media.webspeech.recognition.enable` in `about:config`
 - Safari: requires iOS 14.5+ or macOS 12+
 
-### Amadeus returns no flight/hotel results
-The edge function uses the **Amadeus test environment** (`test.api.amadeus.com`).
-Test data has limited routes. For real data switch the base URL in
-`supabase/functions/amadeus/index.ts` to `api.amadeus.com` and use production
-Amadeus credentials.
+### Old Edge Function returns HTTP 410
+The `ai-chat`, `dynamic-replan`, `travel-memory`, `amadeus`, `nominatim`, and
+`tomtom` Edge Functions are retired. Deploy the current `groq-proxy`, `openroute`,
+and `opentripmap` functions and update any external client still calling the old
+names.
 
 ### Map not rendering
-Verify the Mappls API key is set correctly in the `.env` file as
-`VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY` and that the domain is whitelisted in
-your Mappls developer account.
+The current map view uses MapLibre with the configured public basemap. Check the
+browser console and network panel for tile or style request failures; no Mappls
+API key is configured by this project.
 
 ---
 
@@ -485,9 +471,12 @@ your Mappls developer account.
 When you are ready to go live, complete every item below:
 
 ### Supabase Dashboard
-- [ ] Run `supabase/master_schema.sql` on the production project
-- [ ] Set all 6 secrets: `HF_API_KEY`, `AMADEUS_API_KEY`, `AMADEUS_API_SECRET`, `OPENTRIPMAP_API_KEY`, `TRAFFIC_API_KEY`, `ORS_API_KEY`
-- [ ] Deploy all 10 edge functions (`supabase functions deploy`)
+- [ ] For a new empty project only, apply `supabase/master_schema.sql`; for an existing project, apply pending migrations and verify the remote schema first
+- [ ] Apply all pending migrations, including `20261024000001_platform_api.sql`, `20261024000003_platform_hardening.sql`, `20261024000004_api_key_creation_hardening.sql`, and `20261024000005_api_rate_limit_overflow_guard.sql`
+- [ ] Set only the provider secrets used by this deployment: `GROQ_API_KEY`, `ORS_API_KEY`, `OPENTRIPMAP_API_KEY`, and optional `HF_API_KEY`
+- [ ] If browser clients call REST/MCP, set `PLATFORM_API_ALLOWED_ORIGINS` to their exact origins
+- [ ] Confirm the planner daily limit (10 generations per account, 100 per project) matches the deployment budget
+- [ ] Deploy `groq-proxy`, `openroute`, `opentripmap`, and `platform-api`; deploy `ai-planner` only if itinerary generation uses it
 - [ ] **Authentication → Providers → Email** — enable "Confirm email"
 - [ ] **Authentication → URL Configuration** — set Site URL to your production domain
 - [ ] **Authentication → URL Configuration** — add your production domain to Redirect URLs
@@ -495,7 +484,7 @@ When you are ready to go live, complete every item below:
 
 ### Frontend / Hosting (Vercel / Netlify / etc.)
 - [ ] Set `VITE_SUPABASE_URL` environment variable to the production project URL
-- [ ] Set `VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY` to the production anon key
+- [ ] Set `VITE_SUPABASE_PUBLISHABLE_KEY` to the production publishable key (the legacy `VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY` alias is still accepted)
 - [ ] Ensure the site is served over **HTTPS** (required for mic / voice features)
 - [ ] Update Mappls developer account to whitelist your production domain
 
@@ -520,14 +509,8 @@ supabase login
 # Link to the project
 supabase link --project-ref dfvyuqxyjlkoovxmtikq
 
-# Deploy all edge functions
-supabase functions deploy
-
-# Deploy a single function
-supabase functions deploy ai-chat
-
 # View live logs for a function
-supabase functions logs ai-chat --tail
+supabase functions logs platform-api --tail
 
 # Set a secret via CLI
 supabase secrets set HF_API_KEY=your_key_here

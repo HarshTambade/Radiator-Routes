@@ -28,7 +28,7 @@ const corsHeaders = {
     "mcp-name",
   ].join(", "),
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Expose-Headers": "WWW-Authenticate, X-Request-Id, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset",
+  "Access-Control-Expose-Headers": "WWW-Authenticate, X-Request-Id, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, X-RateLimit-Remaining-Day, X-RateLimit-Reset-Day",
   "Vary": "Origin",
 };
 
@@ -67,6 +67,74 @@ function json(data: unknown, status = 200, extraHeaders: Record<string, string> 
     status,
     headers: responseHeaders(extraHeaders),
   });
+}
+
+async function readJsonObject(request: Request, maxBytes: number): Promise<Record<string, unknown>> {
+  const contentType = request.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+  if (contentType !== "application/json") {
+    throw new ApiError(415, "unsupported_media_type", "Content-Type must be application/json.");
+  }
+  const declaredLength = request.headers.get("content-length");
+  if (declaredLength !== null) {
+    const length = Number(declaredLength);
+    if (!Number.isSafeInteger(length) || length < 0) {
+      throw new ApiError(400, "invalid_request", "Content-Length is invalid.");
+    }
+    if (length > maxBytes) throw new ApiError(413, "payload_too_large", "Request body is too large.");
+  }
+
+  if (!request.body) throw new ApiError(400, "invalid_request", "A JSON object body is required.");
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel();
+        throw new ApiError(413, "payload_too_large", "Request body is too large.");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  try {
+    const input = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(
+      concatenateChunks(chunks, bytes),
+    ));
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("invalid");
+    return input as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(400, "invalid_request", "A valid JSON object body is required.");
+  }
+}
+
+function concatenateChunks(chunks: Uint8Array[], size: number): Uint8Array {
+  const output = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
+
+function queryInteger(url: URL, key: string, fallback: number, min: number, max: number): number {
+  const raw = url.searchParams.get(key);
+  if (raw === null) return fallback;
+  if (!/^(0|[1-9]\d*)$/.test(raw)) {
+    throw new ApiError(400, "invalid_request", `${key} must be an integer from ${min} to ${max}.`);
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    throw new ApiError(400, "invalid_request", `${key} must be an integer from ${min} to ${max}.`);
+  }
+  return value;
 }
 
 function getRequestId() {
@@ -196,16 +264,22 @@ function requireScope(principal: Principal, scope: ApiScope) {
   }
 }
 
+function assertAllowedOrigin(request: Request) {
+  const origin = request.headers.get("origin");
+  if (!origin) return;
+  const allowed = (Deno.env.get("PLATFORM_API_ALLOWED_ORIGINS") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!allowed.includes(origin)) {
+    throw new ApiError(403, "origin_not_allowed", "This browser origin is not enabled for the platform API.");
+  }
+}
+
 function validDate(value: unknown): value is string {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00.000Z`);
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}
-
-function addDays(date: string, days: number): string {
-  const next = new Date(`${date}T00:00:00.000Z`);
-  next.setUTCDate(next.getUTCDate() + days);
-  return next.toISOString().slice(0, 10);
 }
 
 function cleanString(value: unknown, maxLength: number, field: string, required = true): string | null {
@@ -229,6 +303,7 @@ function finiteAmount(value: unknown, field: string, optional = false): number |
 }
 
 async function accessibleTrip(tripId: string, userId: string) {
+  if (!isUuid(tripId)) throw new ApiError(404, "not_found", "Trip not found.");
   const client = requireAdmin();
   const [{ data: trip, error: tripError }, { data: membership, error: memberError }] = await Promise.all([
     client.from("trips").select("*").eq("id", tripId).maybeSingle(),
@@ -243,22 +318,13 @@ async function accessibleTrip(tripId: string, userId: string) {
 
 async function listTrips(principal: Principal, url: URL) {
   requireScope(principal, "trips:read");
-  const client = requireAdmin();
-  const limit = Math.min(100, Math.max(1, Number.parseInt(url.searchParams.get("limit") ?? "50", 10) || 50));
-  const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
-  if (offset > 10_000) throw new ApiError(400, "invalid_request", "offset must be 10000 or less.");
-  const [{ data: memberships, error: memberError }, { data: organized, error: organizerError }] = await Promise.all([
-    client.from("trip_memberships").select("trip_id").eq("user_id", principal.userId),
-    client.from("trips").select("id").eq("organizer_id", principal.userId),
-  ]);
-  if (memberError || organizerError) throw new ApiError(503, "service_unavailable", "Trips could not be loaded.");
-  const ids = Array.from(new Set([
-    ...(memberships ?? []).map((row: { trip_id: string }) => row.trip_id),
-    ...(organized ?? []).map((row: { id: string }) => row.id),
-  ]));
-  if (!ids.length) return { data: [], pagination: { limit, offset, has_more: false } };
-  const { data, error } = await client.from("trips").select("*").in("id", ids)
-    .order("start_date", { ascending: true }).range(offset, offset + limit);
+  const limit = queryInteger(url, "limit", 50, 1, 100);
+  const offset = queryInteger(url, "offset", 0, 0, 10_000);
+  const { data, error } = await requireAdmin().rpc("list_accessible_trips", {
+    p_user_id: principal.userId,
+    p_limit: limit + 1,
+    p_offset: offset,
+  });
   if (error) throw new ApiError(503, "service_unavailable", "Trips could not be loaded.");
   const rows = data ?? [];
   return {
@@ -351,20 +417,26 @@ function safeTime(value: unknown): { hour: string; minute: string } | null {
   return { hour: match[1], minute: match[2] };
 }
 
-function normalizeActivity(activity: Record<string, unknown>, index: number, trip: Record<string, unknown>, days: number) {
+function normalizeActivity(activity: Record<string, unknown>, index: number, trip: Record<string, unknown>) {
   const name = cleanString(activity.name, 160, `activities[${index}].name`)!;
   const startDateRaw = typeof activity.start_time === "string" ? activity.start_time.slice(0, 10) : "";
-  const startDayOffset = validDate(startDateRaw)
-    ? Math.max(0, Math.min(days - 1, Math.round((Date.parse(`${startDateRaw}T00:00:00Z`) - Date.parse(`${trip.start_date}T00:00:00Z`)) / 86_400_000)))
-    : Math.min(days - 1, Math.floor(index / 4));
-  const activityDate = addDays(String(trip.start_date), startDayOffset);
-  const startClock = safeTime(activity.start_time) ?? { hour: "09", minute: "00" };
+  if (!validDate(startDateRaw)) {
+    throw new ApiError(502, "invalid_plan", `Activity '${name}' has an invalid start date.`);
+  }
+  if (startDateRaw < String(trip.start_date) || startDateRaw > String(trip.end_date)) {
+    throw new ApiError(422, "plan_date_outside_trip", `Activity '${name}' is outside the trip dates.`);
+  }
+  const startClock = safeTime(activity.start_time);
+  if (!startClock) throw new ApiError(502, "invalid_plan", `Activity '${name}' has an invalid start time.`);
   const endClock = safeTime(activity.end_time);
-  const startAt = `${activityDate}T${startClock.hour}:${startClock.minute}:00+05:30`;
-  let endAt = endClock ? `${activityDate}T${endClock.hour}:${endClock.minute}:00+05:30` : "";
-  if (!endAt || Date.parse(endAt) <= Date.parse(startAt)) {
-    const end = new Date(Date.parse(startAt) + 90 * 60_000 + 330 * 60_000);
-    endAt = `${end.toISOString().slice(0, 10)}T${end.toISOString().slice(11, 16)}:00+05:30`;
+  const endDateRaw = typeof activity.end_time === "string" ? activity.end_time.slice(0, 10) : "";
+  if (!endClock || endDateRaw !== startDateRaw) {
+    throw new ApiError(502, "invalid_plan", `Activity '${name}' has an invalid end time.`);
+  }
+  const startAt = `${startDateRaw}T${startClock.hour}:${startClock.minute}:00+05:30`;
+  const endAt = `${endDateRaw}T${endClock.hour}:${endClock.minute}:00+05:30`;
+  if (Date.parse(endAt) <= Date.parse(startAt)) {
+    throw new ApiError(422, "plan_duration_invalid", `Activity '${name}' must end after it starts on the same trip day.`);
   }
   const cost = finiteAmount(activity.cost ?? 0, `activities[${index}].cost`) ?? 0;
   const allowedCategories = ["food", "attraction", "transport", "shopping", "accommodation", "other"];
@@ -455,17 +527,35 @@ async function generateTripPlan(principal: Principal, tripId: string, body: Reco
     if (memberCountError) throw new ApiError(503, "service_unavailable", "Trip members could not be counted.");
     defaultTravelers = Math.max(1, count ?? 1);
   }
-  const travelers = body.travelers === undefined ? defaultTravelers : Number(body.travelers);
+  const travelers = body.travelers === undefined ? defaultTravelers : body.travelers;
   if (!Number.isInteger(travelers) || travelers < 1 || travelers > 50) {
     throw new ApiError(400, "invalid_request", "travelers must be an integer from 1 to 50.");
   }
+  if (body.interests !== undefined && (!Array.isArray(body.interests) || body.interests.length > 12)) {
+    throw new ApiError(400, "invalid_request", "interests must be an array with at most 12 entries.");
+  }
   const interests = Array.isArray(body.interests)
-    ? body.interests.slice(0, 12).map((item, index) => cleanString(item, 40, `interests[${index}]`)!)
+    ? body.interests.map((item, index) => cleanString(item, 40, `interests[${index}]`)!)
     : [];
-  const tripType = typeof body.trip_type === "string" ? body.trip_type.slice(0, 40) : "leisure";
+  const tripType = body.trip_type === undefined
+    ? "leisure"
+    : cleanString(body.trip_type, 40, "trip_type")!;
   if (!supabaseUrl || !serviceRoleKey || !anonKey) {
     throw new ApiError(503, "service_unavailable", "The itinerary planner is not configured.");
   }
+  const { data: quota, error: quotaError } = await requireAdmin().rpc("consume_provider_request_rate_limit", {
+    p_user_id: principal.userId,
+    p_provider: "planner",
+    p_bucket: "day",
+    p_user_limit: 10,
+    p_project_limit: 100,
+  }).maybeSingle();
+  if (quotaError || !quota) throw new ApiError(503, "service_unavailable", "Planner request throttling is unavailable.");
+  const quotaHeaders = {
+    "X-RateLimit-Remaining-Day": String(quota.remaining),
+    "X-RateLimit-Reset-Day": String(Math.ceil(Date.parse(quota.resets_at) / 1000)),
+  };
+  if (!quota.allowed) throw new ApiError(429, "plan_rate_limit_exceeded", "The itinerary generation daily quota has been reached.", quotaHeaders);
 
   let plannerResponse: Response;
   try {
@@ -510,7 +600,7 @@ async function generateTripPlan(principal: Principal, tripId: string, body: Reco
     if (!activity || typeof activity !== "object" || Array.isArray(activity)) {
       throw new ApiError(502, "invalid_plan", "The itinerary planner returned an invalid activity.");
     }
-    return normalizeActivity(activity as Record<string, unknown>, index, trip, days);
+    return normalizeActivity(activity as Record<string, unknown>, index, trip);
   });
   verifyGeneratedSchedule(activities, budget, days);
   const costTotal = Math.round(activities.reduce((sum, activity) => sum + activity.cost, 0) * 100) / 100;
@@ -546,12 +636,47 @@ async function generateTripPlan(principal: Principal, tripId: string, body: Reco
 }
 
 function containsSensitiveField(value: unknown, depth = 0): boolean {
-  if (depth > 6 || !value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object") return false;
+  if (depth > 8) throw new ApiError(400, "invalid_request", "details may be nested no more than eight levels.");
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
     if (/(card|credit|debit|cvv|cvc|cc_?number|pan|bank_account|account_number|iban|routing_number|password|secret|token|authorization|payment_method)/i.test(key)) return true;
     if (containsSensitiveField(child, depth + 1)) return true;
   }
   return false;
+}
+
+function canonicalJson(value: unknown, depth = 0): string {
+  if (depth > 8) throw new ApiError(400, "invalid_request", "details may be nested no more than eight levels.");
+  if (Array.isArray(value)) return `[${value.map((child) => canonicalJson(child, depth + 1)).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, child]) => `${JSON.stringify(key)}:${canonicalJson(child, depth + 1)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function assertSameIdempotentOrder(
+  existing: Record<string, unknown>,
+  input: { tripId: string | null; orderType: string; itemName: string; provider: string | null; currency: string; quotedAmount: number | null; details: Record<string, unknown> },
+) {
+  const same = existing.trip_id === input.tripId
+    && existing.order_type === input.orderType
+    && existing.item_name === input.itemName
+    && existing.provider === input.provider
+    && String(existing.currency).toUpperCase() === input.currency
+    && (existing.quoted_amount === null ? null : Number(existing.quoted_amount)) === input.quotedAmount
+    && canonicalJson(existing.details ?? {}) === canonicalJson(input.details);
+  if (!same) {
+    throw new ApiError(409, "idempotency_conflict", "This Idempotency-Key was already used with a different booking request.");
+  }
+}
+
+function acceptedOrder(existing: Record<string, unknown>) {
+  return {
+    ...existing,
+    fulfillment: "request_recorded_only",
+    notice: "No provider booking was placed and no payment was charged.",
+  };
 }
 
 async function createOrder(principal: Principal, request: Request, body: Record<string, unknown>) {
@@ -575,7 +700,8 @@ async function createOrder(principal: Principal, request: Request, body: Record<
   }
   const detailsJson = JSON.stringify(details);
   if (detailsJson.length > 20_000) throw new ApiError(413, "payload_too_large", "details must be 20000 characters or fewer.");
-  if (containsSensitiveField(details)) {
+  const hasSensitiveField = containsSensitiveField(details);
+  if (hasSensitiveField) {
     throw new ApiError(400, "sensitive_data_rejected", "Do not include card, payment, password, token, or authentication data in order details.");
   }
   const currency = typeof body.currency === "string"
@@ -583,17 +709,27 @@ async function createOrder(principal: Principal, request: Request, body: Record<
     : String(trip?.currency ?? "INR").toUpperCase();
   if (!/^[A-Z]{3}$/.test(currency)) throw new ApiError(400, "invalid_request", "currency must be a three-letter ISO code.");
   const quotedAmount = finiteAmount(body.quoted_amount, "quoted_amount", true);
-  const idempotencyKey = request.headers.get("idempotency-key")?.trim()
-    || (typeof body.idempotency_key === "string" ? body.idempotency_key.trim() : "")
-    || null;
+  const headerIdempotencyKey = request.headers.get("idempotency-key")?.trim() || "";
+  if (body.idempotency_key !== undefined && typeof body.idempotency_key !== "string") {
+    throw new ApiError(400, "invalid_request", "idempotency_key must be a string.");
+  }
+  const bodyIdempotencyKey = typeof body.idempotency_key === "string" ? body.idempotency_key.trim() : "";
+  if (headerIdempotencyKey && bodyIdempotencyKey && headerIdempotencyKey !== bodyIdempotencyKey) {
+    throw new ApiError(400, "invalid_request", "The Idempotency-Key header and body value must match.");
+  }
+  const idempotencyKey = headerIdempotencyKey || bodyIdempotencyKey || null;
   if (idempotencyKey && (idempotencyKey.length > 128 || !/^[a-zA-Z0-9._:-]+$/.test(idempotencyKey))) {
     throw new ApiError(400, "invalid_request", "Idempotency-Key may contain letters, numbers, period, underscore, colon, and hyphen (up to 128 characters).");
   }
   const client = requireAdmin();
   if (idempotencyKey) {
-    const { data: existing } = await client.from("travel_orders").select("*")
+    const { data: existing, error: lookupError } = await client.from("travel_orders").select("*")
       .eq("user_id", principal.userId).eq("idempotency_key", idempotencyKey).maybeSingle();
-    if (existing) return { status: 200, data: existing };
+    if (lookupError) throw new ApiError(503, "service_unavailable", "The idempotent booking request could not be checked.");
+    if (existing) {
+      assertSameIdempotentOrder(existing, { tripId, orderType, itemName, provider, currency, quotedAmount, details: details as Record<string, unknown> });
+      return { status: 200, data: acceptedOrder(existing) };
+    }
   }
   const { data, error } = await client.from("travel_orders").insert({
     user_id: principal.userId,
@@ -608,26 +744,27 @@ async function createOrder(principal: Principal, request: Request, body: Record<
     idempotency_key: idempotencyKey,
   }).select("*").single();
   if (error && idempotencyKey && error.code === "23505") {
-    const { data: existing } = await client.from("travel_orders").select("*")
+    const { data: existing, error: lookupError } = await client.from("travel_orders").select("*")
       .eq("user_id", principal.userId).eq("idempotency_key", idempotencyKey).maybeSingle();
-    if (existing) return { status: 200, data: existing };
+    if (lookupError) throw new ApiError(503, "service_unavailable", "The idempotent booking request could not be checked.");
+    if (existing) {
+      assertSameIdempotentOrder(existing, { tripId, orderType, itemName, provider, currency, quotedAmount, details: details as Record<string, unknown> });
+      return { status: 200, data: acceptedOrder(existing) };
+    }
   }
   if (error) throw new ApiError(503, "service_unavailable", "The booking request could not be recorded.");
   return {
     status: 201,
     data: {
-      ...data,
-      fulfillment: "request_recorded_only",
-      notice: "No provider booking was placed and no payment was charged.",
+      ...acceptedOrder(data),
     },
   };
 }
 
 async function listOrders(principal: Principal, url: URL) {
   requireScope(principal, "orders:read");
-  const limit = Math.min(100, Math.max(1, Number.parseInt(url.searchParams.get("limit") ?? "50", 10) || 50));
-  const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
-  if (offset > 10_000) throw new ApiError(400, "invalid_request", "offset must be 10000 or less.");
+  const limit = queryInteger(url, "limit", 50, 1, 100);
+  const offset = queryInteger(url, "offset", 0, 0, 10_000);
   const { data, error } = await requireAdmin().from("travel_orders").select("*")
     .eq("user_id", principal.userId).order("created_at", { ascending: false }).range(offset, offset + limit);
   if (error) throw new ApiError(503, "service_unavailable", "Order requests could not be loaded.");
@@ -646,7 +783,12 @@ async function getOrder(principal: Principal, orderId: string) {
 }
 
 async function dispatchRest(method: string, route: string, url: URL, body: Record<string, unknown>, request: Request, principal: Principal) {
-  const parts = route.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+  let parts: string[];
+  try {
+    parts = route.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+  } catch {
+    throw new ApiError(400, "invalid_request", "The request path contains invalid encoding.");
+  }
   if (parts[0] !== "v1") throw new ApiError(404, "not_found", "Endpoint not found.");
   const resource = parts[1];
   if (resource === "trips" && parts.length === 2 && method === "GET") {
@@ -756,33 +898,39 @@ async function callMcpTool(principal: Principal, name: string, args: Record<stri
   }
 }
 
-async function handleMcp(request: Request, url: URL, requestId: string): Promise<Response> {
+async function handleMcp(request: Request, url: URL): Promise<Response> {
+  assertAllowedOrigin(request);
   const { principal, rateHeaders } = await authenticateApiKey(request);
   let message: Record<string, unknown>;
   try {
-    const length = Number(request.headers.get("content-length") ?? 0);
-    if (length > 1_000_000) throw new ApiError(413, "payload_too_large", "MCP request body is too large.");
-    const input = await request.json();
-    if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("invalid");
-    message = input as Record<string, unknown>;
+    message = await readJsonObject(request, 1_000_000);
   } catch (error) {
-    if (error instanceof ApiError) throw error;
+    if (error instanceof ApiError && error.status !== 400) throw error;
     return json(mcpError(null, -32700, "Parse error"), 400, rateHeaders);
   }
   const method = typeof message.method === "string" ? message.method : "";
   const requestMeta = (message.params as Record<string, unknown> | undefined)?._meta as Record<string, unknown> | undefined;
   const bodyProtocolVersion = requestMeta?.["io.modelcontextprotocol/protocolVersion"];
   const headerVersion = request.headers.get("mcp-protocol-version");
-  const protocolVersion = headerVersion ?? bodyProtocolVersion as string | undefined;
-  const modern = protocolVersion === "2026-07-28";
+  const modern = headerVersion === "2026-07-28";
   const headerMethod = request.headers.get("mcp-method");
   const params = (message.params && typeof message.params === "object" && !Array.isArray(message.params))
     ? message.params as Record<string, unknown>
     : {};
   const id = message.id;
 
+  const accept = request.headers.get("accept") ?? "";
+  if (!accept.toLowerCase().includes("application/json") || !accept.toLowerCase().includes("text/event-stream")) {
+    return json(mcpError(message.id, -32600, "Accept must include application/json and text/event-stream."), 406, rateHeaders);
+  }
+  if (method !== "initialize" && !headerVersion) {
+    return json(mcpError(message.id, -32020, "MCP-Protocol-Version is required."), 400, rateHeaders);
+  }
   if (headerVersion && typeof bodyProtocolVersion === "string" && headerVersion !== bodyProtocolVersion) {
     return json(mcpError(id, -32020, "MCP-Protocol-Version must match request metadata."), 400, rateHeaders);
+  }
+  if (headerVersion && !["2026-07-28", "2025-11-25"].includes(headerVersion)) {
+    return json(mcpError(id, -32001, "Unsupported protocol version. Supported versions: 2026-07-28, 2025-11-25."), 400, rateHeaders);
   }
   if (modern) {
     if (headerVersion !== "2026-07-28" || bodyProtocolVersion !== "2026-07-28") {
@@ -796,8 +944,11 @@ async function handleMcp(request: Request, url: URL, requestId: string): Promise
   }
   if (message.jsonrpc !== "2.0" || !method) return json(mcpError(id, -32600, "Invalid JSON-RPC request."), 400, rateHeaders);
 
+  if (modern && method === "initialize") return json(mcpError(id, -32601, "Method not found: initialize"), 404, rateHeaders);
   if (method.startsWith("notifications/")) return new Response(null, { status: 202, headers: responseHeaders(rateHeaders) });
-  if (id === undefined || id === null) return json(mcpError(null, -32600, "A request id is required."), 400, rateHeaders);
+  if (id === undefined || id === null || !(["string", "number"].includes(typeof id)) || (typeof id === "number" && !Number.isFinite(id))) {
+    return json(mcpError(null, -32600, "A valid string or numeric request id is required."), 400, rateHeaders);
+  }
 
   if (method === "server/discover") {
     return json({
@@ -815,7 +966,7 @@ async function handleMcp(request: Request, url: URL, requestId: string): Promise
   }
   if (method === "initialize") {
     const requested = typeof params.protocolVersion === "string" ? params.protocolVersion : "2025-11-25";
-    const legacyVersion = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"].includes(requested)
+    const legacyVersion = requested === "2025-11-25"
       ? requested
       : "2025-11-25";
     return json({ jsonrpc: "2.0", id, result: {
@@ -876,14 +1027,7 @@ async function authenticateDashboardUser(request: Request) {
 
 async function handleKeyManagement(request: Request): Promise<Response> {
   const user = await authenticateDashboardUser(request);
-  let body: Record<string, unknown>;
-  try {
-    const input = await request.json();
-    if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("invalid");
-    body = input as Record<string, unknown>;
-  } catch {
-    throw new ApiError(400, "invalid_request", "A JSON request body is required.");
-  }
+  const body = await readJsonObject(request, 16_384);
   const client = requireAdmin();
 
   if (body.action === "list_keys") {
@@ -900,14 +1044,6 @@ async function handleKeyManagement(request: Request): Promise<Response> {
     if (!scopes.length || scopes.some((scope) => typeof scope !== "string" || !KNOWN_SCOPES.includes(scope as ApiScope))) {
       throw new ApiError(400, "invalid_request", `Choose one or more supported scopes: ${KNOWN_SCOPES.join(", ")}.`);
     }
-    const { data: accountKeys, error: countError } = await client.from("integration_api_keys")
-      .select("expires_at,revoked_at").eq("user_id", user.id);
-    if (countError) throw new ApiError(503, "service_unavailable", "The active key limit could not be checked.");
-    const activeCount = (accountKeys ?? []).filter((key: { expires_at: string | null; revoked_at: string | null }) =>
-      !key.revoked_at && (!key.expires_at || Date.parse(key.expires_at) > Date.now()),
-    ).length;
-    if (activeCount >= 10) throw new ApiError(409, "key_limit_reached", "Revoke an unused key before creating another. Each account can have up to 10 active keys.");
-
     let expiresAt: string | null = null;
     if (body.expires_in_days !== null && body.expires_in_days !== undefined) {
       const days = Number(body.expires_in_days);
@@ -918,15 +1054,18 @@ async function handleKeyManagement(request: Request): Promise<Response> {
     const random = crypto.getRandomValues(new Uint8Array(32));
     const rawKey = `rr_live_${base64Url(random)}`;
     const keyHash = await sha256(rawKey);
-    const { data, error } = await client.from("integration_api_keys").insert({
-      user_id: user.id,
-      name,
-      key_prefix: rawKey.slice(0, 16),
-      key_hash: keyHash,
-      scopes: Array.from(new Set(scopes)),
-      expires_at: expiresAt,
-    }).select("id,name,key_prefix,scopes,last_used_at,expires_at,revoked_at,created_at").single();
-    if (error) throw new ApiError(503, "service_unavailable", "The API key could not be created.");
+    const { data, error } = await client.rpc("create_integration_api_key", {
+      p_user_id: user.id,
+      p_name: name,
+      p_key_prefix: rawKey.slice(0, 16),
+      p_key_hash: keyHash,
+      p_scopes: Array.from(new Set(scopes)),
+      p_expires_at: expiresAt,
+    }).maybeSingle();
+    if (error?.code === "P0001" && error.message.includes("active_api_key_limit_reached")) {
+      throw new ApiError(409, "key_limit_reached", "Revoke an unused key before creating another. Each account can have up to 10 active keys.");
+    }
+    if (error || !data) throw new ApiError(503, "service_unavailable", "The API key could not be created.");
     return json({ key: data, secret: rawKey }, 201);
   }
 
@@ -958,28 +1097,21 @@ Deno.serve(async (request: Request) => {
     if (route === "/v1/openapi.json" && request.method === "GET") return json(openApiDocument());
     if (route === "/mcp" || route === "/mcp/") {
       if (request.method !== "POST") throw new ApiError(405, "method_not_allowed", "MCP Streamable HTTP uses POST requests.");
-      return await handleMcp(request, url, requestId);
+      return await handleMcp(request, url);
     }
     if (route === "/" || route === "") {
       if (request.method !== "POST") throw new ApiError(405, "method_not_allowed", "Key management uses POST requests.");
       return await handleKeyManagement(request);
     }
 
+    assertAllowedOrigin(request);
     const { principal, rateHeaders } = await authenticateApiKey(request);
     if (request.method !== "GET" && request.method !== "POST") {
       throw new ApiError(405, "method_not_allowed", "Only GET and POST are supported.");
     }
     let body: Record<string, unknown> = {};
     if (request.method === "POST") {
-      const length = Number(request.headers.get("content-length") ?? 0);
-      if (length > 1_000_000) throw new ApiError(413, "payload_too_large", "Request body is too large.");
-      try {
-        const parsed = await request.json();
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid");
-        body = parsed as Record<string, unknown>;
-      } catch {
-        throw new ApiError(400, "invalid_request", "POST requests require a JSON object body.");
-      }
+      body = await readJsonObject(request, 1_000_000);
     }
     const result = await dispatchRest(request.method, route, url, body, request, principal);
     return json(result.data, result.status, rateHeaders);
