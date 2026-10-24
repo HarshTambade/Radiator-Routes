@@ -27,45 +27,69 @@ import { getAllOfflineTrips } from "@/services/offlineTrip";
 import { useLanguage } from "@/hooks/useLanguage";
 import { parseLocalDate, daysBetween, startOfToday } from "@/lib/date";
 import { errorMessage } from "@/lib/errors";
-import { featuredDestinations } from "@/data/destinations";
-
-function knownDestinationImage(destination: string) {
-  const normalize = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  const name = normalize(destination.split(",")[0] ?? "");
-  const match = featuredDestinations.find((item) => {
-    const featuredName = normalize(item.name);
-    const shortName = featuredName.split(" ")[0];
-    return name === featuredName || name === shortName;
-  });
-  return match?.image ?? null;
-}
+import { extractDestinationName, getDestinationPhoto } from "@/services/destinationImage";
 
 function TripCover({ destination, imageUrl }: { destination: string; imageUrl?: string | null }) {
-  const [failedImage, setFailedImage] = useState<string | null>(null);
+  const [failedState, setFailedState] = useState<{ destination: string; url: string } | null>(null);
+  const [photoState, setPhotoState] = useState<{
+    destination: string;
+    photo: Awaited<ReturnType<typeof getDestinationPhoto>>;
+  } | null>(null);
   const customImage = imageUrl?.trim() && (/^https?:\/\//i.test(imageUrl) || imageUrl.startsWith("/"))
     ? imageUrl.trim()
     : null;
-  const suggestedImage = knownDestinationImage(destination);
-  const image = [customImage, suggestedImage].find((candidate) => candidate && candidate !== failedImage) ?? null;
+  useEffect(() => {
+    let active = true;
+    if (!customImage) {
+      getDestinationPhoto(destination).then((photo) => {
+        if (active) setPhotoState({ destination, photo });
+      });
+    }
+    return () => { active = false; };
+  }, [destination, customImage]);
+
+  const resolvedPhoto = photoState?.destination === destination ? photoState.photo : null;
+  const failedImage = failedState?.destination === destination ? failedState.url : null;
+  const image = [customImage, resolvedPhoto?.url].find((candidate) => candidate && candidate !== failedImage) ?? null;
+  const label = extractDestinationName(destination) || "Your destination";
 
   return (
     <div className="relative h-28 overflow-hidden bg-gradient-to-br from-orange-100 via-amber-50 to-slate-200 sm:h-32">
       {image ? (
         <img
           src={image}
-          alt={`Trip to ${destination}`}
+          alt={`Trip to ${label}`}
           loading="lazy"
           decoding="async"
-          onError={() => setFailedImage(image)}
+          onError={() => {
+            setFailedState({ destination, url: image });
+            if (image === customImage && !resolvedPhoto) {
+              getDestinationPhoto(destination).then((photo) => setPhotoState({ destination, photo }));
+            }
+          }}
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
         />
       ) : (
         <div role="img" aria-label={`Trip to ${destination}; destination photo unavailable`} className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-orange-200 via-amber-50 to-slate-200 px-5 text-center">
           <MapPin className="h-6 w-6 text-primary" />
-          <span className="line-clamp-2 max-w-full text-sm font-semibold text-slate-700">{destination || "Your destination"}</span>
+          <span className="line-clamp-2 max-w-full text-sm font-semibold text-slate-700">{label}</span>
         </div>
       )}
       {image && <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />}
+      {image && resolvedPhoto?.sourceUrl && image === resolvedPhoto.url && (
+        <a
+          href={resolvedPhoto.sourceUrl}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(event) => event.stopPropagation()}
+          className="absolute bottom-1 left-2 z-10 max-w-[80%] truncate rounded bg-black/55 px-1.5 py-0.5 text-[9px] text-white/90 hover:text-white"
+          aria-label={`Photo source${resolvedPhoto.credit ? `: ${resolvedPhoto.credit}` : ""}${resolvedPhoto.license ? `, ${resolvedPhoto.license}` : ""}`}
+          title={[resolvedPhoto.credit, resolvedPhoto.license].filter(Boolean).join(" · ") || "Photo source and license"}
+        >
+          {resolvedPhoto.credit ? `${resolvedPhoto.credit} · ` : "Photo source"}
+          {resolvedPhoto.license || "Wikimedia Commons"}
+        </a>
+      )}
     </div>
   );
 }

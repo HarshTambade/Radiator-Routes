@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { nominatimSearch } from "@/services/nominatim";
+import { extractDestinationName } from "@/services/destinationImage";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -269,7 +270,7 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
     switch (step) {
       case "destination": {
         const parts = value.split(",").map((s) => s.trim());
-        const dest = parts[0] || value;
+        const dest = extractDestinationName(parts[0] || value);
         // Country provided explicitly by the user
         let country = parts[1] || "";
 
