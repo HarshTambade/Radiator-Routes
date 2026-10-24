@@ -50,21 +50,18 @@ function LazyMapFallback() {
   );
 }
 
-import destinationAgra from "@/assets/destination-agra.jpg";
-import destinationGoa from "@/assets/destination-goa.jpg";
-import destinationKerala from "@/assets/destination-kerala.jpg";
-import travelBeach from "@/assets/travel-beach.jpg";
-import travelBoat from "@/assets/travel-boat.jpg";
-import travelKayak from "@/assets/travel-kayak.jpg";
-
-const fallbackImages = [
-  destinationAgra,
-  destinationGoa,
-  destinationKerala,
-  travelBeach,
-  travelBoat,
-  travelKayak,
-];
+function PlaceImage({ src, alt, className }: { src?: string | null; alt: string; className: string }) {
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  if (!src || failedSource === src) {
+    return (
+      <div role="img" aria-label={`${alt} photo unavailable`} className={`${className} flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-orange-100 via-amber-50 to-slate-200 px-4 text-center`}>
+        <MapPin className="h-6 w-6 text-primary" />
+        <span className="line-clamp-2 text-sm font-semibold text-slate-700">{alt}</span>
+      </div>
+    );
+  }
+  return <img src={src} alt={alt} onError={() => setFailedSource(src)} loading="lazy" decoding="async" className={className} />;
+}
 
 // Expanded categories mapped to OpenTripMap "kinds"
 const categories = [
@@ -620,8 +617,8 @@ export default function Explore() {
                 <div className="flex flex-col md:flex-row">
                   <div className="flex-1 min-w-0">
                     <div className="relative h-48">
-                      <img
-                        src={selectedPlace.preview?.source || fallbackImages[0]}
+                      <PlaceImage
+                        src={selectedPlace._resolvedImage || selectedPlace.preview?.source || selectedPlace.image}
                         alt={selectedPlace.name}
                         className="w-full h-full object-cover"
                       />
@@ -825,7 +822,7 @@ export default function Explore() {
                   const coords = getPlaceCoords(place);
                   const hasCoords = !isNaN(coords.lat) && !isNaN(coords.lng);
                   const starRating = toFiveStars(place.rate);
-                  // Image priority: resolved Wikipedia/Wikidata → OTM preview → OTM image → fallback
+                  // Use an image attached to this place; never borrow another place's photo.
                   const placeImage =
                     place._resolvedImage ||
                     place.preview?.source ||
@@ -839,16 +836,9 @@ export default function Explore() {
                       style={{ animationDelay: `${i * 0.05}s` }}
                     >
                       <div className="relative h-44 overflow-hidden bg-primary/5">
-                        <img
-                          src={
-                            placeImage ||
-                            fallbackImages[i % fallbackImages.length]
-                          }
+                        <PlaceImage
+                          src={placeImage}
                           alt={place.name}
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src =
-                              fallbackImages[i % fallbackImages.length];
-                          }}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         />
                         <div className="absolute top-3 right-3 flex gap-1.5">
@@ -1444,16 +1434,9 @@ export default function Explore() {
                       style={{ animationDelay: `${i * 0.05}s` }}
                     >
                       <div className="relative h-36 overflow-hidden bg-warning/5">
-                        <img
-                          src={
-                            placeImage ||
-                            fallbackImages[i % fallbackImages.length]
-                          }
+                        <PlaceImage
+                          src={placeImage}
                           alt={place.name}
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src =
-                              fallbackImages[i % fallbackImages.length];
-                          }}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />

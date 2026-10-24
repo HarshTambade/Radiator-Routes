@@ -13,23 +13,20 @@ import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/hooks/useLanguage";
 import { planItinerary } from "@/services/aiPlanner";
 import AddToTripButton from "@/components/AddToTripButton";
-
-import destinationAgra from "@/assets/destination-agra.jpg";
-import destinationGoa from "@/assets/destination-goa.jpg";
-import destinationKerala from "@/assets/destination-kerala.jpg";
-import travelSummit from "@/assets/travel-summit.jpg";
-import travelKayak from "@/assets/travel-kayak.jpg";
-import travelBeach from "@/assets/travel-beach.jpg";
 import { errorMessage } from "@/lib/errors";
 
-const guideImages = [
-  destinationAgra,
-  destinationGoa,
-  destinationKerala,
-  travelSummit,
-  travelKayak,
-  travelBeach,
-];
+function GuidePlaceImage({ src, label }: { src?: string | null; label: string }) {
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  if (!src || failedSource === src) {
+    return (
+      <div role="img" aria-label={`${label} photo unavailable`} className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-orange-100 via-amber-50 to-slate-200 px-4 text-center">
+        <MapPin className="h-6 w-6 text-primary" />
+        <span className="line-clamp-2 text-sm font-semibold text-slate-700">{label}</span>
+      </div>
+    );
+  }
+  return <img src={src} alt={label} onError={() => setFailedSource(src)} loading="lazy" decoding="async" className="h-full w-full object-cover" />;
+}
 
 export default function Guide() {
   const { t } = useLanguage();
@@ -68,7 +65,7 @@ export default function Guide() {
         start_time: a.start_time,
         end_time: a.end_time,
         estimated_steps: a.estimated_steps,
-        image: guideImages[i % guideImages.length],
+        image: typeof a.image_url === "string" ? a.image_url : null,
       }));
 
       setGuides(guideCards);
@@ -133,11 +130,7 @@ export default function Guide() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="relative h-48">
-              <img
-                src={selectedGuide.image}
-                alt={selectedGuide.title}
-                className="w-full h-full object-cover"
-              />
+              <GuidePlaceImage src={selectedGuide.image} label={selectedGuide.title} />
               <button
                 onClick={() => setSelectedGuide(null)}
                 className="absolute top-3 right-3 w-8 h-8 rounded-full bg-card/80 backdrop-blur-sm flex items-center justify-center"
@@ -225,11 +218,7 @@ export default function Guide() {
               className="bg-card rounded-2xl overflow-hidden shadow-card hover:shadow-elevated transition-all cursor-pointer group animate-fade-in"
             >
               <div className="relative h-36 overflow-hidden">
-                <img
-                  src={guide.image}
-                  alt={guide.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                />
+                <GuidePlaceImage src={guide.image} label={guide.title} />
               </div>
               <div className="p-4">
                 <div className="flex items-start justify-between mb-2">

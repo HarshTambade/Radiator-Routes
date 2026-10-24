@@ -26,23 +26,49 @@ import { useOnlineStatus } from "@/hooks/useOfflineTrip";
 import { getAllOfflineTrips } from "@/services/offlineTrip";
 import { useLanguage } from "@/hooks/useLanguage";
 import { parseLocalDate, daysBetween, startOfToday } from "@/lib/date";
-
-import destinationAgra from "@/assets/destination-agra.jpg";
-import destinationGoa from "@/assets/destination-goa.jpg";
-import destinationKerala from "@/assets/destination-kerala.jpg";
-import travelBeach from "@/assets/travel-beach.jpg";
-import travelBoat from "@/assets/travel-boat.jpg";
-import travelOcean from "@/assets/travel-ocean.jpg";
 import { errorMessage } from "@/lib/errors";
+import { featuredDestinations } from "@/data/destinations";
 
-const tripImages = [
-  destinationAgra,
-  destinationGoa,
-  destinationKerala,
-  travelBeach,
-  travelBoat,
-  travelOcean,
-];
+function knownDestinationImage(destination: string) {
+  const normalize = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const name = normalize(destination.split(",")[0] ?? "");
+  const match = featuredDestinations.find((item) => {
+    const featuredName = normalize(item.name);
+    const shortName = featuredName.split(" ")[0];
+    return name === featuredName || name === shortName;
+  });
+  return match?.image ?? null;
+}
+
+function TripCover({ destination, imageUrl }: { destination: string; imageUrl?: string | null }) {
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  const customImage = imageUrl?.trim() && (/^https?:\/\//i.test(imageUrl) || imageUrl.startsWith("/"))
+    ? imageUrl.trim()
+    : null;
+  const suggestedImage = knownDestinationImage(destination);
+  const image = [customImage, suggestedImage].find((candidate) => candidate && candidate !== failedImage) ?? null;
+
+  return (
+    <div className="relative h-28 overflow-hidden bg-gradient-to-br from-orange-100 via-amber-50 to-slate-200 sm:h-32">
+      {image ? (
+        <img
+          src={image}
+          alt={`Trip to ${destination}`}
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailedImage(image)}
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+        />
+      ) : (
+        <div role="img" aria-label={`Trip to ${destination}; destination photo unavailable`} className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-orange-200 via-amber-50 to-slate-200 px-5 text-center">
+          <MapPin className="h-6 w-6 text-primary" />
+          <span className="line-clamp-2 max-w-full text-sm font-semibold text-slate-700">{destination || "Your destination"}</span>
+        </div>
+      )}
+      {image && <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />}
+    </div>
+  );
+}
 
 const tripTypes = [
   {
@@ -251,7 +277,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:gap-4">
-              {trips.map((trip, idx) => {
+              {trips.map((trip) => {
                 const duration = getTripDuration(
                   trip.start_date,
                   trip.end_date,
@@ -263,15 +289,8 @@ export default function Dashboard() {
                     onClick={() => navigate(`/itinerary/${trip.id}`)}
                     className="bg-card rounded-2xl overflow-hidden shadow-card hover:shadow-elevated transition-shadow cursor-pointer group"
                   >
-                    <div className="relative h-28 sm:h-32 overflow-hidden">
-                      <img
-                        src={
-                          trip.image_url || tripImages[idx % tripImages.length]
-                        }
-                        alt={trip.destination}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                    <div className="relative overflow-hidden">
+                      <TripCover destination={trip.destination} imageUrl={trip.image_url} />
                       <div className="absolute bottom-3 right-3 bg-card/90 backdrop-blur-sm px-2.5 py-1 rounded-lg text-xs font-semibold">
                         <span className="text-foreground">
                           {daysLeft > 0 ? `${daysLeft} days left` : "Started"}
