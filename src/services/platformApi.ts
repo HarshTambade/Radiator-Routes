@@ -30,9 +30,29 @@ export interface CreatedPlatformApiKey {
 
 async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke("platform-api", { body });
-  if (error) throw new Error(error.message || "The API management request failed.");
+  if (error) throw new Error(await functionErrorMessage(error));
   if (!data) throw new Error("The API management service returned an empty response.");
   return data as T;
+}
+
+/**
+ * supabase-js reports every failed call as "Edge Function returned a non-2xx
+ * status code" and keeps the response on `error.context`. Surface the
+ * function's own `{ error: { code, message } }` body instead, so a failure
+ * says what actually went wrong.
+ */
+async function functionErrorMessage(error: { message?: string; context?: unknown }): Promise<string> {
+  const fallback = error.message || "The API management request failed.";
+  const response = error.context;
+  if (!(response instanceof Response)) return fallback;
+  try {
+    const body = (await response.clone().json()) as { error?: { message?: string; code?: string } };
+    const message = body?.error?.message;
+    if (!message) return `${fallback} (HTTP ${response.status})`;
+    return `${message} (HTTP ${response.status}${body.error?.code ? `, ${body.error.code}` : ""})`;
+  } catch {
+    return `${fallback} (HTTP ${response.status})`;
+  }
 }
 
 export async function listPlatformApiKeys(): Promise<PlatformApiKey[]> {
