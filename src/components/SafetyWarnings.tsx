@@ -9,7 +9,6 @@ import {
   ChevronDown,
   ChevronUp,
   MapPin,
-  Clock,
   Loader2,
   ShieldCheck,
   ShieldAlert,
@@ -17,7 +16,6 @@ import {
 } from "lucide-react";
 import {
   fetchSafetyAlerts,
-  fetchSafetyScore,
   type SafetyAlert,
   SEVERITY_CONFIG,
   formatRelativeTime,
@@ -50,56 +48,6 @@ function SeverityIcon({ severity }: { severity: SafetyAlert["severity"] }) {
   return <Info className="w-4 h-4 text-blue-500" />;
 }
 
-function SafetyScoreRing({ score }: { score: number }) {
-  const radius = 28;
-  const circumference = 2 * Math.PI * radius;
-  const progress = ((100 - score) / 100) * circumference;
-  const color =
-    score >= 70
-      ? "#ef4444"
-      : score >= 40
-        ? "#f97316"
-        : score >= 20
-          ? "#eab308"
-          : "#22c55e";
-
-  return (
-    <div className="relative w-20 h-20 flex items-center justify-center">
-      <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 72 72">
-        <circle
-          cx="36"
-          cy="36"
-          r={radius}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="6"
-          className="text-border"
-        />
-        <circle
-          cx="36"
-          cy="36"
-          r={radius}
-          fill="none"
-          stroke={color}
-          strokeWidth="6"
-          strokeDasharray={circumference}
-          strokeDashoffset={circumference - progress}
-          strokeLinecap="round"
-          style={{ transition: "stroke-dashoffset 1s ease" }}
-        />
-      </svg>
-      <div className="text-center">
-        <p className="text-xs font-bold" style={{ color }}>
-          {score}
-        </p>
-        <p className="text-[9px] text-muted-foreground leading-none">
-          risk
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function AlertCard({ alert }: { alert: SafetyAlert }) {
   const [expanded, setExpanded] = useState(false);
   const cfg = SEVERITY_CONFIG[alert.severity];
@@ -130,30 +78,24 @@ function AlertCard({ alert }: { alert: SafetyAlert }) {
               <p className="text-xs text-muted-foreground leading-relaxed">
                 {alert.description}
               </p>
-              <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <Newspaper className="w-3 h-3" />
-                  {alert.source}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
-                  {formatRelativeTime(alert.publishedAt)}
-                </span>
+              <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                <Newspaper className="w-3 h-3" />
+                {alert.source}
               </div>
-              <a
+                <a
                 href={alert.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
               >
-                Read full article <ExternalLink className="w-3 h-3" />
+                Check linked guidance <ExternalLink className="w-3 h-3" />
               </a>
             </div>
           )}
 
           <div className="flex items-center justify-between mt-1.5">
             <span className="text-[10px] text-muted-foreground">
-              {formatRelativeTime(alert.publishedAt)} · {alert.source}
+              {alert.source}
             </span>
             <button
               onClick={() => setExpanded((v) => !v)}
@@ -182,12 +124,6 @@ export default function SafetyWarnings({
   autoFetch = true,
 }: SafetyWarningsProps) {
   const [alerts, setAlerts] = useState<SafetyAlert[]>([]);
-  const [safetyScore, setSafetyScore] = useState<{
-    score: number;
-    label: string;
-    color: string;
-    summary: string;
-  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -198,12 +134,8 @@ export default function SafetyWarnings({
     if (!destination) return;
     setLoading(true);
     try {
-      const [alertsData, scoreData] = await Promise.all([
-        fetchSafetyAlerts(destination, 2),
-        fetchSafetyScore(destination),
-      ]);
+      const alertsData = await fetchSafetyAlerts(destination, 2);
       setAlerts(alertsData);
-      setSafetyScore(scoreData);
       setLastFetched(new Date());
       setFetched(true);
     } catch (err) {
@@ -261,7 +193,7 @@ export default function SafetyWarnings({
           </div>
           <div>
             <h3 className="font-semibold text-card-foreground text-sm flex items-center gap-2">
-              Safety Warnings
+              Travel Safety Guidance
               {totalWarnings > 0 && (
                 <span
                   className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
@@ -276,14 +208,14 @@ export default function SafetyWarnings({
             </h3>
             <p className="text-[11px] text-muted-foreground flex items-center gap-1">
               <MapPin className="w-3 h-3" />
-              {destination} · Real-time news alerts
+              {destination} · Curated travel guidance
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {lastFetched && (
             <span className="text-[10px] text-muted-foreground hidden sm:block">
-              Updated {formatRelativeTime(lastFetched.toISOString())}
+              Loaded {formatRelativeTime(lastFetched.toISOString())}
             </span>
           )}
           <button
@@ -317,7 +249,7 @@ export default function SafetyWarnings({
                 <Loader2 className="w-5 h-5 text-primary animate-spin absolute -bottom-1 -right-1" />
               </div>
               <p className="text-sm text-muted-foreground">
-                Scanning real-time safety news for{" "}
+                Loading curated safety guidance for{" "}
                 <span className="font-semibold text-card-foreground">
                   {destination}
                 </span>
@@ -331,14 +263,14 @@ export default function SafetyWarnings({
             <div className="flex flex-col items-center py-6 gap-3">
               <Shield className="w-10 h-10 text-muted-foreground/40" />
               <p className="text-sm text-muted-foreground text-center">
-                Check real-time safety alerts before you travel
+                Review general safety guidance before you travel
               </p>
               <button
                 onClick={load}
                 className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 flex items-center gap-2"
               >
                 <Shield className="w-3.5 h-3.5" />
-                Check Safety Now
+                Load Safety Guidance
               </button>
             </div>
           )}
@@ -346,27 +278,9 @@ export default function SafetyWarnings({
           {/* Fetched results */}
           {fetched && (
             <>
-              {/* Safety Score + Summary */}
-              {safetyScore && (
-                <div className="flex items-center gap-4 p-3 rounded-xl bg-secondary/40 border border-border">
-                  <SafetyScoreRing score={safetyScore.score} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span
-                        className={`text-sm font-bold ${safetyScore.color}`}
-                      >
-                        {safetyScore.label}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        · Risk Index: {safetyScore.score}/100
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      {safetyScore.summary}
-                    </p>
-                  </div>
-                </div>
-              )}
+              <p className="text-xs text-muted-foreground rounded-lg bg-secondary/40 p-3">
+                These are static curated tips matched to the destination, not live incident reports or a comprehensive safety rating. Check current local and government advisories before travel.
+              </p>
 
               {/* Stats row */}
               {totalWarnings > 0 && (
@@ -376,7 +290,7 @@ export default function SafetyWarnings({
                       {criticalCount}
                     </p>
                     <p className="text-[10px] text-muted-foreground">
-                      Critical
+                      Critical Severity
                     </p>
                   </div>
                   <div className="text-center p-2 rounded-xl bg-orange-500/10 border border-orange-500/20">
@@ -384,7 +298,7 @@ export default function SafetyWarnings({
                       {highCount}
                     </p>
                     <p className="text-[10px] text-muted-foreground">
-                      High Risk
+                      High Severity
                     </p>
                   </div>
                   <div className="text-center p-2 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
@@ -392,7 +306,7 @@ export default function SafetyWarnings({
                       {totalWarnings - criticalCount - highCount}
                     </p>
                     <p className="text-[10px] text-muted-foreground">
-                      Moderate
+                      Other Severity
                     </p>
                   </div>
                 </div>
@@ -419,7 +333,7 @@ export default function SafetyWarnings({
                         : "bg-secondary text-muted-foreground hover:bg-secondary/80"
                     }`}
                   >
-                    🚨 Urgent ({criticalCount + highCount})
+                    🚨 High / Critical ({criticalCount + highCount})
                   </button>
                   {uniqueTypes.slice(0, 3).map((type) => (
                     <button
@@ -448,10 +362,10 @@ export default function SafetyWarnings({
                 <div className="flex flex-col items-center py-8 gap-2">
                   <ShieldCheck className="w-10 h-10 text-green-500/60" />
                   <p className="text-sm font-semibold text-card-foreground">
-                    No alerts found
+                    No additional guidance found
                   </p>
                   <p className="text-xs text-muted-foreground text-center">
-                    No recent safety incidents reported for{" "}
+                    No additional curated guidance matched for{" "}
                     <span className="font-medium">{destination}</span>.
                     <br />
                     Always exercise standard travel precautions.

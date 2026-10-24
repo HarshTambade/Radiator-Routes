@@ -3,8 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Uses Wikipedia's public REST API (no key required) for destination context
 // and a curated static list of common travel advisories per region.
-// Preserves the previous surface (fetchSafetyAlerts, fetchSafetyScore,
-// fetchTravelAdvisory, SafetyAlert, SEVERITY_CONFIG, formatRelativeTime) so
+// Preserves the existing safety guidance and destination context surfaces so
 // existing callers (SafetyWarnings.tsx) don't need to change.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -35,7 +34,6 @@ export interface SafetyAlert {
   description: string;
   source: string;
   url: string;
-  publishedAt: string;
   location: string;
   emoji: string;
 }
@@ -68,7 +66,7 @@ const ADVISORY_TEMPLATES: AdvisoryTemplate[] = [
       "Pickpocketing, taxi over-charging and fake tour guides are common near major landmarks. Only use pre-paid taxis or licensed ride-hailing apps and avoid unverified tour operators.",
     emoji: "🎭",
     keywords: ["*"],
-    source: "Traveller Safety Guide",
+    source: "Curated travel guidance",
     url: "https://www.mea.gov.in/travelinformation.htm",
   },
   {
@@ -79,7 +77,7 @@ const ADVISORY_TEMPLATES: AdvisoryTemplate[] = [
       "Carry a photocopy of your passport, share your itinerary with a trusted contact, and register with your embassy for international trips. Keep local emergency numbers saved offline.",
     emoji: "📋",
     keywords: ["*"],
-    source: "General Guidance",
+    source: "Curated travel guidance",
     url: "https://www.mea.gov.in/travelinformation.htm",
   },
 
@@ -92,7 +90,7 @@ const ADVISORY_TEMPLATES: AdvisoryTemplate[] = [
       "Bag snatching and pickpocketing reported in crowded markets and train stations. Keep valuables in front-facing bags and stay alert in crowds.",
     emoji: "🔴",
     keywords: ["delhi", "mumbai", "bangkok", "paris", "barcelona", "rome"],
-    source: "Local Police Advisory",
+    source: "Curated travel guidance",
     url: "https://www.mea.gov.in/travelinformation.htm",
   },
   {
@@ -103,7 +101,7 @@ const ADVISORY_TEMPLATES: AdvisoryTemplate[] = [
       "Women travelling alone should avoid isolated areas after dark, use licensed transport, and stay in central, well-reviewed accommodation. Emergency helpline for women: 1091.",
     emoji: "🚨",
     keywords: ["delhi", "mumbai", "kolkata", "chennai", "bangalore"],
-    source: "MEA Advisory",
+    source: "Curated travel guidance",
     url: "https://www.mea.gov.in/travelinformation.htm",
   },
   {
@@ -117,7 +115,7 @@ const ADVISORY_TEMPLATES: AdvisoryTemplate[] = [
       "mumbai", "kerala", "goa", "chennai", "kolkata",
       "bangkok", "manila", "jakarta", "singapore",
     ],
-    source: "IMD Advisory",
+    source: "Curated travel guidance",
     url: "https://mausam.imd.gov.in/",
   },
   {
@@ -131,7 +129,7 @@ const ADVISORY_TEMPLATES: AdvisoryTemplate[] = [
       "leh", "ladakh", "manali", "shimla", "kashmir", "srinagar",
       "uttarakhand", "sikkim", "darjeeling", "nepal", "kathmandu",
     ],
-    source: "NDMA Advisory",
+    source: "Curated travel guidance",
     url: "https://ndma.gov.in/",
   },
   {
@@ -142,7 +140,7 @@ const ADVISORY_TEMPLATES: AdvisoryTemplate[] = [
       "Public protests can flare up with little notice and may temporarily disrupt transport and access to public spaces. Avoid demonstrations and follow local news.",
     emoji: "⚠️",
     keywords: ["delhi", "kashmir", "manipur", "assam", "bangkok", "hong kong"],
-    source: "Public Safety Bulletin",
+    source: "Curated travel guidance",
     url: "https://www.mea.gov.in/travelinformation.htm",
   },
   {
@@ -156,7 +154,7 @@ const ADVISORY_TEMPLATES: AdvisoryTemplate[] = [
       "delhi", "mumbai", "kolkata", "bangalore", "chennai",
       "bangkok", "jaipur", "agra", "goa",
     ],
-    source: "Consumer Advisory",
+    source: "Curated travel guidance",
     url: "https://www.mea.gov.in/travelinformation.htm",
   },
   {
@@ -170,7 +168,7 @@ const ADVISORY_TEMPLATES: AdvisoryTemplate[] = [
       "delhi", "mumbai", "goa", "kerala", "rajasthan", "agra",
       "bangkok", "kathmandu", "jakarta",
     ],
-    source: "WHO Travel Health",
+    source: "Curated travel guidance",
     url: "https://www.who.int/travel-advice",
   },
   {
@@ -181,7 +179,7 @@ const ADVISORY_TEMPLATES: AdvisoryTemplate[] = [
       "Ascending above 3,000 m can cause headaches, nausea, and fatigue. Acclimatise gradually, stay hydrated, and consult a doctor about preventive medication for high-altitude trips.",
     emoji: "🏔️",
     keywords: ["leh", "ladakh", "manali", "sikkim", "nepal", "everest", "kathmandu"],
-    source: "Travel Health Advisory",
+    source: "Curated travel guidance",
     url: "https://www.who.int/travel-advice",
   },
   {
@@ -192,7 +190,7 @@ const ADVISORY_TEMPLATES: AdvisoryTemplate[] = [
       "Strong undercurrents and rip tides are common on some coasts. Swim only at flagged beaches with a lifeguard on duty and heed local warnings.",
     emoji: "🏖️",
     keywords: ["goa", "kerala", "mumbai", "andaman", "puri", "bali", "phuket"],
-    source: "Coastal Safety Board",
+    source: "Curated travel guidance",
     url: "https://www.mea.gov.in/travelinformation.htm",
   },
 ];
@@ -226,7 +224,7 @@ async function fetchDestinationSummary(destination: string): Promise<{
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Return the curated safety alerts relevant to a destination. */
+/** Return static curated safety guidance relevant to a destination. */
 export async function fetchSafetyAlerts(
   destination: string,
   _maxAlertsPerCategory = 2,
@@ -247,7 +245,6 @@ export async function fetchSafetyAlerts(
         description: template.description,
         source: template.source,
         url: template.url,
-        publishedAt: new Date().toISOString(),
         location: destination,
         emoji: template.emoji,
       });
@@ -263,49 +260,6 @@ export async function fetchSafetyAlerts(
   );
 
   return matched;
-}
-
-/** Rough safety score derived from matching advisories. */
-export async function fetchSafetyScore(destination: string): Promise<{
-  score: number;
-  label: string;
-  color: string;
-  summary: string;
-}> {
-  const alerts = await fetchSafetyAlerts(destination);
-
-  let score = 0;
-  for (const alert of alerts) {
-    if (alert.severity === "critical") score += 25;
-    else if (alert.severity === "high") score += 12;
-    else if (alert.severity === "medium") score += 6;
-    else score += 2;
-  }
-  score = Math.min(score, 100);
-
-  let label: string;
-  let color: string;
-  let summary: string;
-
-  if (score >= 70) {
-    label = "Elevated Risk";
-    color = "text-red-600";
-    summary = `Several safety concerns apply to ${destination}. Exercise caution and check official advisories before travelling.`;
-  } else if (score >= 40) {
-    label = "Moderate Risk";
-    color = "text-orange-500";
-    summary = `Some safety concerns are reported for ${destination}. Stay alert and follow local advice.`;
-  } else if (score >= 20) {
-    label = "Low Risk";
-    color = "text-yellow-500";
-    summary = `Minor safety notes for ${destination}. Generally safe with normal precautions.`;
-  } else {
-    label = "Safe";
-    color = "text-green-500";
-    summary = `${destination} appears relatively safe based on standard travel guidance.`;
-  }
-
-  return { score, label, color, summary };
 }
 
 /** Fetches destination context articles from Wikipedia (free, no key). */

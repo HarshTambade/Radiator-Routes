@@ -14,8 +14,8 @@ import {
   Zap,
   Clock,
   MapPin,
-  IndianRupee,
 } from "lucide-react";
+import { formatMoney } from "@/lib/currency";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -23,48 +23,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   detectDisruptions as detectDisruptionsService,
   autoReplan,
+  type Disruption,
+  type DisruptionData,
+  type ReplanData,
 } from "@/services/dynamicReplan";
 import { errorMessage } from "@/lib/errors";
-
-type Disruption = {
-  type: string;
-  severity: string;
-  title: string;
-  description: string;
-  affected_activities: string[];
-  time_window: string;
-  confidence: number;
-};
-
-type DisruptionData = {
-  disruptions: Disruption[];
-  overall_risk: string;
-  needs_replan: boolean;
-};
-
-type ReplanActivity = {
-  name: string;
-  description: string;
-  location_name: string;
-  location_lat?: number;
-  location_lng?: number;
-  start_time: string;
-  end_time: string;
-  category: string;
-  cost: number;
-  estimated_steps?: number;
-  review_score?: number;
-  priority?: number;
-  notes: string;
-  is_changed?: boolean;
-};
-
-type ReplanData = {
-  activities: ReplanActivity[];
-  total_cost: number;
-  changes_summary: string;
-  changes_count: number;
-};
 
 const DISRUPTION_ICONS: Record<string, typeof CloudRain> = {
   weather: CloudRain,
@@ -83,12 +46,14 @@ const SEVERITY_COLORS: Record<string, string> = {
 
 interface DisruptionReplannerProps {
   tripId: string;
+  currency?: string;
   activeItineraryId?: string;
   onReplanApplied: () => void;
 }
 
 export default function DisruptionReplanner({
   tripId,
+  currency,
   activeItineraryId,
   onReplanApplied,
 }: DisruptionReplannerProps) {
@@ -114,14 +79,16 @@ export default function DisruptionReplanner({
       setDisruptions(data);
       if (data.disruptions?.length > 0) {
         toast({
-          title: `${data.disruptions.length} disruption(s) detected`,
-          description: `Overall risk: ${data.overall_risk}`,
+          title: `${data.disruptions.length} weather concern(s) found`,
+          description: `${data.assessment_note} Overall risk: ${data.overall_risk}.`,
           variant: data.overall_risk === "high" ? "destructive" : "default",
         });
       } else {
         toast({
-          title: "All clear! ✅",
-          description: "No disruptions detected for your trip.",
+          title: data.assessed_dates.length > 0
+            ? "No weather concerns found"
+            : "No forecast data available",
+          description: data.assessment_note,
         });
       }
     } catch (error: unknown) {
@@ -256,18 +223,17 @@ export default function DisruptionReplanner({
   };
 
   return (
-    <div className="space-y-3">
+    <div id="disruption-replanner" className="space-y-3 scroll-mt-24">
       {/* Scan Button */}
       <div className="bg-card rounded-2xl p-5 shadow-card">
         <div className="flex items-center justify-between mb-3">
           <div>
             <h3 className="font-semibold text-card-foreground flex items-center gap-2">
               <Zap className="w-4 h-4 text-warning" />
-              Live Dynamic Replanning
+              Weather Forecast Check
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Detect flight delays, weather changes, venue closures &
-              auto-replan
+              Checks forecast data for scheduled dates. Flight delays, venue closures, and safety alerts are not connected.
             </p>
           </div>
         </div>
@@ -279,12 +245,12 @@ export default function DisruptionReplanner({
           {detecting ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              Scanning for disruptions...
+              Checking forecast...
             </>
           ) : (
             <>
               <AlertTriangle className="w-4 h-4" />
-              Scan for Disruptions
+              Check Weather Forecast
             </>
           )}
         </button>
@@ -295,8 +261,8 @@ export default function DisruptionReplanner({
         <div className="bg-card rounded-2xl p-5 shadow-card space-y-3 animate-fade-in">
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-semibold text-card-foreground">
-              {disruptions.disruptions.length} Disruption
-              {disruptions.disruptions.length > 1 ? "s" : ""} Detected
+              {disruptions.disruptions.length} Weather Concern
+              {disruptions.disruptions.length > 1 ? "s" : ""} Found
             </h4>
             <span
               className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
@@ -310,6 +276,7 @@ export default function DisruptionReplanner({
               {disruptions.overall_risk} risk
             </span>
           </div>
+          <p className="text-xs text-muted-foreground">{disruptions.assessment_note}</p>
 
           {disruptions.disruptions.map((d, i) => {
             const Icon = DISRUPTION_ICONS[d.type] || AlertTriangle;
@@ -337,9 +304,7 @@ export default function DisruptionReplanner({
                       )}
                       <div className="flex items-center gap-3 mt-2 text-[10px] opacity-60">
                         <span>⏱ {d.time_window}</span>
-                        <span>
-                          Confidence: {Math.round(d.confidence * 100)}%
-                        </span>
+                        <span>Source: Open-Meteo forecast</span>
                       </div>
                     </div>
                   </div>
@@ -353,12 +318,23 @@ export default function DisruptionReplanner({
                     ) : (
                       <RefreshCw className="w-3 h-3" />
                     )}
-                    Auto-Replan
+                    Preview Replan
                   </button>
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {disruptions && disruptions.disruptions.length === 0 && (
+        <div className="bg-card rounded-2xl p-4 shadow-card animate-fade-in">
+          <p className="text-sm font-semibold text-card-foreground">
+            {disruptions.assessed_dates.length > 0
+              ? "No severe weather indicators found"
+              : "Scheduled dates could not be assessed"}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">{disruptions.assessment_note}</p>
         </div>
       )}
 
@@ -374,6 +350,9 @@ export default function DisruptionReplanner({
               <p className="text-xs text-muted-foreground mt-0.5">
                 {replanResult.changes_summary}
               </p>
+              <p className="text-[11px] text-success mt-1">
+                Feasibility checks passed. Review the preview before applying it.
+              </p>
             </div>
             <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold">
               {replanResult.changes_count} changes
@@ -385,7 +364,7 @@ export default function DisruptionReplanner({
             <div className="text-center flex-1">
               <p className="text-xs text-muted-foreground">New Est. Cost</p>
               <p className="text-sm font-bold text-card-foreground">
-                ₹{replanResult.total_cost?.toLocaleString("en-IN")}
+                {formatMoney(replanResult.total_cost, currency)}
               </p>
             </div>
             <div className="text-center flex-1">
@@ -452,8 +431,7 @@ export default function DisruptionReplanner({
                       )}
                       {a.cost > 0 && (
                         <span className="flex items-center gap-0.5">
-                          <IndianRupee className="w-2.5 h-2.5" />
-                          {a.cost.toLocaleString("en-IN")}
+                          {formatMoney(a.cost, currency)}
                         </span>
                       )}
                     </div>

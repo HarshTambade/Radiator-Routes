@@ -142,7 +142,7 @@ const RTL_LANGUAGES = SUPPORTED_LANGUAGES.filter((l) =>
  *  TIME_OVERLAP, TIME_INVALID, TIME_REVERSED, TRAVEL_INFEASIBLE, PACE_EXCEEDED,
  *  COORD_INVALID, COORD_OUT_OF_REGION, EMPTY_ITINERARY, DURATION_IMPLAUSIBLE,
  *  CLOSED_ON_DAY, OUTSIDE_OPENING_HOURS. */
-const FEASIBILITY_CHECK_COUNT = 13;
+const FEASIBILITY_CHECK_COUNT = 14;
 
 /* ─── Nav ─── */
 
@@ -490,7 +490,7 @@ const allFeatures: Feature[] = [
     title: "Live Location Sharing",
     desc: "Members broadcast GPS to the group over Supabase Presence — live distances, last-seen times, one-tap navigation, auto-clear on disconnect.",
     color: "text-orange-500 bg-orange-500/10",
-    tag: "Real-Time",
+    tag: "Forecast",
   },
   {
     icon: Bell,
@@ -501,8 +501,8 @@ const allFeatures: Feature[] = [
   },
   {
     icon: RefreshCw,
-    title: "Dynamic Replanning",
-    desc: "Weather and schedule disruptions trigger a fresh plan for the days ahead, pushed to every member in real time.",
+    title: "Forecast-Aware Replanning",
+    desc: "Check available weather forecasts against scheduled activities, then review a validated AI replan before applying it.",
     color: "text-red-500 bg-red-500/10",
     tag: "Real-Time",
   },
@@ -768,7 +768,7 @@ const howItWorks = [
     step: "04",
     icon: Zap,
     title: "Your group takes it live",
-    desc: "Vote, chat, split costs, share location. Weather and schedule disruptions replan the days still ahead while you travel.",
+    desc: "Vote, chat, split costs, share location. Check weather forecasts for scheduled days and preview a verified replan when conditions may affect the itinerary.",
     color: "bg-orange-500/10 text-orange-500 border-orange-500/20",
   },
 ];

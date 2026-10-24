@@ -129,11 +129,11 @@ the stack.
 | **Voice-first planning** | Web Speech API transcribes in-browser; the LLM extracts destination, dates, budget, group size and interests |
 | **Jinny assistant** | Streaming chat with intent classification (`services/aiChat.ts`) |
 | **Group trade-off planner** | Three plan variants, each verified for feasibility then scored by **computed** Least Misery over every traveller's stated preferences (`lib/groupRegret.ts`, `components/RegretPlanner.tsx`) |
-| **Plan verification** | 13 deterministic client-side checks — budget, cost sums, timing overlap, travel feasibility, opening hours, coordinate sanity, pace — that run offline and catch what JSON-schema validity cannot (`lib/itineraryVerifier.ts`) |
+| **Plan verification** | 14 deterministic client-side checks — including budget, trip dates, cost sums, timing overlap, travel feasibility, opening hours, coordinate sanity and pace — that run offline and catch what JSON-schema validity cannot (`lib/itineraryVerifier.ts`) |
 | **Automatic plan repair** | A failed plan is not just flagged. Violations are fed back to the model as a targeted repair instruction and the plan is regenerated once (`lib/planRepair.ts`) |
 | **Preference elicitation** | Members state category weights, pace and a personal budget cap; this is the input the fairness score is computed from (`components/TravelPreferencesForm.tsx`, `lib/travelPreferences.ts`) |
 | **AI reasoning transparency** | "Why This Plan" panel exposes selection criteria, budget logic and local tips |
-| **Dynamic replanning** | Weather/schedule disruptions trigger a fresh plan (`services/dynamicReplan.ts`) |
+| **Forecast-aware replanning** | User-requested Open-Meteo checks flag severe forecast conditions on scheduled dates; a feasibility-checked AI replan is previewed for approval (`services/dynamicReplan.ts`) |
 | **Travel memory** | Learns preferences across trips and folds them into future plans |
 | **Platform API** | Scoped, revocable API keys, versioned REST/OpenAPI endpoints, and an MCP server for connected AI clients (`/integrations`) |
 
@@ -666,7 +666,7 @@ PostgreSQL via Supabase with **Row-Level Security on every table**.
 | `activities` | Day-by-day activities within an itinerary. `opening_hours` (JSONB) feeds the verifier's closed-day and outside-hours checks; `updated_at` is the concurrency stamp the offline queue matches on when replaying a queued edit |
 | `activity_votes` | Per-member up/down votes |
 | `messages` | Per-trip group chat |
-| `disruption_events` | Weather/schedule disruptions that trigger replanning |
+| `disruption_events` | User-reviewed weather forecast concerns and accepted replan history |
 
 ### Social & invites
 `trip_invites` · `trip_join_requests` · `friend_requests` · `direct_messages`
@@ -913,7 +913,7 @@ gantt
 
 | Phase | Goal | Exit criteria |
 |---|---|---|
-| **Shipped** | Production hygiene, offline reads and writes, on-device AI, honest metrics, generate–verify–repair | 0 vulns · 228 tests · verifier (13 checks) + repair loop + computed Least Misery + preference UI live |
+| **Shipped** | Production hygiene, offline reads and writes, on-device AI, honest metrics, generate–verify–repair | 0 vulns · 228 tests · verifier (14 checks) + repair loop + computed Least Misery + preference UI live |
 | **Now** | Measure what has been built | Load time, tokens/sec and GPU memory from a real WebGPU session; repair-loop success rate on a held-out prompt set; offline writes extended past activity edits |
 | **Next** | Close the remaining correctness gaps | Revealed votes refine utilities; concurrent edits stop being last-write-wins; the planner adapts strategy to observed connectivity |
 | **Later** | Performance and typing | One IndexedDB store · Supabase off the critical path · API responses typed · Lighthouse and on-device benchmarks published |

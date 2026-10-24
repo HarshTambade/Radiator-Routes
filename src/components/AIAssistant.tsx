@@ -38,11 +38,17 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
-import { streamChatMessage } from "@/services/aiChat";
+import {
+  extractBudget,
+  extractDate,
+  extractDays,
+  extractDestination,
+  streamChatMessage,
+} from "@/services/aiChat";
 import { handleGeminiError } from "@/services/gemini";
 import { amadeusFlightOffers, amadeusHotelList } from "@/services/amadeus";
 import { trafficFlow, trafficIncidents } from "@/services/traffic";
-import { formatLocalDate } from "@/lib/date";
+import { formatLocalDate, parseLocalDate } from "@/lib/date";
 import { toAmount } from "@/lib/budget";
 import { isMicClaimed, onMicClaimChange } from "@/lib/micCoordinator";
 import { formatMoney, normalizeCurrencyCode } from "@/lib/currency";
@@ -53,21 +59,66 @@ import {
   geocodeDestination,
   getActivityWeatherSuitability,
 } from "@/services/climate";
+import { fetchSafetyAlerts } from "@/services/gnews";
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = { role: "user" | "assistant"; content: string; kind?: "tool" };
+
+function toConversationMessages(messages: Msg[]) {
+  return messages.map((message) => ({
+    role: message.kind === "tool" ? ("user" as const) : message.role,
+    content:
+      message.kind === "tool"
+        ? `[Tool result]\n${message.content}`
+        : message.content,
+  }));
+}
+
+function validIsoDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  return formatLocalDate(parseLocalDate(value)) === value;
+}
+
+function autoGenerationRequestId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function stripActionBlocks(content: string): string {
+  return content
+    .replace(/```json\s*([\s\S]*?)```/g, (block, payload: string) => {
+      try {
+        return typeof JSON.parse(payload)?.action === "string" ? "" : block;
+      } catch {
+        return block;
+      }
+    })
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function assistantDisplayContent(content: string): string {
+  const withoutActions = stripActionBlocks(content);
+  const unfinishedAction = withoutActions.indexOf("```json");
+  return unfinishedAction >= 0
+    ? withoutActions.slice(0, unfinishedAction).trim()
+    : withoutActions;
+}
+
+function containsActionBlock(content: string): boolean {
+  return /```json\s*\{[\s\S]*?"action"\s*:/i.test(content);
+}
 
 const PROXY_CAPABILITIES = [
   { icon: LayoutDashboard, label: "Dashboard", prompt: "Show me my trips and travel stats." },
   { icon: Plane, label: "Flights", prompt: "Search flights for my next trip." },
   { icon: CloudSun, label: "Weather", prompt: "Check the weather for my upcoming trip destination." },
-  { icon: Car, label: "Traffic", prompt: "Check live traffic conditions for my trip." },
+  { icon: Car, label: "Traffic", prompt: "Check traffic conditions near my trip and tell me whether the data is live or estimated." },
   { icon: Navigation, label: "Navigate", prompt: "Help me navigate to my next activity." },
   { icon: Brain, label: "Plan Trip", prompt: "Create a new trip for me based on my preferences." },
   { icon: Users, label: "Friends", prompt: "Open my friends and travel companions." },
   { icon: Compass, label: "Explore", prompt: "Show me places to explore near my destination." },
   { icon: BookOpen, label: "Guide", prompt: "Generate a travel guide for my destination." },
   { icon: Wallet, label: "Budget", prompt: "Analyze my spending and suggest ways to save money." },
-  { icon: Shield, label: "Safety", prompt: "Check safety ratings and alerts for my destination." },
+  { icon: Shield, label: "Safety", prompt: "Show curated safety guidance for my destination." },
   { icon: Hotel, label: "Hotels", prompt: "Find hotels for my upcoming trip." },
 ];
 
@@ -108,6 +159,7 @@ export default function AIAssistant() {
   const isLoadingRef = useRef(false);
   const ttsEnabledRef = useRef(true);
   const messagesRef = useRef<Msg[]>([]);
+  const actionResultsRef = useRef<string[]>([]);
   // Set by the voice handle so the web-speech path can hand transcript back
   const pendingTranscriptRef = useRef<string>("");
 
@@ -290,7 +342,7 @@ export default function AIAssistant() {
       setMessages([
         {
           role: "assistant",
-          content: `Hey ${userName}! 👋 I'm **Jinny** — your travel companion! 🧡\n\nI can:\n- 🧠 Give personalized suggestions based on your travel history\n- 🤝 Negotiate itineraries in group trips for you\n- 🛡️ Monitor disruptions and alert you proactively\n- 💰 Optimize your budget and track spending\n\nWhat would you like to do?`,
+          content: `Hey ${userName}! 👋 I'm **Jinny** — your travel assistant! 🧡\n\nI can:\n- 🧠 Personalize suggestions using your saved travel preferences\n- 🗺️ Create trips and generate itineraries\n- 🌦️ Check forecasts and routes when you ask\n- 💰 Summarize your trip budget and logged expenses\n\nWhat would you like to do?`,
         },
       ]);
     }
@@ -306,15 +358,19 @@ export default function AIAssistant() {
 
   // ── Helper: inject tool-result message ──────────────────────────────────
   const injectToolResult = useCallback((content: string) => {
-    setMessages((prev) => [...prev, { role: "assistant" as const, content }]);
-    if (ttsEnabledRef.current) speakJinny(content);
+    actionResultsRef.current.push(content);
+    setMessages((prev) => [
+      ...prev,
+      { role: "assistant" as const, content, kind: "tool" as const },
+    ]);
   }, []);
 
   // ── Handle AI-requested actions ─────────────────────────────────────────
   const handleAction = useCallback(
-    async (content: string) => {
+    async (content: string, sourceUserText: string): Promise<string[]> => {
+      actionResultsRef.current = [];
       const jsonMatches = [...content.matchAll(/```json\s*([\s\S]*?)```/g)];
-      if (!jsonMatches.length) return;
+      if (!jsonMatches.length) return [];
 
       for (const match of jsonMatches) {
         try {
@@ -324,53 +380,118 @@ export default function AIAssistant() {
           if (act === "navigate_to" && action.path) {
             toast({ title: `🗺️ ${action.label || `Opening ${action.path}`}` });
             navigate(action.path);
+            injectToolResult(`Opened ${action.path}.`);
             continue;
           }
 
           if (act === "create_trip" && user) {
-            const today = new Date();
-            const startStr = formatLocalDate(today);
-            const endDate = new Date(today);
-            // "5 days" covers five calendar days: today plus four more.
-            endDate.setDate(endDate.getDate() + Math.max(1, Number(action.days) || 3) - 1);
+            const destination =
+              (typeof action.destination === "string" && action.destination.trim()) ||
+              extractDestination(sourceUserText) ||
+              "";
+            if (!destination) {
+              injectToolResult("I need a destination before I can create the trip.");
+              continue;
+            }
+
+            const requestedDate = validIsoDate(action.start_date)
+              ? action.start_date
+              : extractDate(sourceUserText);
+            const startDate = validIsoDate(requestedDate)
+              ? requestedDate
+              : formatLocalDate(new Date());
+            const actionDays = Number(action.days);
+            const requestedDays = Number.isInteger(actionDays) && actionDays > 0
+              ? actionDays
+              : extractDays(sourceUserText);
+            const days = Math.min(30, Math.max(1, requestedDays || 3));
+            const parsedBudget = extractBudget(sourceUserText);
+            const budget = action.budget ?? parsedBudget?.amount;
+            const budgetAmount = toAmount(budget);
+            const currency = action.currency ?? parsedBudget?.currency ?? "INR";
+            const endDate = parseLocalDate(startDate);
+            // Trip end dates are inclusive calendar dates.
+            endDate.setDate(endDate.getDate() + days - 1);
             const endStr = formatLocalDate(endDate);
 
-            const { error: insertError } = await supabase.from("trips").insert({
-              name: action.name || `Trip to ${action.destination}`,
-              destination: action.destination,
-              country: action.country || "",
-              start_date: startStr,
-              end_date: endStr,
-              budget_total: toAmount(action.budget),
-              currency: normalizeCurrencyCode(action.currency),
-              organizer_id: user.id,
-            });
+            const { data: createdTrip, error: insertError } = await supabase
+              .from("trips")
+              .insert({
+                name: action.name || `Trip to ${destination}`,
+                destination,
+                country: action.country || "",
+                start_date: startDate,
+                end_date: endStr,
+                budget_total: budgetAmount,
+                currency: normalizeCurrencyCode(currency),
+                organizer_id: user.id,
+              })
+              .select("id")
+              .single();
             if (insertError) throw insertError;
 
             queryClient.invalidateQueries({ queryKey: ["trips"] });
             toast({
               title: "Trip created! 🎉",
-              description: `${action.destination} trip is ready.`,
+              description: budgetAmount > 0
+                ? `${destination} trip created. Starting the itinerary now.`
+                : `${destination} trip created. Add a budget to generate its itinerary.`,
             });
-
-            const { data: newTrips } = await supabase
-              .from("trips")
-              .select("id")
-              .eq("organizer_id", user.id)
-              .order("created_at", { ascending: false })
-              .limit(1);
-            if (newTrips && newTrips.length > 0) {
-              navigate(`/itinerary/${newTrips[0].id}`);
+            if (createdTrip?.id) {
+              navigate(`/itinerary/${createdTrip.id}`, {
+                state: budgetAmount > 0
+                  ? {
+                      autoGenerateItinerary: true,
+                      onlyIfEmpty: true,
+                      autoGenerateRequestId: autoGenerationRequestId(),
+                    }
+                  : null,
+              });
             }
+            injectToolResult(
+              budgetAmount > 0
+                ? `Created a ${days}-day trip to **${destination}** from ${startDate} to ${endStr}. The itinerary is starting to generate.`
+                : `Created a ${days}-day trip to **${destination}** from ${startDate} to ${endStr}. Add a trip budget before generating its itinerary.`,
+            );
+            continue;
+          }
+
+          if (act === "create_trip" && !user) {
+            injectToolResult("Sign in before creating a trip.");
             continue;
           }
 
           if (act === "generate_itinerary" && action.trip_id) {
+            if (!user) {
+              injectToolResult("Sign in before generating an itinerary.");
+              continue;
+            }
+            const { data: targetTrip, error: tripLookupError } = await supabase
+              .from("trips")
+              .select("id, budget_total")
+              .eq("id", action.trip_id)
+              .maybeSingle();
+            if (tripLookupError) throw tripLookupError;
+            if (!targetTrip) {
+              injectToolResult("I couldn't find that trip or you don't have access to it.");
+              continue;
+            }
+            if (Number(targetTrip.budget_total) <= 0) {
+              navigate(`/itinerary/${targetTrip.id}`);
+              injectToolResult("Opened the trip planner. Set a positive budget before generating its itinerary.");
+              continue;
+            }
             toast({
-              title: "🧠 Generating itinerary…",
-              description: "Navigating to your trip.",
+              title: "🧠 Starting itinerary generation…",
+              description: "Opening your trip planner.",
             });
-            navigate(`/itinerary/${action.trip_id}`);
+            navigate(`/itinerary/${targetTrip.id}`, {
+              state: {
+                autoGenerateItinerary: true,
+                autoGenerateRequestId: autoGenerationRequestId(),
+              },
+            });
+            injectToolResult("Opened the trip planner and requested itinerary generation. The plan is still generating; use the planner status to confirm when it finishes.");
             continue;
           }
 
@@ -618,12 +739,14 @@ export default function AIAssistant() {
           if (act === "explore_search") {
             toast({ title: "🔍 Opening Explore", description: action.query ?? "" });
             navigate("/explore");
+            injectToolResult("Opened Explore. Use the search field to look up those places.");
             continue;
           }
 
           if (act === "guide_search") {
             toast({ title: "📖 Opening Travel Guide", description: action.destination ?? "" });
             navigate("/guide");
+            injectToolResult("Opened the travel guide.");
             continue;
           }
 
@@ -660,10 +783,39 @@ export default function AIAssistant() {
             }
             continue;
           }
+
+          if (act === "check_safety") {
+            let destination =
+              typeof action.destination === "string" ? action.destination.trim() : "";
+            if (!destination && user) {
+              const { data: recentTrip } = await supabase
+                .from("trips")
+                .select("destination")
+                .order("start_date", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              destination = recentTrip?.destination ?? "";
+            }
+            if (!destination) {
+              injectToolResult("Tell me a destination so I can show its curated safety guidance.");
+              continue;
+            }
+
+            const alerts = await fetchSafetyAlerts(destination);
+            const guidance = alerts.length
+              ? alerts.map((alert) => `- **${alert.title}** (${alert.severity}): ${alert.description}\n  [Reference guidance](${alert.url})`).join("\n")
+              : "No curated guidance matched this destination.";
+            injectToolResult(
+              `**Curated safety guidance for ${destination}**\n\n${guidance}\n\nThis is static general guidance, not live incident reporting or an official destination risk rating. Check current local and government advisories before travel.`,
+            );
+            continue;
+          }
         } catch (e: unknown) {
           console.error("Action parse error:", e);
+          injectToolResult(`I couldn't complete that action: ${errorMessage(e)}`);
         }
       }
+      return actionResultsRef.current;
     },
     [user, navigate, queryClient, toast, injectToolResult],
   );
@@ -674,9 +826,10 @@ export default function AIAssistant() {
       if (!text.trim() || isLoadingRef.current) return;
 
       const userMsg: Msg = { role: "user", content: text };
-      const allMessages = [...messagesRef.current, userMsg];
+      const visibleHistory = messagesRef.current;
+      const allMessages = [...toConversationMessages(visibleHistory), userMsg];
 
-      setMessages(allMessages);
+      setMessages([...visibleHistory, userMsg]);
       setInput("");
       setIsLoading(true);
 
@@ -689,25 +842,80 @@ export default function AIAssistant() {
             assistantSoFar += chunk;
             setMessages((prev) => {
               const last = prev[prev.length - 1];
-              if (last?.role === "assistant" && prev.length > allMessages.length) {
-                return prev.map((m, i) =>
-                  i === prev.length - 1 ? { ...m, content: assistantSoFar } : m,
-                );
+              const assistantIndex = allMessages.length;
+              const visibleContent = assistantDisplayContent(assistantSoFar);
+              if (last?.role === "assistant" && !last.kind && prev.length > assistantIndex) {
+                return prev.map((m, i) => i === prev.length - 1
+                  ? { ...m, content: visibleContent }
+                  : m);
               }
-              return [
-                ...prev.slice(0, allMessages.length),
-                { role: "assistant", content: assistantSoFar },
-              ];
+              return [...prev, { role: "assistant", content: visibleContent }];
             });
           },
           userLang,
         );
 
-        if (ttsEnabledRef.current && assistantSoFar) {
+        const actionResults = await handleAction(assistantSoFar, text);
+        if (actionResults.length > 0) {
+          const visibleActionText = "Working on that now…";
+          setMessages((prev) => prev.map((message, index) =>
+            index === allMessages.length ? { ...message, content: visibleActionText } : message,
+          ));
+
+          const followUpMessages = [
+            ...allMessages,
+            { role: "assistant" as const, content: assistantSoFar },
+            {
+              role: "user" as const,
+              content:
+                `[Tool results]\n${actionResults.join("\n\n")}\n\n` +
+                "Use these results to answer the user's original request. Summarize what succeeded or failed. Do not emit or repeat action blocks.",
+            },
+          ];
+          let finalResponse = "";
+          try {
+            await streamChatMessage(
+              followUpMessages,
+              (chunk) => {
+                finalResponse += chunk;
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (last?.role === "assistant" && !last.kind) {
+                    return prev.map((message, index) => index === prev.length - 1
+                      ? { ...message, content: finalResponse }
+                      : message);
+                  }
+                  return [...prev, { role: "assistant", content: finalResponse }];
+                });
+              },
+              userLang,
+              "GENERAL_CHAT",
+            );
+          } catch (followUpError) {
+            console.error("Tool-result summary failed:", followUpError);
+          }
+
+          const finalText = stripActionBlocks(finalResponse) ||
+            "The action result is shown above.";
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === "assistant" && !last.kind) {
+              return prev.map((message, index) => index === prev.length - 1
+                ? { ...message, content: finalText }
+                : message);
+            }
+            return [...prev, { role: "assistant", content: finalText }];
+          });
+          if (ttsEnabledRef.current) speakText(finalText, _ttsLang);
+        } else if (containsActionBlock(assistantSoFar)) {
+          const fallbackText = "I couldn't run the requested action. Please try again.";
+          setMessages((prev) => prev.map((message, index) =>
+            index === allMessages.length ? { ...message, content: fallbackText } : message,
+          ));
+          if (ttsEnabledRef.current) speakText(fallbackText, _ttsLang);
+        } else if (ttsEnabledRef.current && assistantSoFar) {
           speakText(assistantSoFar, _ttsLang);
         }
-
-        handleAction(assistantSoFar);
       } catch (e: unknown) {
         const msg: string = errorMessage(e) ?? "";
         if (msg === "RATE_LIMIT") {
@@ -725,7 +933,7 @@ export default function AIAssistant() {
             {
               role: "assistant",
               content: msg === "NO_API_KEY"
-                ? "I'm running in offline mode. Voice, maps, weather and safety alerts still work. To enable natural-language answers, add a free `VITE_GROQ_API_KEY` to your `.env` (grab one at https://console.groq.com)."
+                ? "Hosted AI isn't configured because this build has no Groq API key. You can switch to on-device AI in Settings after downloading a model. Weather, maps and curated safety guidance need network access. For local development, configure `VITE_GROQ_API_KEY`."
                 : "Sorry, I encountered an error. Please try again.",
             },
           ]);
@@ -1020,7 +1228,7 @@ export default function AIAssistant() {
                 <h3 className="text-sm font-semibold text-card-foreground">Jinny</h3>
                 <p className="text-[10px] text-muted-foreground flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-success inline-block" />
-                  Your AI Travel Agent • {userName}
+                  Your AI Travel Assistant • {userName}
                 </p>
               </div>
             </div>

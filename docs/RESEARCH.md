@@ -78,7 +78,7 @@ is not the feature the project has been marketing.
 | **Fully-offline private trip planning** — on-device LLM + trip-scoped map tile pre-caching + durable local persistence, composed so that itinerary generation completes with zero network egress | 🟢 **Strong** | Each ingredient exists in prior art; **the composition and its purpose do not.** Implemented and verifiable in code. |
 | **Dual-backend AI dispatch with capability-gated fallback** — one call site serving hosted and on-device inference, degrading on WebGPU absence | 🟡 Moderate | Genuinely implemented and useful, but arguably an obvious engineering pattern. Better as a paper contribution than a patent. |
 | **Zero-paid-API travel stack** — systematic substitution of every commercial API with free/open equivalents behind stable interfaces | 🟡 Moderate | Strong *engineering* and *accessibility* contribution. Weak patent subject matter (it's a design discipline, not a mechanism). |
-| **Client-side semantic verification with a repair pass** — 13 deterministic checks over a generated itinerary, violations fed back once, all running offline with no solver and no server | 🟢 **Strong** *(new in pass 3)* | This is the LLM-Modulo pattern the planning literature converges on (§5.4a), applied under a deployment constraint that literature has not examined: a small quantised model in a browser with no network. Implemented; **not yet evaluated.** |
+| **Client-side semantic verification with a repair pass** — 14 deterministic checks over a generated itinerary, violations fed back once, all running offline with no solver and no server | 🟢 **Strong** *(new in pass 3)* | This is the LLM-Modulo pattern the planning literature converges on (§5.4a), applied under a deployment constraint that literature has not examined: a small quantised model in a browser with no network. Implemented; **not yet evaluated.** |
 | **Computed group regret (Least Misery)** | 🟡 Moderate *(was 🔴)* | Now genuinely computed from elicited per-member preferences (`lib/groupRegret.ts`, 36 tests). The aggregation strategy itself is textbook ([Masthoff 2004](https://link.springer.com/chapter/10.1007/1-4020-2164-X_5)), so novelty is in the application, not the mechanism. Whether the score predicts satisfaction is **untested**. |
 | ~~**Regret-aware counterfactual planning**~~ | 🔴 **Terminology retired** | The prescribed constant is gone. What replaced it is Least Misery over computed utilities — deliberately **not** described as counterfactual regret minimisation, which is a different thing (§3.2). |
 | **Multi-agent group negotiation / Nash equilibrium** | 🔴 **Not implemented** | No per-member preference vectors feeding a solver, no aggregation to equilibrium. Closely anticipated by IBM US11300418B2 anyway. |
@@ -250,7 +250,7 @@ no longer proposals.
 |---|---|---|
 | **Computed group regret** | `lib/groupRegret.ts` (394 lines) · 36 tests in `test/groupRegret.test.ts` | Utility per member from stated category weights, review scores and personal budget cap → per-member regret against the best plan available to them → group score = worst member's regret (Least Misery) → recommend the argmin. Replaces the prescribed constant in §3.2. |
 | **Preference elicitation** | `lib/travelPreferences.ts`, `components/TravelPreferencesForm.tsx` · tests in `test/travelPreferences.test.ts` | The input side. Without it, §6.1's design had no data to run on and the score silently fell back to "not scored". |
-| **Semantic constraint verifier** | `lib/itineraryVerifier.ts` · 26 tests in `test/itineraryVerifier.test.ts` | 13 deterministic checks over a generated plan: `BUDGET_EXCEEDED`, `COST_SUM_MISMATCH`, `TIME_OVERLAP`, `TIME_INVALID`, `TIME_REVERSED`, `TRAVEL_INFEASIBLE`, `PACE_EXCEEDED`, `COORD_INVALID`, `COORD_OUT_OF_REGION`, `EMPTY_ITINERARY`, `DURATION_IMPLAUSIBLE`, `CLOSED_ON_DAY`, `OUTSIDE_OPENING_HOURS`. Runs client-side, offline, in milliseconds. |
+| **Semantic constraint verifier** | `lib/itineraryVerifier.ts` · 26 tests in `test/itineraryVerifier.test.ts` | 14 deterministic checks over a generated plan, including `OUTSIDE_TRIP_DATES`. Runs client-side, offline, in milliseconds. |
 | **Opening-hours containment** | `lib/openingHours.ts` · tests in `test/openingHours.test.ts` · `activities.opening_hours` JSONB | Turns whatever is in the column into a decidable question: is the place open for the *whole* of this activity's window? Unknown hours are treated as unverifiable, not as closed. |
 | **Generate → verify → repair** | `lib/planRepair.ts` · tests in `test/planRepair.test.ts` | `buildRepairPrompt()` previously had no callers, so a failed plan was shown with a warning and nothing else. Violations are now fed back once. A repair only wins if it *strictly* reduces the error count, so the plan never swaps out for no measured gain. |
 | **Offline mutation queue, wired** | `lib/offlineMutation.ts::mutateWithOfflineQueue` · `hooks/useOfflineSync.ts` · 31 tests in `test/offlineMutation.test.ts` | Was Gap C: a queue called from nowhere. Now wraps activity status and edit writes. Ordering preserved by `seq`; only retriable network failures queue, so an RLS rejection still surfaces immediately. |
@@ -513,7 +513,7 @@ then checks a subset of the TOPTW constraint set arithmetically.
 Two honest readings follow, and the dossier should carry both:
 
 - **Against the OR literature, this is strictly weaker.** A solver would return an optimal feasible
-  tour; this returns "the model's guess, with 13 checks applied, repaired once". Any framing that
+tour; this returns "the model's guess, with 14 checks applied, repaired once". Any framing that
   implies optimisation would be false.
 - **The trade is deliberate and defensible.** TOPTW solvers need a complete, curated POI graph with
   reliable hours, travel matrices and profit values. This project has none of that — it has whatever
@@ -614,7 +614,7 @@ problem the design above did not consider.
 ### 6.2 Gap B — a semantic constraint verifier ✅ CLOSED
 
 **Was:** `response_format: json_object` gives syntactic validity only (§5.6). **Now:**
-`lib/itineraryVerifier.ts` with 13 checks and 26 tests, plus `lib/planRepair.ts` for the feedback
+`lib/itineraryVerifier.ts` with 14 checks and 26 tests, plus `lib/planRepair.ts` for the feedback
 pass. §5.4a establishes that this is the LLM-Modulo pattern the literature recommends.
 **Literature says:** LLMs fail multi-constraint plans; **formal verification tools fix it**
 ([arXiv:2404.11891](https://arxiv.org/abs/2404.11891)); failure sets in around **10 constraints**
@@ -784,7 +784,7 @@ data egress — rather than an abstract planning idea. The claims below are writ
 | WebLLM, LlamaWeb (§5.5) | Provide the **engine**. They do not recite geospatial pre-caching, itinerary schemas, or constraint verification. |
 
 ✅ **Enablement update (pass 3).** Element (ix) is now implemented — `lib/itineraryVerifier.ts`
-(13 checks) with `lib/planRepair.ts` supplying the "regenerating … responsive to the evaluating"
+(14 checks) with `lib/planRepair.ts` supplying the "regenerating … responsive to the evaluating"
 limb. Element (b)'s offline write path is implemented for activity mutations via
 `lib/offlineMutation.ts` (§3.1a). The §112 enablement objection that stood here is substantially
 answered: the specification can now point at running, tested code rather than intent.
@@ -1245,7 +1245,7 @@ Before contacting a patent agent or submitting a paper:
 **Code**
 - [x] Wire the offline mutation queue — **done for activity writes** (`lib/offlineMutation.ts`).
       Trip create/update, expenses, chat and community posts still write directly (§3.3).
-- [x] Implement the client-side semantic verifier (§6.2) — `lib/itineraryVerifier.ts`, 13 checks,
+- [x] Implement the client-side semantic verifier (§6.2) — `lib/itineraryVerifier.ts`, 14 checks,
       26 tests. Satisfies claim 1 element (ix).
 - [x] Replace the prescribed `regret_score` with a computed metric — `lib/groupRegret.ts`, 36 tests.
 - [x] Read actual `trip_memberships` instead of `travelers: 2` — `hooks/useGroupPreferences.ts`.

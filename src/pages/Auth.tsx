@@ -83,10 +83,10 @@ export default function Auth() {
             Plan trips that everyone loves
           </h2>
           <p className="mt-4 text-lg opacity-80 leading-relaxed">
-            AI-powered group travel planning with voice-first interaction, smart negotiation, and real-time replanning — all in ₹ INR.
+            AI-assisted group travel planning with voice input, preference-aware itineraries, and forecast-based replan previews.
           </p>
           <div className="mt-10 space-y-4">
-            {["Voice-first AI planning", "Group negotiation engine", "Real-time disruption alerts"].map((item) => (
+            {["Voice-enabled trip planning", "Preference-aware itinerary options", "Forecast-based replan previews"].map((item) => (
               <div key={item} className="flex items-center gap-3">
                 <div className="w-6 h-6 rounded-full bg-primary-foreground/20 flex items-center justify-center">
                   <ArrowRight className="w-3 h-3" />

@@ -118,7 +118,7 @@ That last finding is inconvenient for this implementation, and Section 12 return
 | # | Objective | Status | Evidence |
 |---|---|---|---|
 | O1 | Generate a day-by-day group itinerary from natural speech, with no forms | ✅ Met | `services/aiPlanner.ts`, Web Speech API in `services/groqVoice.ts` |
-| O2 | Reject generated plans that are infeasible, deterministically and on-device | ✅ Met | `lib/itineraryVerifier.ts` — 13 checks, 26 tests |
+| O2 | Reject generated plans that are infeasible, deterministically and on-device | ✅ Met | `lib/itineraryVerifier.ts` — 14 checks, 26 tests |
 | O3 | Repair a failed plan automatically rather than only reporting it | ✅ Met | `lib/planRepair.ts` — 21 tests |
 | O4 | Compute a group fairness score from real member preferences | ✅ Met | `lib/groupRegret.ts` (36 tests) + `lib/travelPreferences.ts` (33 tests) |
 | O5 | Run the full planning path with no network and no API key | ✅ Met | `services/webllm.ts`, `lib/aiProvider.ts` |
@@ -172,7 +172,7 @@ MILP formulations and mature metaheuristics exist [10, 11, 13, 14].
 
 This project does not solve TOPTW. It asks a model to guess and then checks a subset of the
 constraint set arithmetically. Against the OR literature that is strictly weaker: a solver returns
-an optimal feasible tour, this returns a guess with 13 checks applied and one repair attempt.
+an optimal feasible tour, this returns a guess with 14 checks applied and one repair attempt.
 
 The trade is deliberate. TOPTW solvers require a curated POI graph with reliable hours, travel
 matrices and profit values. This system has none of that. Under those conditions a verifier that
@@ -227,7 +227,7 @@ no paid API exists anywhere in the stack.
 flowchart TB
     A["Spoken or typed request"] --> B["Intent extraction<br/>destination, dates, budget,<br/>group size, interests"]
     B --> C["Candidate generation<br/>JSON mode, 3 variants"]
-    C --> D{"verifyItinerary()<br/>13 deterministic checks"}
+    C --> D{"verifyItinerary()<br/>14 deterministic checks"}
     D -->|"no errors"| G["Group scoring"]
     D -->|"errors"| E["buildRepairPrompt()<br/>violations → instruction"]
     E --> F["Regenerate once"]
@@ -748,7 +748,7 @@ and WebLLM's 80% native-performance retention — are preserved as stated by the
 
 | File | Role in this report |
 |---|---|
-| `src/lib/itineraryVerifier.ts` | §6.1 — the 13 checks |
+| `src/lib/itineraryVerifier.ts` | §6.1 — the 14 checks |
 | `src/lib/openingHours.ts` | §6.1 — time-window containment |
 | `src/lib/planRepair.ts` | §6.1 — generate → verify → repair |
 | `src/lib/groupRegret.ts` | §6.2 — Least Misery scoring |

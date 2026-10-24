@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { useLanguage } from "@/hooks/useLanguage";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   ChevronLeft,
   ChevronRight,
@@ -14,7 +14,6 @@ import {
   
   Loader2,
   Brain,
-  AlertTriangle,
   Send,
   
   Zap,
@@ -107,6 +106,7 @@ const DEFAULT_COLOR = "bg-muted text-muted-foreground";
 export default function Itinerary() {
   const { tripId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const { t } = useLanguage();
   const { data: trips = [] } = useTrips();
@@ -183,7 +183,6 @@ export default function Itinerary() {
   const [messages, setMessages] = useState<any[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [sendingMsg, setSendingMsg] = useState(false);
-  const [replanning, setReplanning] = useState(false);
   const [itineraryReasoning, setItineraryReasoning] =
     useState<ItineraryReasoning | null>(null);
   const [itineraryExplanation, setItineraryExplanation] = useState<string>("");
@@ -191,6 +190,8 @@ export default function Itinerary() {
     null,
   );
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const autoGenerationRequestIdsRef = useRef(new Set<string>());
+  const generateItineraryRef = useRef<() => Promise<void>>(async () => {});
   const [destCoords, setDestCoords] = useState<{
     lat: number;
     lng: number;
@@ -454,7 +455,13 @@ export default function Itinerary() {
               activities: candidate?.activities,
               total_cost: candidate?.total_cost,
             },
-            { budget, days, maxActivitiesPerDay: 6 },
+            {
+              budget,
+              days,
+              maxActivitiesPerDay: 6,
+              startDate: trip.start_date,
+              endDate: trip.end_date,
+            },
           ),
       });
 
@@ -463,7 +470,7 @@ export default function Itinerary() {
 
       if (!verification.ok) {
         toast({
-          title: `Plan has ${verification.errors.length} feasibility issue${
+          title: `Plan was not saved: ${verification.errors.length} feasibility issue${
             verification.errors.length === 1 ? "" : "s"
           }`,
           description: `${describeRepair(generation)} ${verification.errors
@@ -472,6 +479,7 @@ export default function Itinerary() {
             .join(" ")}`,
           variant: "destructive",
         });
+        return;
       } else if (generation.repaired) {
         // Say so when the repair pass is what made the plan viable, rather than
         // presenting a second-attempt plan as if it came out right first time.
@@ -572,6 +580,34 @@ export default function Itinerary() {
     }
   };
 
+  generateItineraryRef.current = handleGenerateItinerary;
+
+  const routeState = location.state as
+    | { autoGenerateItinerary?: boolean; onlyIfEmpty?: boolean; autoGenerateRequestId?: string }
+    | null;
+  const autoGenerateRequestId = routeState?.autoGenerateItinerary
+    ? routeState.autoGenerateRequestId
+    : undefined;
+
+  useEffect(() => {
+    if (!autoGenerateRequestId || !trip || !user || generating) return;
+    if (autoGenerationRequestIdsRef.current.has(autoGenerateRequestId)) return;
+
+    autoGenerationRequestIdsRef.current.add(autoGenerateRequestId);
+    navigate(location.pathname, { replace: true, state: null });
+    if (routeState?.onlyIfEmpty && activities.length > 0) return;
+    void generateItineraryRef.current();
+  }, [
+    activities.length,
+    autoGenerateRequestId,
+    generating,
+    location.pathname,
+    navigate,
+    routeState?.onlyIfEmpty,
+    trip,
+    user,
+  ]);
+
   // Send chat message
   const handleSendMessage = async () => {
     if (!chatInput.trim() || !user || !tripId) return;
@@ -615,39 +651,6 @@ export default function Itinerary() {
       });
     } finally {
       setSendingMsg(false);
-    }
-  };
-
-  // Dynamic Replanning (simulate disruption)
-  const handleReplan = async () => {
-    if (!trip || !activeItinerary) return;
-    setReplanning(true);
-    try {
-      // Log disruption event
-      await supabase.from("disruption_events").insert({
-        trip_id: tripId!,
-        event_type: "weather_change",
-        description: "Heavy rainfall expected — replanning outdoor activities",
-        severity: "medium",
-      });
-
-      // Regenerate itinerary
-      await handleGenerateItinerary();
-
-      // Mark disruption as resolved
-      toast({
-        title: "Replanned! 🔄",
-        description:
-          "Itinerary updated due to weather disruption. Outdoor activities adjusted.",
-      });
-    } catch (error: unknown) {
-      toast({
-        title: "Replan failed",
-        description: errorMessage(error),
-        variant: "destructive",
-      });
-    } finally {
-      setReplanning(false);
     }
   };
 
@@ -1036,16 +1039,12 @@ export default function Itinerary() {
               Chat
             </button>
             <button
-              onClick={handleReplan}
-              disabled={replanning || !activeItinerary}
+              onClick={() => document.getElementById("disruption-replanner")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              disabled={!activeItinerary}
               className="px-3 py-2 rounded-xl bg-card border border-border text-xs md:text-sm font-medium text-muted-foreground hover:bg-secondary transition-colors shadow-card flex items-center gap-1.5 disabled:opacity-50"
             >
-              {replanning ? (
-                <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin" />
-              ) : (
-                <AlertTriangle className="w-3.5 h-3.5 md:w-4 md:h-4" />
-              )}
-              <span className="hidden sm:inline">Replan</span>
+              <CloudSun className="w-3.5 h-3.5 md:w-4 md:h-4" />
+              <span className="hidden sm:inline">Weather check</span>
             </button>
             <button
               onClick={handleGenerateItinerary}
@@ -1418,9 +1417,10 @@ export default function Itinerary() {
           />
         </div>
 
-        {/* Live Dynamic Replanning */}
+        {/* Forecast-based replan preview */}
         <DisruptionReplanner
           tripId={tripId!}
+          currency={trip.currency}
           activeItineraryId={activeItinerary?.id}
           onReplanApplied={() => {
             queryClient.invalidateQueries({

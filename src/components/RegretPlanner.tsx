@@ -19,6 +19,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQueryClient } from "@tanstack/react-query";
 import { regretCounterfactual } from "@/services/aiPlanner";
 import { formatMoney } from "@/lib/currency";
+import { formatLocalDate, parseLocalDate } from "@/lib/date";
 import { sumCosts } from "@/lib/budget";
 import { errorMessage } from "@/lib/errors";
 import { useGroupPreferences } from "@/hooks/useGroupPreferences";
@@ -179,11 +180,24 @@ export default function RegretPlanner({
 
     try {
       const interests = deriveInterests(members);
+      const lastTripDate = startDate
+        ? (() => {
+            const date = parseLocalDate(startDate);
+            date.setDate(date.getDate() + Math.max(1, days) - 1);
+            return formatLocalDate(date);
+          })()
+        : undefined;
 
       const verifyPlan = (plan: Plan) =>
         verifyItinerary(
           { activities: plan.activities, total_cost: plan.total_cost },
-          { budget, days, maxActivitiesPerDay: 6 },
+          {
+            budget,
+            days,
+            maxActivitiesPerDay: 6,
+            startDate,
+            endDate: lastTripDate,
+          },
         );
 
       // Generate → verify all three → regenerate once with the violations fed

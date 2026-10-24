@@ -40,7 +40,8 @@ export type ViolationCode =
   | "EMPTY_ITINERARY"
   | "DURATION_IMPLAUSIBLE"
   | "CLOSED_ON_DAY"
-  | "OUTSIDE_OPENING_HOURS";
+  | "OUTSIDE_OPENING_HOURS"
+  | "OUTSIDE_TRIP_DATES";
 
 export interface Violation {
   code: ViolationCode;
@@ -75,6 +76,9 @@ export interface VerifyConstraints {
   budget?: number;
   /** Trip length in days, used for the pace check. */
   days?: number;
+  /** Inclusive trip date bounds in `YYYY-MM-DD` form. */
+  startDate?: string;
+  endDate?: string;
   /** Maximum activities per day before the plan is considered punishing. */
   maxActivitiesPerDay?: number;
   /** Destination centre, used to catch coordinates in the wrong hemisphere. */
@@ -116,6 +120,33 @@ const COST_SUM_TOLERANCE = 1;
 
 const DEFAULT_MAX_PER_DAY = 6;
 const DEFAULT_MAX_RADIUS_KM = 200;
+
+function checkTripDateBounds(
+  activities: VerifiableActivity[],
+  constraints: VerifyConstraints,
+): Violation[] {
+  if (!constraints.startDate && !constraints.endDate) return [];
+  const out: Violation[] = [];
+
+  activities.forEach((activity, index) => {
+    const date = activity.start_time?.slice(0, 10);
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    if (
+      (constraints.startDate && date < constraints.startDate) ||
+      (constraints.endDate && date > constraints.endDate)
+    ) {
+      const bounds = [constraints.startDate, constraints.endDate].filter(Boolean).join(" to ");
+      out.push({
+        code: "OUTSIDE_TRIP_DATES",
+        severity: "error",
+        message: `Activity '${activity.name ?? "Unnamed activity"}' is scheduled on ${date}, outside the trip dates (${bounds}).`,
+        activityIndices: [index],
+      });
+    }
+  });
+
+  return out;
+}
 
 // ── Geo ─────────────────────────────────────────────────────────────────────
 
@@ -495,6 +526,7 @@ export function verifyItinerary(
 
   const violations = [
     ...checkTimes(activities),
+    ...checkTripDateBounds(activities, constraints),
     ...checkOverlaps(activities),
     ...checkTravelFeasibility(activities),
     ...checkCoordinates(activities, constraints),
