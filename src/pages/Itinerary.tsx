@@ -34,7 +34,9 @@ import {
   Music,
   X,
 } from "lucide-react";
-import { formatCurrency } from "@/lib/currency";
+import { formatMoney, formatMoneyPlain } from "@/lib/currency";
+import { sumCosts } from "@/lib/budget";
+import { tripDayCount } from "@/lib/date";
 import { errorMessage } from "@/lib/errors";
 import { verifyItinerary } from "@/lib/itineraryVerifier";
 import { describeRepair, generateWithRepair } from "@/lib/planRepair";
@@ -413,16 +415,22 @@ export default function Itinerary() {
   // AI Itinerary Generation
   const handleGenerateItinerary = async () => {
     if (!trip || !user) return;
+    // Planning against an invented figure is worse than not planning: it used
+    // to fall back to ₹30,000, and every cost after that was meaningless.
+    const budget = Number(trip.budget_total) || 0;
+    if (budget <= 0) {
+      toast({
+        title: "Set a budget first",
+        description: "Add the trip budget in Trip Money below, then generate the itinerary.",
+        variant: "destructive",
+      });
+      return;
+    }
     setGenerating(true);
     try {
-      const days = Math.max(
-        1,
-        Math.ceil(
-          (new Date(trip.end_date).getTime() -
-            new Date(trip.start_date).getTime()) /
-            86400000,
-        ),
-      );
+      const days = tripDayCount(trip.start_date, trip.end_date);
+      // The trips table has no traveller count; the real group is its members.
+      const travelers = Math.max(1, tripMembers.length);
 
       // Generate → verify → regenerate once with the violations fed back.
       // Grammar-constrained JSON guarantees shape, not possibility; the external
@@ -432,10 +440,12 @@ export default function Itinerary() {
           planItinerary({
             destination: trip.destination,
             days,
-            travelers: Number((trip as any).travelers) || 2,
-            budget: Number(trip.budget_total) || 30000,
+            travelers,
+            budget,
             interests: ["culture", "food", "sightseeing"],
-            tripType: (trip as any).trip_type || "leisure",
+            tripType: "leisure",
+            startDate: trip.start_date,
+            currency: trip.currency,
             repairInstruction,
           }) as Promise<any>,
         verify: (candidate) =>
@@ -444,11 +454,7 @@ export default function Itinerary() {
               activities: candidate?.activities,
               total_cost: candidate?.total_cost,
             },
-            {
-              budget: Number(trip.budget_total) || undefined,
-              days,
-              maxActivitiesPerDay: 6,
-            },
+            { budget, days, maxActivitiesPerDay: 6 },
           ),
       });
 
@@ -482,9 +488,10 @@ export default function Itinerary() {
       if (plan.explanation) {
         setItineraryExplanation(plan.explanation);
       }
-      if (plan.total_cost) {
-        setItineraryTotalCost(Number(plan.total_cost));
-      }
+      // The model's own `total_cost` often disagrees with its line items, so
+      // the figure shown and stored is the sum of the activities themselves.
+      const plannedTotal = sumCosts(plan.activities);
+      setItineraryTotalCost(plannedTotal);
 
       // Create itinerary record
       let itineraryId = activeItinerary?.id;
@@ -539,7 +546,9 @@ export default function Itinerary() {
       // hardcoded 0.15, which the UI then presented as a measurement.
       await supabase
         .from("itineraries")
-        .update({ cost_breakdown: { total: plan.total_cost } })
+        .update({
+          cost_breakdown: { total: plannedTotal, currency: trip.currency } as never,
+        })
         .eq("id", itineraryId);
 
       queryClient.invalidateQueries({ queryKey: ["itineraries", tripId] });
@@ -771,7 +780,7 @@ export default function Itinerary() {
             </div>
             <p className="text-sm text-muted-foreground mt-1">
               {trip.destination} · Budget:{" "}
-              {formatCurrency(Number(trip.budget_total), trip.country)} ·{" "}
+              {formatMoney(Number(trip.budget_total), trip.currency)} ·{" "}
               {trip.status}
             </p>
           </div>
@@ -834,7 +843,7 @@ export default function Itinerary() {
                 doc.setFontSize(9);
                 doc.setTextColor(220, 220, 255);
                 doc.text(
-                  `Budget: ${formatCurrency(Number(trip.budget_total), trip.country)}`,
+                  `Budget: ${formatMoneyPlain(Number(trip.budget_total), trip.currency)}`,
                   margin,
                   33,
                 );
@@ -846,9 +855,9 @@ export default function Itinerary() {
                 const stats = [
                   {
                     label: "Total Budget",
-                    value: formatCurrency(
+                    value: formatMoneyPlain(
                       Number(trip.budget_total),
-                      trip.country,
+                      trip.currency,
                     ),
                   },
                   {
@@ -930,7 +939,7 @@ export default function Itinerary() {
                           a.category.slice(1)
                         : "—",
                       a.cost && Number(a.cost) > 0
-                        ? formatCurrency(Number(a.cost), trip.country)
+                        ? formatMoneyPlain(Number(a.cost), trip.currency)
                         : "Free",
                       a.notes || "",
                     ];
@@ -1067,7 +1076,7 @@ export default function Itinerary() {
             <div className="text-center">
               <p className="text-xs text-muted-foreground">{t("budget")}</p>
               <p className="text-sm font-bold text-card-foreground">
-                {formatCurrency(Number(trip.budget_total), trip.country)}
+                {formatMoney(Number(trip.budget_total), trip.currency)}
               </p>
             </div>
             <div className="text-center">
@@ -1106,12 +1115,9 @@ export default function Itinerary() {
                     Est. Cost:
                   </span>
                   <span className="text-sm font-bold text-success">
-                    {formatCurrency(
-                      Number(
-                        (activeItinerary.cost_breakdown as any)?.total || 0,
-                      ),
-                      trip.country,
-                    )}
+                    {/* Summed from the activities on screen, so it tracks
+                        edits — the stored figure was the model's own claim. */}
+                    {formatMoney(sumCosts(activities), trip.currency)}
                   </span>
                 </div>
               )}
@@ -1384,6 +1390,7 @@ export default function Itinerary() {
             reasoning={itineraryReasoning}
             totalCost={itineraryTotalCost ?? undefined}
             budget={Number(trip.budget_total) || undefined}
+            currency={trip.currency}
             destination={trip.destination}
             explanation={itineraryExplanation}
           />
@@ -1397,16 +1404,10 @@ export default function Itinerary() {
           <RegretPlanner
             tripId={tripId!}
             destination={trip.destination}
-            country={trip.country ?? undefined}
-            days={Math.max(
-              1,
-              Math.ceil(
-                (new Date(trip.end_date).getTime() -
-                  new Date(trip.start_date).getTime()) /
-                  86400000,
-              ),
-            )}
-            budget={Number(trip.budget_total) || 30000}
+            days={tripDayCount(trip.start_date, trip.end_date)}
+            budget={Number(trip.budget_total) || 0}
+            startDate={trip.start_date}
+            currency={trip.currency}
             activeItineraryId={activeItinerary?.id}
             onPlanApplied={() => {
               queryClient.invalidateQueries({
@@ -1435,11 +1436,9 @@ export default function Itinerary() {
             tripId={tripId!}
             activities={activities as any}
             tripBudget={Number(trip.budget_total) || 0}
-            country={trip.country ?? undefined}
-            travelers={
-              Number((trip as any).travelers) ||
-              (tripMembers.length > 0 ? tripMembers.length : 1)
-            }
+            currency={trip.currency}
+            days={tripDayCount(trip.start_date, trip.end_date)}
+            canEditBudget={trip.organizer_id === user?.id}
             members={tripMembers}
           />
           <UPIPayment
@@ -1554,9 +1553,9 @@ export default function Itinerary() {
                             {activity.cost != null &&
                               Number(activity.cost) > 0 && (
                                 <span className="text-xs text-muted-foreground">
-                                  {formatCurrency(
+                                  {formatMoney(
                                     Number(activity.cost),
-                                    trip.country,
+                                    trip.currency,
                                   )}
                                 </span>
                               )}

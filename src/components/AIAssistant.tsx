@@ -42,6 +42,9 @@ import { streamChatMessage } from "@/services/aiChat";
 import { amadeusFlightOffers, amadeusHotelList } from "@/services/amadeus";
 import { trafficFlow, trafficIncidents } from "@/services/traffic";
 import { formatLocalDate } from "@/lib/date";
+import { toAmount } from "@/lib/budget";
+import { formatMoney, normalizeCurrencyCode } from "@/lib/currency";
+import { loadTripBudgets } from "@/services/tripBudget";
 import {
   getWeatherContext,
   getClimateAwareRoute,
@@ -299,7 +302,8 @@ export default function AIAssistant() {
             const today = new Date();
             const startStr = formatLocalDate(today);
             const endDate = new Date(today);
-            endDate.setDate(endDate.getDate() + (action.days || 3));
+            // "5 days" covers five calendar days: today plus four more.
+            endDate.setDate(endDate.getDate() + Math.max(1, Number(action.days) || 3) - 1);
             const endStr = formatLocalDate(endDate);
 
             const { error: insertError } = await supabase.from("trips").insert({
@@ -308,7 +312,8 @@ export default function AIAssistant() {
               country: action.country || "",
               start_date: startStr,
               end_date: endStr,
-              budget_total: action.budget || 0,
+              budget_total: toAmount(action.budget),
+              currency: normalizeCurrencyCode(action.currency),
               organizer_id: user.id,
             });
             if (insertError) throw insertError;
@@ -341,12 +346,43 @@ export default function AIAssistant() {
           }
 
           if (act === "budget_alert") {
-            toast({
-              title: "💰 Budget Alert",
-              description:
-                action.message ||
-                `Spent: ₹${action.spent?.toLocaleString("en-IN")} | Remaining: ₹${action.remaining?.toLocaleString("en-IN")}`,
-            });
+            // Figures come from the database via lib/budget.ts. The model's
+            // own "spent"/"remaining" are ignored: it never saw the expenses,
+            // and used to echo the example numbers from its prompt.
+            const { data: userTrips } = await supabase
+              .from("trips")
+              .select("id, name, budget_total, currency, start_date, end_date")
+              .order("start_date", { ascending: false })
+              .limit(8);
+            const trip =
+              userTrips?.find((t) => t.id === action.trip_id) ?? userTrips?.[0];
+            if (!trip) {
+              injectToolResult("💰 You don't have any trips yet, so there's no budget to check.");
+            } else {
+              const b = (await loadTripBudgets([trip])).get(trip.id);
+              if (!b) {
+                injectToolResult(`💰 Couldn't load spending for **${trip.name}** right now.`);
+              } else {
+                const money = (n: number) => formatMoney(n, b.currency);
+                const s = b.summary;
+                const headline =
+                  s.budget > 0
+                    ? `${money(s.spent)} spent of ${money(s.budget)} · ${
+                        s.remaining >= 0 ? `${money(s.remaining)} left` : `${money(-s.remaining)} over`
+                      }`
+                    : `No budget set · ${money(s.spent)} spent`;
+                toast({ title: `💰 ${trip.name}`, description: headline });
+                injectToolResult(
+                  `💰 **${trip.name}**\n` +
+                    (s.budget > 0 ? `- Budget: ${money(s.budget)}\n` : "- Budget: not set\n") +
+                    `- Planned (itinerary): ${money(s.planned)}\n` +
+                    `- Spent (logged expenses): ${money(s.spent)}\n` +
+                    (s.budget > 0
+                      ? `- ${s.remaining >= 0 ? "Remaining" : "Over budget by"}: ${money(Math.abs(s.remaining))}\n`
+                      : ""),
+                );
+              }
+            }
             if (action.suggestions?.length) {
               injectToolResult(
                 `💡 **Budget Tips:**\n${(action.suggestions as string[]).map((s: string) => `• ${s}`).join("\n")}`,

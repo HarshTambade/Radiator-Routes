@@ -27,6 +27,17 @@ export function daysBetween(start: string, end: string): number {
   );
 }
 
+/**
+ * Number of calendar days a trip covers, counting both the first and the last
+ * day: 15 → 17 March is a 3-day trip, and a same-day trip is 1 day. Budget per
+ * day and the planner's day count both depend on this, so it lives in one place.
+ */
+export function tripDayCount(start: string, end: string): number {
+  if (!start || !end) return 1;
+  const days = daysBetween(start, end) + 1;
+  return Number.isFinite(days) && days > 0 ? days : 1;
+}
+
 /** Today's date shifted to IST, as `YYYY-MM-DD`. */
 export function todayIST(): string {
   return new Date(Date.now() + 5.5 * 60 * 60 * 1000)

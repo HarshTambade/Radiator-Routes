@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatMoney } from "@/lib/currency";
 import {
   Brain,
   ChevronDown,
@@ -38,8 +39,11 @@ export interface ItineraryReasoning {
 
 interface ItineraryReasoningProps {
   reasoning: ItineraryReasoning;
+  /** Sum of the plan's activity costs — computed, not the model's claim. */
   totalCost?: number;
   budget?: number;
+  /** ISO code both amounts are in (`trips.currency`). */
+  currency?: string;
   destination?: string;
   explanation?: string;
 }
@@ -104,7 +108,15 @@ function BulletList({
   );
 }
 
-function BudgetBar({ spent, total }: { spent: number; total: number }) {
+function BudgetBar({
+  spent,
+  total,
+  currency,
+}: {
+  spent: number;
+  total: number;
+  currency?: string;
+}) {
   const pct = Math.min(100, total > 0 ? Math.round((spent / total) * 100) : 0);
   const isOver = spent > total;
   return (
@@ -122,8 +134,8 @@ function BudgetBar({ spent, total }: { spent: number; total: number }) {
         />
       </div>
       <div className="flex justify-between text-[10px] text-muted-foreground">
-        <span>₹{spent.toLocaleString("en-IN")} planned</span>
-        <span>₹{total.toLocaleString("en-IN")} budget</span>
+        <span>{formatMoney(spent, currency)} planned</span>
+        <span>{formatMoney(total, currency)} budget</span>
       </div>
     </div>
   );
@@ -135,6 +147,7 @@ export default function ItineraryReasoningPanel({
   reasoning,
   totalCost,
   budget,
+  currency,
   destination,
   explanation,
 }: ItineraryReasoningProps) {
@@ -213,7 +226,7 @@ export default function ItineraryReasoningPanel({
 
           {/* Budget bar */}
           {totalCost != null && budget != null && budget > 0 && (
-            <BudgetBar spent={totalCost} total={budget} />
+            <BudgetBar spent={totalCost} total={budget} currency={currency} />
           )}
 
           {/* Tab navigation */}
@@ -343,6 +356,10 @@ export default function ItineraryReasoningPanel({
             {/* BUDGET LOGIC tab */}
             {activeTab === "budget" && (
               <div className="space-y-4">
+                <p className="text-[10px] text-muted-foreground">
+                  The notes below are the AI's explanation. The totals are
+                  calculated from the plan's own activity costs.
+                </p>
                 {/* Budget strategy */}
                 {reasoning.budget_strategy && (
                   <Section
@@ -402,17 +419,17 @@ export default function ItineraryReasoningPanel({
                         Planned Cost
                       </p>
                       <p className="text-base font-bold text-green-600 mt-0.5">
-                        ₹{totalCost.toLocaleString("en-IN")}
+                        {formatMoney(totalCost, currency)}
                       </p>
                     </div>
                     <div className="p-3 rounded-xl bg-secondary border border-border text-center">
                       <p className="text-[10px] text-muted-foreground">
-                        Remaining
+                        Left after plan
                       </p>
                       <p
                         className={`text-base font-bold mt-0.5 ${budget - totalCost >= 0 ? "text-card-foreground" : "text-red-500"}`}
                       >
-                        ₹{Math.abs(budget - totalCost).toLocaleString("en-IN")}
+                        {formatMoney(Math.abs(budget - totalCost), currency)}
                         {budget - totalCost < 0 ? " over" : " left"}
                       </p>
                     </div>

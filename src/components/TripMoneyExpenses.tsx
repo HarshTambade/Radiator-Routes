@@ -13,14 +13,23 @@ import {
   CloudOff,
   Info,
   Loader2,
+  Pencil,
+  CalendarDays,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { errorMessage } from "@/lib/errors";
-import { formatCurrency, getCurrencySymbol } from "@/lib/currency";
+import {
+  currencySymbolFor,
+  formatMoney,
+  normalizeCurrencyCode,
+  parseBudgetInput,
+} from "@/lib/currency";
+import { settleUp, summarizeBudget } from "@/lib/budget";
 import { mutateWithOfflineQueue, newId } from "@/lib/offlineMutation";
+import { useUpdateTrip } from "@/hooks/useTrips";
 
 /**
  * Trip budget view plus group expense splitting.
@@ -38,6 +47,11 @@ import { mutateWithOfflineQueue, newId } from "@/lib/offlineMutation";
  *     member, which the database would have rejected.
  *   • `category` has a CHECK constraint. The old list offered "attraction",
  *     which is not in it; the allowed values are used directly here instead.
+ *
+ * All arithmetic lives in lib/budget.ts. "Planned" (itinerary activity costs)
+ * and "Spent" (logged expenses) are shown side by side and never added: the
+ * old "Total Spent" summed both, so an untouched plan read as money already
+ * gone and a planned dinner that was also logged was counted twice.
  */
 
 interface Activity {
@@ -66,11 +80,18 @@ interface Props {
   tripId: string;
   activities: Activity[];
   tripBudget: number;
-  country?: string | null;
-  travelers?: number;
+  /** ISO code every amount on this trip is in (`trips.currency`). */
+  currency?: string | null;
+  /** Calendar days the trip covers, for the per-day figure. */
+  days?: number;
+  /** Organisers may change the budget (RLS allows only them). */
+  canEditBudget?: boolean;
   /** Trip members with ids — `split_with` and `paid_by` are user UUIDs. */
   members?: TripMember[];
 }
+
+/** Currencies offered in the budget editor; the stored value can be any ISO code. */
+const BUDGET_CURRENCIES = ["INR", "USD", "EUR", "GBP", "AED", "SGD", "THB", "JPY", "AUD"];
 
 /**
  * Categories, matching the `group_expenses.category` CHECK constraint exactly.
@@ -89,23 +110,13 @@ const EXPENSE_CATEGORIES = [
   { value: "general", label: "📎 General", color: "bg-secondary text-muted-foreground" },
 ] as const;
 
-/** Activity categories the planner emits, mapped onto expense categories. */
-const ACTIVITY_TO_EXPENSE_CATEGORY: Record<string, string> = {
-  food: "food",
-  transport: "transport",
-  attraction: "activity",
-  entertainment: "activity",
-  accommodation: "accommodation",
-  shopping: "shopping",
-  other: "general",
-};
-
 export default function TripMoneyExpenses({
   tripId,
   activities,
   tripBudget,
-  country,
-  travelers = 1,
+  currency: currencyProp,
+  days = 1,
+  canEditBudget = false,
   members = [],
 }: Props) {
   const { user } = useAuth();
@@ -122,7 +133,14 @@ export default function TripMoneyExpenses({
     splitAmong: [] as string[],
   });
 
-  const currencySymbol = getCurrencySymbol(country);
+  const currency = normalizeCurrencyCode(currencyProp);
+  const currencySymbol = currencySymbolFor(currency);
+  const money = (amount: number) => formatMoney(amount, currency);
+
+  const updateTrip = useUpdateTrip();
+  const [editingBudget, setEditingBudget] = useState(false);
+  const [budgetDraft, setBudgetDraft] = useState("");
+  const [currencyDraft, setCurrencyDraft] = useState(currency);
 
   // Members always include the current user: a solo trip has no membership rows
   // yet, and `paid_by` still has to be a real profile id.
@@ -161,78 +179,65 @@ export default function TripMoneyExpenses({
       navigator.onLine ? failureCount < 2 : false,
   });
 
-  // ── Compute stats from activities ────────────────────────────────────────
-  const activityCosts = activities
-    .filter((a) => a.cost != null && Number(a.cost) > 0)
-    .map((a) => ({
-      name: a.name,
-      cost: Number(a.cost),
-      category: ACTIVITY_TO_EXPENSE_CATEGORY[a.category ?? "other"] ?? "general",
-    }));
-
-  const totalActivityCost = activityCosts.reduce((s, a) => s + a.cost, 0);
-  const totalManualExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0);
-  const totalSpent = totalActivityCost + totalManualExpenses;
-  const remaining = tripBudget - totalSpent;
-  const budgetPercent =
-    tripBudget > 0 ? Math.min(100, (totalSpent / tripBudget) * 100) : 0;
-  const perPerson = travelers > 0 ? totalSpent / travelers : totalSpent;
-
-  // Cost breakdown by category
-  const categoryBreakdown: Record<string, number> = {};
-  activityCosts.forEach((a) => {
-    categoryBreakdown[a.category] = (categoryBreakdown[a.category] || 0) + a.cost;
-  });
-  expenses.forEach((e) => {
-    categoryBreakdown[e.category] =
-      (categoryBreakdown[e.category] || 0) + Number(e.amount);
-  });
+  // ── Budget figures — all from lib/budget.ts ───────────────────────────────
+  // Per-person figures divide by the real group: the trips table has no
+  // traveller count, so the roster (members, always including you) is it.
+  const summary = useMemo(
+    () =>
+      summarizeBudget({
+        budget: tripBudget,
+        activities,
+        expenses,
+        travelers: roster.length,
+        days,
+      }),
+    [tripBudget, activities, expenses, roster.length, days],
+  );
+  const hasBudget = summary.budget > 0;
+  const overSpent = hasBudget && summary.remaining < 0;
+  const planOverBudget = hasBudget && summary.plannedHeadroom < 0;
+  const spentPercent = Math.min(100, summary.percentSpent ?? 0);
+  const plannedPercent = Math.min(100, summary.percentPlanned ?? 0);
 
   // ── Debt calculation (who owes whom) ─────────────────────────────────────
   // Balances are keyed by user id, not display name: two members can share a
   // first name, and the database only knows about ids.
-  const settlements = useMemo(() => {
-    const balances: Record<string, number> = {};
-    for (const member of roster) balances[member.id] = 0;
+  const settlements = useMemo(
+    () => settleUp(expenses, roster.map((m) => m.id)),
+    [expenses, roster],
+  );
 
-    for (const expense of expenses) {
-      const participants =
-        expense.split_with.length > 0 ? expense.split_with : [expense.paid_by];
-      const share = Number(expense.amount) / participants.length;
+  const startEditingBudget = () => {
+    setBudgetDraft(hasBudget ? String(summary.budget) : "");
+    setCurrencyDraft(currency);
+    setEditingBudget(true);
+  };
 
-      balances[expense.paid_by] =
-        (balances[expense.paid_by] || 0) + Number(expense.amount);
-      for (const memberId of participants) {
-        balances[memberId] = (balances[memberId] || 0) - share;
-      }
+  const saveBudget = async () => {
+    const { amount, currency: typed } = parseBudgetInput(budgetDraft);
+    if (!amount) {
+      toast({ title: "Enter a budget amount", description: 'For example "50000", "50k" or "1.5 lakh".', variant: "destructive" });
+      return;
     }
-
-    const ids = Object.keys(balances);
-    const debtors = ids.filter((id) => balances[id] < -0.01);
-    const creditors = ids.filter((id) => balances[id] > 0.01);
-    const remainingBalances = { ...balances };
-    const out: { from: string; to: string; amount: number }[] = [];
-
-    for (const debtor of debtors) {
-      for (const creditor of creditors) {
-        if (remainingBalances[debtor] >= -0.01) break;
-        if (remainingBalances[creditor] <= 0.01) continue;
-        const transfer = Math.min(
-          -remainingBalances[debtor],
-          remainingBalances[creditor],
-        );
-        out.push({
-          from: debtor,
-          to: creditor,
-          amount: Math.round(transfer * 100) / 100,
-        });
-        remainingBalances[debtor] += transfer;
-        remainingBalances[creditor] -= transfer;
-      }
+    const nextCurrency = typed ?? currencyDraft;
+    try {
+      const result = await updateTrip.mutateAsync({
+        id: tripId,
+        patch: { budget_total: amount, currency: nextCurrency },
+      });
+      setEditingBudget(false);
+      toast({
+        title: result.queued ? "Budget saved offline" : "Budget updated",
+        description: `${formatMoney(amount, nextCurrency)} for the whole trip.${
+          nextCurrency !== currency
+            ? " Existing costs are not converted — amounts keep their numbers in the new currency."
+            : ""
+        }`,
+      });
+    } catch (error: unknown) {
+      toast({ title: "Could not update budget", description: errorMessage(error), variant: "destructive" });
     }
-
-    return out;
-  }, [expenses, roster]);
+  };
 
   const handleAddExpense = async () => {
     if (!user || !newExpense.description.trim() || !newExpense.amount) return;
@@ -261,7 +266,7 @@ export default function TripMoneyExpenses({
         paid_by: user.id,
         title: newExpense.description.trim(),
         amount,
-        currency: "INR",
+        currency,
         category: newExpense.category,
         split_type: "equal",
         split_with: splitWith,
@@ -389,20 +394,25 @@ export default function TripMoneyExpenses({
           <span className="text-sm font-semibold text-card-foreground">
             Trip Money & Expense Split
           </span>
-          {travelers > 1 && (
+          {roster.length > 1 && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium flex items-center gap-1">
               <Users className="w-3 h-3" aria-hidden="true" />
-              {travelers} travelers
+              {roster.length} travelers
             </span>
           )}
         </div>
         <div className="flex items-center gap-3">
-          <span
-            className={`text-sm font-bold ${remaining >= 0 ? "text-success" : "text-destructive"}`}
-          >
-            {remaining >= 0 ? "+" : ""}
-            {formatCurrency(remaining, country)} left
-          </span>
+          {hasBudget ? (
+            <span
+              className={`text-sm font-bold ${overSpent ? "text-destructive" : "text-success"}`}
+            >
+              {overSpent
+                ? `${money(-summary.remaining)} over`
+                : `${money(summary.remaining)} left`}
+            </span>
+          ) : (
+            <span className="text-xs font-medium text-warning">No budget set</span>
+          )}
           {expanded ? (
             <ChevronUp className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
           ) : (
@@ -413,108 +423,221 @@ export default function TripMoneyExpenses({
 
       {expanded && (
         <div className="p-5 space-y-5">
-          {/* Budget Bar */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-muted-foreground">Budget Usage</span>
-              <span className="text-xs font-semibold text-card-foreground">
-                {formatCurrency(totalSpent, country)} /{" "}
-                {formatCurrency(tripBudget, country)}
-              </span>
+          {/* Budget */}
+          {editingBudget ? (
+            <div className="border border-border rounded-xl p-3 space-y-2 bg-background">
+              <p className="text-xs font-semibold text-card-foreground">Trip budget (whole group)</p>
+              <div className="flex gap-2">
+                <label htmlFor="trip-budget" className="sr-only">Budget amount</label>
+                <input
+                  id="trip-budget"
+                  type="text"
+                  inputMode="decimal"
+                  autoFocus
+                  placeholder='e.g. 50000, 50k, 1.5 lakh'
+                  value={budgetDraft}
+                  onChange={(e) => setBudgetDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void saveBudget();
+                    if (e.key === "Escape") setEditingBudget(false);
+                  }}
+                  className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <label htmlFor="trip-budget-currency" className="sr-only">Currency</label>
+                <select
+                  id="trip-budget-currency"
+                  value={currencyDraft}
+                  onChange={(e) => setCurrencyDraft(e.target.value)}
+                  className="px-2 py-2 rounded-xl bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                  {[...new Set([currency, ...BUDGET_CURRENCIES])].map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => void saveBudget()}
+                  disabled={updateTrip.isPending}
+                  className="flex-1 px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  {updateTrip.isPending && <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />}
+                  Save budget
+                </button>
+                <button
+                  onClick={() => setEditingBudget(false)}
+                  className="px-3 py-1.5 rounded-xl bg-secondary text-muted-foreground text-xs hover:bg-secondary/80"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
-            <div className="w-full h-2.5 bg-secondary rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  budgetPercent > 90
-                    ? "bg-destructive"
-                    : budgetPercent > 70
-                      ? "bg-warning"
-                      : "bg-success"
-                }`}
-                style={{ width: `${budgetPercent}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between mt-1">
-              <span className="text-[10px] text-muted-foreground">
-                {budgetPercent.toFixed(0)}% used
-              </span>
-              {travelers > 1 && (
-                <span className="text-[10px] text-muted-foreground">
-                  ≈ {formatCurrency(perPerson, country)} / person
-                </span>
+          ) : !hasBudget ? (
+            <div className="rounded-xl border border-warning/30 bg-warning/5 p-3 flex items-start gap-2">
+              <Info className="w-4 h-4 text-warning shrink-0 mt-0.5" aria-hidden="true" />
+              <div className="flex-1 text-xs text-muted-foreground">
+                This trip has no budget yet, so there is nothing to measure spending against.
+                {canEditBudget
+                  ? " Set one to track what's left and to generate an itinerary."
+                  : " Ask the organiser to set one."}
+              </div>
+              {canEditBudget && (
+                <button
+                  onClick={startEditingBudget}
+                  className="px-3 py-1 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 shrink-0"
+                >
+                  Set budget
+                </button>
               )}
             </div>
-          </div>
+          ) : (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  Spent of budget
+                  {canEditBudget && (
+                    <button
+                      onClick={startEditingBudget}
+                      className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-primary"
+                      aria-label="Edit trip budget"
+                    >
+                      <Pencil className="w-3 h-3" aria-hidden="true" />
+                    </button>
+                  )}
+                </span>
+                <span className="text-xs font-semibold text-card-foreground">
+                  {money(summary.spent)} / {money(summary.budget)}
+                </span>
+              </div>
+              <div
+                className="relative w-full h-2.5 bg-secondary rounded-full overflow-hidden"
+                role="progressbar"
+                aria-label="Budget spent"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(spentPercent)}
+              >
+                {/* Planned cost as a faint track behind actual spending */}
+                <div
+                  className="absolute inset-y-0 left-0 bg-primary/20 rounded-full"
+                  style={{ width: `${plannedPercent}%` }}
+                />
+                <div
+                  className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
+                    spentPercent > 90
+                      ? "bg-destructive"
+                      : spentPercent > 70
+                        ? "bg-warning"
+                        : "bg-success"
+                  }`}
+                  style={{ width: `${spentPercent}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between mt-1 gap-2">
+                <span className="text-[10px] text-muted-foreground">
+                  {(summary.percentSpent ?? 0).toFixed(0)}% spent · plan uses{" "}
+                  {(summary.percentPlanned ?? 0).toFixed(0)}%
+                </span>
+                <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <CalendarDays className="w-3 h-3" aria-hidden="true" />
+                  {money(summary.budgetPerDay)} / day over {summary.days} day
+                  {summary.days === 1 ? "" : "s"}
+                </span>
+              </div>
+              {planOverBudget && (
+                <p className="text-[10px] text-destructive mt-1">
+                  The itinerary is planned at {money(summary.planned)}, which is{" "}
+                  {money(-summary.plannedHeadroom)} over budget.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Summary Cards */}
           <div className="grid grid-cols-3 gap-3">
-            <div className="bg-primary/5 rounded-xl p-3 text-center">
-              <p className="text-xs text-muted-foreground mb-1">Total Spent</p>
-              <p className="text-sm font-bold text-primary">
-                {formatCurrency(totalSpent, country)}
+            <div className="bg-secondary/60 rounded-xl p-3 text-center">
+              <p className="text-xs text-muted-foreground mb-1">Planned</p>
+              <p className="text-sm font-bold text-card-foreground">
+                {money(summary.planned)}
               </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">itinerary</p>
+            </div>
+            <div className="bg-primary/5 rounded-xl p-3 text-center">
+              <p className="text-xs text-muted-foreground mb-1">Spent</p>
+              <p className="text-sm font-bold text-primary">
+                {money(summary.spent)}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">logged expenses</p>
             </div>
             <div
-              className={`rounded-xl p-3 text-center ${remaining >= 0 ? "bg-success/10" : "bg-destructive/10"}`}
+              className={`rounded-xl p-3 text-center ${overSpent ? "bg-destructive/10" : "bg-success/10"}`}
             >
               <p className="text-xs text-muted-foreground mb-1 flex items-center justify-center gap-1">
-                {remaining >= 0 ? (
-                  <TrendingDown className="w-3 h-3 text-success" aria-hidden="true" />
-                ) : (
+                {overSpent ? (
                   <TrendingUp className="w-3 h-3 text-destructive" aria-hidden="true" />
+                ) : (
+                  <TrendingDown className="w-3 h-3 text-success" aria-hidden="true" />
                 )}
                 Remaining
               </p>
               <p
-                className={`text-sm font-bold ${remaining >= 0 ? "text-success" : "text-destructive"}`}
+                className={`text-sm font-bold ${overSpent ? "text-destructive" : "text-success"}`}
               >
-                {formatCurrency(Math.abs(remaining), country)}
-                {remaining < 0 && " over"}
+                {hasBudget ? money(Math.abs(summary.remaining)) : "—"}
+                {overSpent && " over"}
               </p>
-            </div>
-            <div className="bg-accent/10 rounded-xl p-3 text-center">
-              <p className="text-xs text-muted-foreground mb-1">Per Person</p>
-              <p className="text-sm font-bold text-accent">
-                {formatCurrency(perPerson, country)}
-              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">budget − spent</p>
             </div>
           </div>
+          {roster.length > 1 && (
+            <p className="text-[10px] text-muted-foreground -mt-2">
+              Per person ({roster.length}): {money(summary.spentPerPerson)} spent ·{" "}
+              {money(summary.plannedPerPerson)} planned
+              {hasBudget ? ` · ${money(summary.budgetPerPerson)} budget` : ""}
+            </p>
+          )}
 
           {/* Category Breakdown */}
-          {Object.keys(categoryBreakdown).length > 0 && (
+          {summary.categories.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                Breakdown by Category
-              </p>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Breakdown by Category
+                </p>
+                <p className="text-[10px] text-muted-foreground">spent / planned</p>
+              </div>
               <div className="space-y-2">
-                {Object.entries(categoryBreakdown)
-                  .sort(([, a], [, b]) => b - a)
-                  .map(([cat, amount]) => {
-                    const pct =
-                      totalSpent > 0 ? Math.round((amount / totalSpent) * 100) : 0;
-                    const catInfo = EXPENSE_CATEGORIES.find((c) => c.value === cat);
-                    return (
-                      <div key={cat} className="flex items-center gap-3">
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${catInfo?.color || "bg-secondary text-muted-foreground"}`}
-                        >
-                          {catInfo?.label || cat}
-                        </span>
-                        <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-primary/60 rounded-full"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        <span className="text-xs font-semibold text-card-foreground shrink-0">
-                          {formatCurrency(amount, country)}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground w-8 text-right shrink-0">
-                          {pct}%
-                        </span>
+                {summary.categories.map(({ category, planned, spent }) => {
+                  const scale = Math.max(summary.planned, summary.spent);
+                  const plannedPct = scale > 0 ? (planned / scale) * 100 : 0;
+                  const spentPct = scale > 0 ? (spent / scale) * 100 : 0;
+                  const catInfo = EXPENSE_CATEGORIES.find((c) => c.value === category);
+                  return (
+                    <div key={category} className="flex items-center gap-3">
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${catInfo?.color || "bg-secondary text-muted-foreground"}`}
+                      >
+                        {catInfo?.label || category}
+                      </span>
+                      <div className="relative flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
+                        <div
+                          className="absolute inset-y-0 left-0 bg-primary/20 rounded-full"
+                          style={{ width: `${plannedPct}%` }}
+                        />
+                        <div
+                          className="absolute inset-y-0 left-0 bg-primary/70 rounded-full"
+                          style={{ width: `${spentPct}%` }}
+                        />
                       </div>
-                    );
-                  })}
+                      <span className="text-xs font-semibold text-card-foreground shrink-0 text-right">
+                        {money(spent)}
+                        <span className="text-muted-foreground font-normal">
+                          {" "}/ {money(planned)}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -564,8 +687,7 @@ export default function TripMoneyExpenses({
                         </p>
                       </div>
                       <span className="text-sm font-bold text-card-foreground shrink-0">
-                        {currencySymbol}
-                        {Number(exp.amount).toLocaleString()}
+                        {money(Number(exp.amount))}
                       </span>
                       {/* Only the payer can delete: RLS enforces it, so hiding
                           the control avoids offering an action that would fail. */}
@@ -604,7 +726,7 @@ export default function TripMoneyExpenses({
                       <span className="font-semibold">{nameFor(s.to)}</span>
                     </p>
                     <span className="text-sm font-bold text-warning shrink-0">
-                      {formatCurrency(s.amount, country)}
+                      {money(s.amount)}
                     </span>
                   </div>
                 ))}

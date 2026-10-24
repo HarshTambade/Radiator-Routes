@@ -18,7 +18,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useTrips } from "@/hooks/useTrips";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency } from "@/lib/currency";
+import { formatMoney, formatMoneyTotals } from "@/lib/currency";
 import { useLanguage } from "@/hooks/useLanguage";
 import { errorMessage } from "@/lib/errors";
 import AIProviderSettings from "@/components/AIProviderSettings";
@@ -182,9 +182,15 @@ export default function Profile() {
           {
             label: t("budget"),
             value:
+              // Grouped by currency — trips in ₹ and $ can't be added.
               totalBudget > 0
-                ? formatCurrency(totalBudget, trips[0]?.country)
-                : "₹0",
+                ? formatMoneyTotals(
+                    trips.map((trip) => ({
+                      amount: Number(trip.budget_total || 0),
+                      currency: trip.currency,
+                    })),
+                  )
+                : formatMoney(0, "INR"),
             icon: Wallet,
             color: "text-accent",
           },
@@ -317,7 +323,7 @@ export default function Profile() {
                 </div>
                 <div className="text-right">
                   <p className="text-xs font-semibold text-card-foreground">
-                    {formatCurrency(Number(trip.budget_total), trip.country)}
+                    {formatMoney(Number(trip.budget_total), trip.currency)}
                   </p>
                   <p className="text-[10px] text-muted-foreground">
                     {new Date(trip.start_date).toLocaleDateString("en-US", {

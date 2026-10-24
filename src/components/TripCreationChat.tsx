@@ -18,14 +18,13 @@ import {
   Zap,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { extractIntent } from "@/services/aiPlanner";
 import { nominatimSearch } from "@/services/nominatim";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { getCurrencySymbol } from "@/lib/currency";
-import { formatLocalDate, parseLocalDate, daysBetween } from "@/lib/date";
+import { formatMoney, getCurrencyForCountry, parseBudgetInput } from "@/lib/currency";
+import { formatLocalDate, parseLocalDate, tripDayCount } from "@/lib/date";
 import ReactMarkdown from "react-markdown";
 import { errorMessage } from "@/lib/errors";
 import { mergeTripStyle } from "@/lib/travelPreferences";
@@ -132,6 +131,8 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
     start_date: "",
     end_date: "",
     budget: "",
+    /** ISO code the budget is in; saved to `trips.currency`. */
+    currency: "",
     travelers: "1",
     transport: "",
     name: "",
@@ -221,8 +222,7 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
     setTripData((prev) => ({ ...prev, interests: selectedInterests }));
 
     // Build summary
-    const days = daysBetween(tripData.start_date, tripData.end_date);
-    const symbol = getCurrencySymbol(tripData.country);
+    const days = tripDayCount(tripData.start_date, tripData.end_date);
     const startF = parseLocalDate(tripData.start_date).toLocaleDateString(
       "en-US",
       { month: "short", day: "numeric" },
@@ -249,7 +249,7 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
       `Here's your trip summary:\n\n` +
         `📍 **${tripData.destination}${tripData.country ? `, ${tripData.country}` : ""}**\n` +
         `📅 **${startF} → ${endF}** (${days} days)\n` +
-        `💰 **${symbol}${Number(tripData.budget).toLocaleString()}** budget\n` +
+        `💰 **${formatMoney(Number(tripData.budget), tripData.currency)}** budget\n` +
         `👥 **${tripData.travelers} traveler${Number(tripData.travelers) > 1 ? "s" : ""}**\n` +
         `🚀 **${transportLabel}**\n` +
         `🍽️ **${foodLabel}**\n` +
@@ -292,19 +292,22 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
             }
           }
 
-          setTripData((prev) => ({ ...prev, destination: dest, country }));
+          const currency = getCurrencyForCountry(country).code;
+          setTripData((prev) => ({ ...prev, destination: dest, country, currency }));
 
-          const suggestion = (await extractIntent({
-            transcript: `Best time to visit ${dest} ${country}, typical budget per day`,
-          })) as any;
-          const budgetHint = suggestion?.budget_range?.max
-            ? `Average daily budget: ~${getCurrencySymbol(country)}${Math.round(suggestion.budget_range.max / (suggestion.duration_days || 5)).toLocaleString()}`
-            : "";
+          // An "average daily budget" hint used to appear here. It came from
+          // the intent extractor run on a sentence that states no budget, so
+          // the figure was invented by the model. It has been removed.
           addBotMessage(
-            `Great choice! **${dest}${country ? `, ${country}` : ""}** 🎉\n\n${country ? `🌍 Country auto-detected: **${country}** — currency set automatically.\n\n` : ""}${budgetHint ? `💡 ${budgetHint}\n\n` : ""}**When do you want to travel?** Enter dates (e.g., "2025-03-15 to 2025-03-20") or say "5 days from March 15".`,
+            `Great choice! **${dest}${country ? `, ${country}` : ""}** 🎉\n\n${country ? `🌍 Country detected: **${country}** — budget will default to **${currency}**.\n\n` : ""}**When do you want to travel?** Enter dates (e.g., "2025-03-15 to 2025-03-20") or say "5 days from March 15".`,
           );
         } catch {
-          setTripData((prev) => ({ ...prev, destination: dest, country }));
+          setTripData((prev) => ({
+            ...prev,
+            destination: dest,
+            country,
+            currency: getCurrencyForCountry(country).code,
+          }));
           addBotMessage(
             `**${dest}${country ? `, ${country}` : ""}** sounds amazing! 🎉\n\n**When do you want to travel?** Enter dates like "2025-03-15 to 2025-03-20".`,
           );
@@ -335,8 +338,9 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
               t.setDate(t.getDate() + 1);
               startDate = formatLocalDate(t);
             } else startDate = formatLocalDate(start);
+            // "5 days" means five calendar days, so the last day is start + 4.
             const end = parseLocalDate(startDate);
-            end.setDate(end.getDate() + numDays);
+            end.setDate(end.getDate() + Math.max(1, numDays) - 1);
             endDate = formatLocalDate(end);
           } else {
             const singleDate = value.match(/(\d{4}-\d{2}-\d{2})/);
@@ -354,11 +358,11 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
           );
           return;
         }
-        const days = daysBetween(startDate, endDate);
-        if (days <= 0) {
-          addBotMessage("End date must be after start date. Please try again.");
+        if (endDate < startDate) {
+          addBotMessage("End date can't be before the start date. Please try again.");
           return;
         }
+        const days = tripDayCount(startDate, endDate);
         setTripData((prev) => ({
           ...prev,
           start_date: startDate,
@@ -375,21 +379,29 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
           year: "numeric",
         });
         addBotMessage(
-          `📅 **${startF} → ${endF}** (${days} day${days > 1 ? "s" : ""})\n\n**What's your total budget?** Enter an amount (e.g., "50000" or "2000 USD").`,
+          `📅 **${startF} → ${endF}** (${days} day${days > 1 ? "s" : ""})\n\n**What's your total budget for the whole group?** Amounts are in **${tripData.currency || "INR"}** — add a currency to change it, e.g. "50000", "1.5 lakh", "50000 INR" or "$2000".`,
         );
         setStep("budget");
         break;
       }
 
       case "budget": {
-        const numMatch = value.match(/[\d,]+/);
-        const budget = numMatch ? numMatch[0].replace(/,/g, "") : "0";
-        setTripData((prev) => ({ ...prev, budget }));
-        const symbol = getCurrencySymbol(tripData.country);
-        const days = daysBetween(tripData.start_date, tripData.end_date);
-        const perDay = Math.round(Number(budget) / days);
+        // The old parser kept the first run of digits: "50k" became 50,
+        // "1.5 lakh" became 1, and "2000 USD" was saved as rupees.
+        const parsed = parseBudgetInput(value);
+        if (!parsed.amount) {
+          addBotMessage(
+            'I couldn\'t read an amount there. Try "50000", "50k", "1.5 lakh" or "2000 USD".',
+          );
+          return;
+        }
+        const currency = parsed.currency ?? (tripData.currency || "INR");
+        const budget = String(parsed.amount);
+        setTripData((prev) => ({ ...prev, budget, currency }));
+        const days = tripDayCount(tripData.start_date, tripData.end_date);
+        const perDay = Math.round((parsed.amount / days) * 100) / 100;
         addBotMessage(
-          `💰 Budget: **${symbol}${Number(budget).toLocaleString()}** (${symbol}${perDay.toLocaleString()}/day)\n\n**How many travelers?**`,
+          `💰 Budget: **${formatMoney(parsed.amount, currency)}** (${formatMoney(perDay, currency)}/day over ${days} day${days === 1 ? "" : "s"})\n\n**How many travelers?**`,
           TRIP_TYPE_OPTIONS,
         );
         setStep("travelers");
@@ -486,6 +498,7 @@ export default function TripCreationChat({ onClose, tripType }: Props) {
             start_date: tripData.start_date,
             end_date: tripData.end_date,
             budget_total: Number(tripData.budget) || 0,
+            currency: tripData.currency || "INR",
             organizer_id: user!.id,
           });
           if (error) throw error;

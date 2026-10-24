@@ -18,7 +18,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useQueryClient } from "@tanstack/react-query";
 import { regretCounterfactual } from "@/services/aiPlanner";
-import { formatCurrency } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
+import { sumCosts } from "@/lib/budget";
 import { errorMessage } from "@/lib/errors";
 import { useGroupPreferences } from "@/hooks/useGroupPreferences";
 import {
@@ -110,12 +111,23 @@ function deriveInterests(members: { categoryWeights?: Record<string, number> }[]
     .map(([category]) => category);
 }
 
+/**
+ * What a plan costs: the sum of its activities. The model also returns a
+ * `total_cost`, which regularly disagrees with its own line items.
+ */
+const planTotal = (plan: { activities?: Array<{ cost?: unknown }> }) =>
+  sumCosts(plan.activities);
+
 interface RegretPlannerProps {
   tripId: string;
   destination: string;
   days: number;
+  /** Trip budget; 0 when none is set, in which case generation is blocked. */
   budget: number;
-  country?: string;
+  /** First trip day, `YYYY-MM-DD`. */
+  startDate?: string;
+  /** ISO code the budget and costs are in (`trips.currency`). */
+  currency?: string;
   activeItineraryId?: string;
   onPlanApplied: () => void;
 }
@@ -125,7 +137,8 @@ export default function RegretPlanner({
   destination,
   days,
   budget,
-  country,
+  startDate,
+  currency,
   activeItineraryId,
   onPlanApplied,
 }: RegretPlannerProps) {
@@ -151,6 +164,14 @@ export default function RegretPlanner({
   } = useGroupPreferences(tripId);
 
   const generatePlans = async () => {
+    if (!(budget > 0)) {
+      toast({
+        title: "Set a budget first",
+        description: "The three plans are sized against the trip budget. Add it in Trip Money below.",
+        variant: "destructive",
+      });
+      return;
+    }
     setLoading(true);
     setData(null);
     setScored([]);
@@ -178,6 +199,8 @@ export default function RegretPlanner({
             budget,
             interests,
             tripType: "leisure",
+            startDate,
+            currency,
             repairInstruction,
           }) as Promise<RegretData>,
         verify: (candidate) => {
@@ -229,7 +252,7 @@ export default function RegretPlanner({
               plans.map((p) => ({
                 variant: p.variant,
                 activities: p.activities,
-                total_cost: p.total_cost,
+                total_cost: planTotal(p),
               })),
               members,
             )
@@ -347,7 +370,8 @@ export default function RegretPlanner({
         .from("itineraries")
         .update({
           cost_breakdown: {
-            total: plan.total_cost,
+            total: planTotal(plan),
+            currency,
             variant: plan.variant,
           } as never,
           // Persist the locally computed Least Misery score, not a model output.
@@ -517,7 +541,7 @@ export default function RegretPlanner({
                   {plan.tagline}
                 </p>
                 <p className={`text-lg font-bold mt-1 ${config.color}`}>
-                  {formatCurrency(plan.total_cost, country)}
+                  {formatMoney(planTotal(plan), currency)}
                 </p>
                 {regret && (
                   <p className="text-[10px] text-muted-foreground mt-0.5">
@@ -743,7 +767,7 @@ export default function RegretPlanner({
                         </span>
                         {a.cost > 0 && (
                           <span className="flex items-center gap-0.5">
-                            {formatCurrency(a.cost, country)}
+                            {formatMoney(a.cost, currency)}
                           </span>
                         )}
                         {a.review_score && (

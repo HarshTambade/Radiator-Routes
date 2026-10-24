@@ -3,6 +3,26 @@
 
 import { callGemini, extractJSON, todayIST, handleGeminiError } from "./gemini";
 import { supabase } from "@/integrations/supabase/client";
+import { normalizeCurrencyCode } from "@/lib/currency";
+import { parseLocalDate, formatLocalDate } from "@/lib/date";
+
+/** `YYYY-MM-DD` of the last trip day, given the first day and the day count. */
+function lastTripDay(startDate: string, days: number): string {
+  const end = parseLocalDate(startDate);
+  end.setDate(end.getDate() + Math.max(1, days) - 1);
+  return formatLocalDate(end);
+}
+
+/**
+ * Shared money rules. Without them the model mixed per-person and group
+ * prices in one plan, and always priced in rupees whatever the trip currency.
+ */
+function moneyRules(currency: string, travelers: number, budget: number): string {
+  return `- Every "cost" is the TOTAL for all ${travelers} traveller(s) in ${currency}, not per person
+- "cost" and "total_cost" are plain numbers (no currency symbols, no strings)
+- total_cost must equal the exact sum of the activity costs
+- The sum of all activity costs must not exceed ${budget} ${currency}`;
+}
 
 // ── Traveler memory loader ────────────────────────────────────────────────────
 
@@ -72,6 +92,10 @@ export async function planItinerary(params: {
   budget: number;
   interests?: string[];
   tripType?: string;
+  /** First trip day, `YYYY-MM-DD`. Defaults to today (IST). */
+  startDate?: string;
+  /** ISO code the budget is in, e.g. "INR". Defaults to INR. */
+  currency?: string;
   /**
    * Violations from a previous attempt, appended verbatim to the prompt.
    *
@@ -96,7 +120,9 @@ export async function planItinerary(params: {
   if (!travelers) throw new Error("travelers is required");
   if (!budget) throw new Error("budget is required");
 
-  const startDate = todayIST();
+  const startDate = params.startDate || todayIST();
+  const endDate = lastTripDay(startDate, days);
+  const currency = normalizeCurrencyCode(params.currency);
   const memoryContext = await loadMemoryContext();
 
   const systemPrompt =
@@ -106,8 +132,8 @@ export async function planItinerary(params: {
 
   const perPersonBudget = Math.round(budget / travelers);
   const userPrompt = `Plan a ${days}-day trip to ${destination} for ${travelers} person(s).
-Budget: ₹${budget} total (₹${perPersonBudget} per person). Trip type: ${tripType}. Interests: ${interests.join(", ")}.
-Start date: ${startDate}.${memoryContext}
+Budget: ${budget} ${currency} for the whole group (about ${perPersonBudget} ${currency} per person). Trip type: ${tripType}. Interests: ${interests.join(", ")}.
+Dates: ${startDate} (day 1) to ${endDate} (day ${days}).${memoryContext}
 
 Return a JSON object with this exact shape:
 {
@@ -153,9 +179,9 @@ Return a JSON object with this exact shape:
 }
 
 Rules:
-- Aim for ${Math.min(days * 4, 20)} activities spread across ${days} days
+- Aim for ${Math.min(days * 4, 20)} activities spread across all ${days} days, ${startDate} to ${endDate}
 - Use real lat/lng for ${destination}
-- All costs in INR, total_cost <= ₹${budget}
+${moneyRules(currency, travelers, budget)}
 - start_time and end_time must use +05:30 timezone offset
 - opening_hours: only when you actually know the place's schedule. Use OSM
   syntax in the "osm" field, e.g. "Mo-Su 09:00-18:00", "We 06:00-14:00", "24/7".
@@ -196,6 +222,10 @@ export async function regretCounterfactual(params: {
   budget: number;
   interests?: string[];
   tripType?: string;
+  /** First trip day, `YYYY-MM-DD`. Defaults to today (IST). */
+  startDate?: string;
+  /** ISO code the budget is in. Defaults to INR. */
+  currency?: string;
   /** Violations from a previous attempt. See `planItinerary`. */
   repairInstruction?: string;
 }): Promise<unknown> {
@@ -214,7 +244,9 @@ export async function regretCounterfactual(params: {
   if (!travelers) throw new Error("travelers is required");
   if (!budget) throw new Error("budget is required");
 
-  const startDate = todayIST();
+  const startDate = params.startDate || todayIST();
+  const endDate = lastTripDay(startDate, days);
+  const currency = normalizeCurrencyCode(params.currency);
   const memoryContext = await loadMemoryContext();
 
   const systemPrompt =
@@ -225,8 +257,8 @@ export async function regretCounterfactual(params: {
   const activitiesPerPlan = Math.min(days * 3, 12);
 
   const userPrompt = `Generate 3 trip plans to ${destination} for ${travelers} person(s), ${days} days.
-Budget: ₹${budget}. Type: ${tripType}. Interests: ${interests.join(", ")}.
-Start date: ${startDate}.${memoryContext}
+Budget: ${budget} ${currency} for the whole group. Type: ${tripType}. Interests: ${interests.join(", ")}.
+Dates: ${startDate} (day 1) to ${endDate} (day ${days}).${memoryContext}
 
 Plans:
 1. "budget" — minimise cost, street food, free attractions
@@ -270,9 +302,10 @@ Return a JSON object:
 Rules:
 - Each plan must have ${activitiesPerPlan} activities using real ${destination} places
 - Use +05:30 timezone offset in all timestamps
-- budget plan: total_cost ~${Math.round(budget * 0.6)}
-- balanced plan: total_cost ~${Math.round(budget * 0.8)}
-- experience plan: total_cost ~${Math.round(Number(budget))}
+- budget plan: total_cost about ${Math.round(budget * 0.6)} ${currency}
+- balanced plan: total_cost about ${Math.round(budget * 0.8)} ${currency}
+- experience plan: total_cost at most ${Math.round(Number(budget))} ${currency}
+${moneyRules(currency, travelers, budget)}
 - Set category accurately per activity — it drives preference matching downstream
 - review_score must be a real 0-5 rating, not a placeholder
 - opening_hours: OSM syntax in the "osm" field ("We 06:00-14:00", "24/7") only

@@ -23,6 +23,7 @@ import {
   formatRanges,
   parseOpeningHours,
 } from "./openingHours";
+import { sumCosts } from "./budget";
 
 export type Severity = "error" | "warning";
 
@@ -170,7 +171,8 @@ function checkBudget(
   constraints: VerifyConstraints,
 ): Violation[] {
   const out: Violation[] = [];
-  const summed = activities.reduce((total, a) => total + (a.cost ?? 0), 0);
+  // Models sometimes emit costs as strings; adding those concatenated them.
+  const summed = sumCosts(activities);
 
   if (typeof constraints.budget === "number" && constraints.budget > 0) {
     const ceiling = constraints.budget * (1 + BUDGET_TOLERANCE);

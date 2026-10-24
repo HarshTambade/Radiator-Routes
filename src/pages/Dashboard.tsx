@@ -12,7 +12,7 @@ import {
   Trash2,
   WifiOff,
 } from "lucide-react";
-import { formatCurrency } from "@/lib/currency";
+import { formatMoney, formatMoneyTotals } from "@/lib/currency";
 import { useAuth } from "@/hooks/useAuth";
 import { useTrips } from "@/hooks/useTrips";
 import { useState, useEffect } from "react";
@@ -326,9 +326,9 @@ export default function Dashboard() {
                       <div className="flex items-center justify-between mt-3">
                         <div className="flex items-center gap-1">
                           <span className="text-sm font-bold text-card-foreground">
-                            {formatCurrency(
+                            {formatMoney(
                               Number(trip.budget_total),
-                              trip.country ?? "India",
+                              trip.currency,
                             )}
                           </span>
                         </div>
@@ -380,15 +380,13 @@ export default function Dashboard() {
             </div>
             <div className="text-center p-3 rounded-xl bg-warning/10">
               <p className="text-base lg:text-lg font-bold text-foreground">
-                {trips.length > 0
-                  ? formatCurrency(
-                      trips.reduce(
-                        (sum, trip) => sum + Number(trip.budget_total || 0),
-                        0,
-                      ),
-                      trips[0].country ?? "India",
-                    )
-                  : "₹0"}
+                {/* Grouped by currency — trips in ₹ and $ can't be added */}
+                {formatMoneyTotals(
+                  trips.map((trip) => ({
+                    amount: Number(trip.budget_total || 0),
+                    currency: trip.currency,
+                  })),
+                )}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {t("budget")}
@@ -424,9 +422,9 @@ export default function Dashboard() {
                 <div className="text-center">
                   <p className="text-xs text-muted-foreground">{t("budget")}</p>
                   <p className="text-sm font-bold text-card-foreground">
-                    {formatCurrency(
+                    {formatMoney(
                       Number(upcomingTrips[0].budget_total),
-                      upcomingTrips[0].country ?? "India",
+                      upcomingTrips[0].currency,
                     )}
                   </p>
                 </div>

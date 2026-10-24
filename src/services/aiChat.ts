@@ -9,6 +9,8 @@
 import { supabase } from "@/integrations/supabase/client";
 import { cityToIATA } from "@/lib/iata";
 import { formatLocalDate } from "@/lib/date";
+import { formatMoney, formatMoneyTotals, parseBudgetInput } from "@/lib/currency";
+import { loadTripBudgets } from "@/services/tripBudget";
 import { getAIProvider, hasWebGPUAPI } from "@/lib/aiProvider";
 
 // Re-exported so existing importers of `cityToIATA` from this module keep working.
@@ -308,19 +310,25 @@ export function extractDays(text: string): number {
 // Extract budget from natural language
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function extractBudget(text: string): number | null {
+const AMOUNT = String.raw`\d[\d,]*(?:\.\d+)?\s*(?:k|thousand|lakhs?|lacs?|crores?|cr)?`;
+
+/**
+ * A budget mentioned in a message, only when it is anchored by a currency or
+ * the word "budget" — so "5 days" or "2 people" are never read as money.
+ *
+ * Previously "50k" was read as 50, "1.5 lakh" as 1, and dollar amounts were
+ * silently converted at a hard-coded 83 ₹/$. The amount now keeps the
+ * currency it was given in.
+ */
+export function extractBudget(
+  text: string,
+): { amount: number; currency: string | null } | null {
   const m =
-    text.match(/(?:₹|rs\.?|inr|budget\s*(?:of|is|=)?)\s*([\d,]+)\s*k?\b/i) ||
-    text.match(/([\d,]+)\s*k?\s*(?:rupees?|inr|rs)/i) ||
-    text.match(/budget\s+(?:of\s+)?([\d,]+)\s*k?\b/i) ||
-    text.match(/\$([\d,]+)\s*k?\b/) ||
-    text.match(/([\d,]+)\s*dollars?\b/i);
+    text.match(new RegExp(String.raw`(?:₹|\brs\.?|\binr|\$|€|£|budget\s*(?:of|is|=|:)?)\s*${AMOUNT}`, "i")) ||
+    text.match(new RegExp(String.raw`${AMOUNT}\s*(?:rupees?|inr|rs\b|dollars?|usd|euros?|eur|pounds?|gbp)`, "i"));
   if (!m) return null;
-  let val = parseInt(m[1].replace(/,/g, ""), 10);
-  if (/k\b/i.test(m[0])) val *= 1000;
-  // If dollar amount, rough INR conversion
-  if (/\$|dollar/i.test(m[0])) val = Math.round(val * 83);
-  return val;
+  const { amount, currency } = parseBudgetInput(m[0]);
+  return amount ? { amount, currency } : null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -490,7 +498,7 @@ function buildIntentHint(intent: Intent, rawText: string): string {
     }
 
     case "CREATE_TRIP":
-      return `[INTENT: CREATE_TRIP] — User wants to plan a trip${dest ? ` to ${dest}` : ""}. Duration: ${days} days. Budget: ${budget ? `₹${budget.toLocaleString("en-IN")}` : "not specified"}. Departure: ${date ?? "not specified"}. Passengers: ${pax}. Emit create_trip action. If destination is unclear, ask ONE short question.`;
+      return `[INTENT: CREATE_TRIP] — User wants to plan a trip${dest ? ` to ${dest}` : ""}. Duration: ${days} days. Budget: ${budget ? formatMoney(budget.amount, budget.currency ?? "INR") : "not specified"}. Departure: ${date ?? "not specified"}. Passengers: ${pax}. Emit create_trip action. If destination is unclear, ask ONE short question.`;
 
     case "SEARCH_FLIGHTS": {
       const parts = rawText.match(
@@ -523,7 +531,7 @@ function buildIntentHint(intent: Intent, rawText: string): string {
       return `[INTENT: OPEN_MAPS] — User wants to open maps navigation${dest ? ` to ${dest}` : ""}. Emit open_maps action immediately.`;
 
     case "BUDGET_ANALYSIS":
-      return `[INTENT: BUDGET_ANALYSIS] — User wants budget or expense info. Use their trip context to emit budget_alert with real numbers. If no trip exists, navigate to /itinerary.`;
+      return `[INTENT: BUDGET_ANALYSIS] — User wants budget or expense info. Answer only with the figures given under "Budget" in USER CONTEXT — never estimate, round differently or invent spent/remaining amounts. Emit budget_alert with the trip_id; the app shows the computed numbers itself. If no trip exists, navigate to /itinerary.`;
 
     case "EXPLORE":
       return `[INTENT: EXPLORE] — User wants to discover places${dest ? ` in ${dest}` : ""}. Emit navigate_to /explore OR explore_search action.`;
@@ -591,8 +599,9 @@ Valid paths: /dashboard, /itinerary, /itinerary/:id, /explore, /guide, /friends,
 
 ### Create a trip
 \`\`\`json
-{"action":"create_trip","name":"Goa Getaway","destination":"Goa","country":"India","days":5,"budget":40000}
+{"action":"create_trip","name":"Goa Getaway","destination":"Goa","country":"India","days":5,"budget":40000,"currency":"INR"}
 \`\`\`
+"budget" is the user's total for the whole group as a plain number, in "currency" (ISO code). Omit budget if the user gave none — never guess one.
 
 ### Generate itinerary for existing trip
 \`\`\`json
@@ -632,8 +641,9 @@ Profiles: driving-car | foot-walking | cycling-regular
 
 ### Budget alert
 \`\`\`json
-{"action":"budget_alert","message":"80% of budget used","spent":32000,"remaining":8000,"suggestions":["Cook dinner in","Skip paid museum entry"]}
+{"action":"budget_alert","trip_id":"UUID_HERE","suggestions":["Cook dinner in","Skip paid museum entry"]}
 \`\`\`
+Do not put amounts in budget_alert — the app calculates planned, spent and remaining from the trip's data and displays them.
 
 ### Explore places
 \`\`\`json
@@ -747,10 +757,19 @@ async function loadPersonalContext(): Promise<string> {
     }
 
     if (trips && trips.length > 0) {
+      // Computed by lib/budget.ts — the same figures the Trip Money panel shows.
+      const budgets = await loadTripBudgets(trips).catch(() => new Map());
       ctx += `\nTrips (${trips.length}):\n`;
       for (const trip of trips) {
         const t = trip as Record<string, unknown>;
-        ctx += `- "${t.name}" | ${t.destination}, ${t.country ?? ""} | ${t.start_date} → ${t.end_date} | Budget: ₹${Number(t.budget_total ?? 0).toLocaleString("en-IN")} | Status: ${t.status} | ID: ${t.id}\n`;
+        const b = budgets.get(t.id as string);
+        const money = (n: number) => formatMoney(n, t.currency as string);
+        const budgetLine = b
+          ? b.summary.budget > 0
+            ? `Budget: ${money(b.summary.budget)} | Planned (itinerary): ${money(b.summary.planned)} | Spent (logged expenses): ${money(b.summary.spent)} | Remaining: ${money(b.summary.remaining)} | ${b.summary.percentSpent}% spent`
+            : `Budget: not set | Planned: ${money(b.summary.planned)} | Spent: ${money(b.summary.spent)}`
+          : `Budget: ${money(Number(t.budget_total ?? 0))} (spending unavailable)`;
+        ctx += `- "${t.name}" | ${t.destination}, ${t.country ?? ""} | ${t.start_date} → ${t.end_date} | ${budgetLine} | Status: ${t.status} | ID: ${t.id}\n`;
       }
 
       // Latest trip activities (up to 15)
@@ -787,17 +806,18 @@ async function loadPersonalContext(): Promise<string> {
                     },
                   )
                 : "TBD";
-              ctx += `  ${time}: ${act.name} [${act.category ?? "activity"}]${act.location_name ? ` @ ${act.location_name}` : ""}${act.cost ? ` ₹${act.cost}` : ""}\n`;
+              ctx += `  ${time}: ${act.name} [${act.category ?? "activity"}]${act.location_name ? ` @ ${act.location_name}` : ""}${act.cost ? ` ${formatMoney(Number(act.cost), latest.currency as string)}` : ""}\n`;
             }
           }
         }
       }
 
-      const totalBudget = (trips as Record<string, unknown>[]).reduce(
-        (s, t) => s + Number(t.budget_total ?? 0),
-        0,
-      );
-      ctx += `Total budget across all trips: ₹${totalBudget.toLocaleString("en-IN")}\n`;
+      ctx += `Total budget across all trips: ${formatMoneyTotals(
+        (trips as Record<string, unknown>[]).map((t) => ({
+          amount: Number(t.budget_total ?? 0),
+          currency: t.currency as string,
+        })),
+      )}\n`;
     }
 
     return ctx;
