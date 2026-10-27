@@ -7,6 +7,8 @@ import {
   speakText,
   stopSpeaking,
   preloadVoices,
+  createSpeechStream,
+  type SpeechStream,
   isBrowserSTTSupported,
   isGroqTranscriptionAvailable,
   isMediaRecorderSupported,
@@ -30,6 +32,8 @@ import {
   Compass,
   BookOpen,
   LayoutDashboard,
+  Phone,
+  PhoneOff,
 } from "lucide-react";
 import orangeBot from "@/assets/orange-bot.png";
 import { useNavigate } from "react-router-dom";
@@ -43,6 +47,7 @@ import {
   extractDate,
   extractDays,
   extractDestination,
+  invalidatePersonalContext,
   streamChatMessage,
 } from "@/services/aiChat";
 import { handleGeminiError } from "@/services/gemini";
@@ -51,6 +56,7 @@ import { trafficFlow, trafficIncidents } from "@/services/traffic";
 import { formatLocalDate, parseLocalDate } from "@/lib/date";
 import { toAmount } from "@/lib/budget";
 import { isMicClaimed, onMicClaimChange } from "@/lib/micCoordinator";
+import { isHangUpPhrase, matchWakePhrase } from "@/lib/wakeWord";
 import { formatMoney, normalizeCurrencyCode } from "@/lib/currency";
 import { loadTripBudgets } from "@/services/tripBudget";
 import {
@@ -128,6 +134,34 @@ function speakJinny(text: string) {
   speakText(text, _ttsLang);
 }
 
+// ── Voice call ──────────────────────────────────────────────────────────────
+type CallPhase = "connecting" | "listening" | "thinking" | "speaking" | "muted";
+
+const CALL_PHASE_LABEL: Record<CallPhase, string> = {
+  connecting: "Connecting…",
+  listening: "Listening…",
+  thinking: "Thinking…",
+  speaking: "Speaking · tap Jinny to interrupt",
+  muted: "Mic muted",
+};
+
+/** Short, varied openers — the same line every time is what sounds robotic. */
+function callGreeting(firstName: string | null): string {
+  const name = firstName ? `, ${firstName}` : "";
+  const lines = [
+    `Hey${name}! What's up?`,
+    `Hi${name}, I'm here. What do you need?`,
+    `Yes${name}? I'm listening.`,
+    `Hey${name}, what can I do for you?`,
+  ];
+  return lines[Math.floor(Math.random() * lines.length)];
+}
+
+function formatCallTime(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
 // ── Voice engine capability probe ───────────────────────────────────────────
 function detectVoiceEngine(): "web-speech" | "groq-whisper" | "none" {
   if (isBrowserSTTSupported()) return "web-speech";
@@ -145,6 +179,23 @@ export default function AIAssistant() {
   const [wakeListening, setWakeListening] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [interimTranscript, setInterimTranscript] = useState("");
+
+  // Hands-free voice call: listen → think → speak → listen, with no taps.
+  const [callActive, setCallActive] = useState(false);
+  const [callPhase, setCallPhase] = useState<CallPhase>("connecting");
+  const [callMuted, setCallMuted] = useState(false);
+  const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
+  const [callCaption, setCallCaption] = useState("");
+  const [callClock, setCallClock] = useState(Date.now());
+  const callActiveRef = useRef(false);
+  const callMutedRef = useRef(false);
+  const callListenStartingRef = useRef(false);
+  const silentTurnsRef = useRef(0);
+  const speechStreamRef = useRef<SpeechStream | null>(null);
+  // Late-bound so the wake listener and speech callbacks reach current logic.
+  const beginCallRef = useRef<(opts?: { firstUtterance?: string }) => void>(() => {});
+  const endCallRef = useRef<(farewell?: string) => void>(() => {});
+  const listenTurnRef = useRef<() => void>(() => {});
 
   const voiceEngine = detectVoiceEngine();
   const voiceSupported = voiceEngine !== "none";
@@ -176,6 +227,10 @@ export default function AIAssistant() {
 
   const userName =
     user?.user_metadata?.name || user?.email?.split("@")[0] || "Traveler";
+  // Spoken greetings use a real first name only; an email prefix read aloud
+  // ("hi, a-k-dot-ninety-one") sounds broken.
+  const firstName =
+    (user?.user_metadata?.name as string | undefined)?.trim().split(/\s+/)[0] || null;
 
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
@@ -183,11 +238,20 @@ export default function AIAssistant() {
 
   useEffect(() => { preloadVoices(); }, []);
 
-  // ── Wake-word listener ("hey jinny") ────────────────────────────────────
+  // ── Wake-word listener ("Hey Jinny") ────────────────────────────────────
+  // Runs in the background while the panel is closed. The wake phrase starts a
+  // hands-free call, and anything said straight after it ("Hey Jinny, what's
+  // the weather in Goa?") becomes the first request instead of being dropped.
+  //
+  // Why it used to stay silent: results under 0.25 confidence were skipped,
+  // but Android Chrome reports 0 for every final result; the phrase had to
+  // match one exact spelling ("hey, Jenny" or "Hey Jeannie" never did); and the
+  // mic only opened after a spoken greeting whose completion never fired when
+  // the browser blocked speech. See lib/wakeWord.ts and speakText().
   useEffect(() => {
     if (open) {
       wakeActiveRef.current = false;
-      try { wakeRecognitionRef.current?.stop(); } catch { /* ignore */ }
+      try { wakeRecognitionRef.current?.abort(); } catch { /* ignore */ }
       setWakeListening(false);
       return;
     }
@@ -198,24 +262,22 @@ export default function AIAssistant() {
     if (!SR) return;
 
     wakeActiveRef.current = true;
-
-    const WAKE_PATTERNS = [
-      "hey jinny", "hey jenny", "hey ginny", "hey genie",
-      "hi jinny", "hello jinny", "ok jinny", "okay jinny",
-      "oi jinny", "yo jinny", "jinny wake", "jinny open",
-      "jinny activate", "wake up jinny",
-    ];
-    const containsWakePhrase = (text: string): boolean => {
-      const t = text.toLowerCase().trim();
-      return WAKE_PATTERNS.some((p) => t.includes(p));
-    };
+    // Indian-English recognition hears "Jinny" far more reliably than en-US.
+    // Other English locales (en-GB, en-AU, …) are left as the browser has them.
+    const browserLang = navigator.language || "";
+    const wakeLang = /^en-/i.test(browserLang) && !/^en-US$/i.test(browserLang) ? browserLang : "en-IN";
 
     // The wake listener is a background listener: it must never compete with a
-    // mic the user started (Chrome aborts the older of two sessions, and this
-    // one used to restart and abort theirs). It stands down while any mic is
-    // claimed and resumes after release. See lib/micCoordinator.ts.
+    // mic the user started (Chrome aborts the older of two sessions). It stands
+    // down while any mic is claimed and resumes after release. See
+    // lib/micCoordinator.ts.
     let running = false;
+    let fired = false;
+    let blocked = false;
+    let failures = 0;
     let restartTimer: number | undefined;
+    let wakeTimer: number | undefined;
+
     const scheduleStart = (delay: number) => {
       window.clearTimeout(restartTimer);
       restartTimer = window.setTimeout(() => {
@@ -223,66 +285,98 @@ export default function AIAssistant() {
       }, delay);
     };
 
+    const fire = (transcript: string) => {
+      if (fired) return;
+      const match = matchWakePhrase(transcript);
+      if (!match) return;
+      fired = true;
+      window.clearTimeout(wakeTimer);
+      wakeActiveRef.current = false;
+      try { wakeRecognitionRef.current?.abort(); } catch { /* ignore */ }
+      setWakeListening(false);
+      beginCallRef.current({ firstUtterance: match.remainder || undefined });
+    };
+
+    // After a refused permission (or a browser that wants a gesture first),
+    // retry on the next tap or key press rather than giving up for good —
+    // unless the mic is denied outright, where retrying would only re-prompt.
+    const onGesture = () => {
+      window.removeEventListener("pointerdown", onGesture);
+      window.removeEventListener("keydown", onGesture);
+      if (!wakeActiveRef.current) return;
+      blocked = false;
+      failures = 0;
+      scheduleStart(0);
+    };
+    const armOnGesture = () => {
+      const listen = () => {
+        window.addEventListener("pointerdown", onGesture, { once: true });
+        window.addEventListener("keydown", onGesture, { once: true });
+      };
+      const permissions = (navigator as any).permissions;
+      if (!permissions?.query) { listen(); return; }
+      Promise.resolve(permissions.query({ name: "microphone" }))
+        .then((status: { state?: string }) => { if (status?.state !== "denied") listen(); })
+        .catch(listen);
+    };
+
     const start = () => {
-      if (!wakeActiveRef.current || running || isMicClaimed()) return;
+      if (!wakeActiveRef.current || running || blocked || fired) return;
+      if (isMicClaimed() || document.hidden) return;
 
       const recognition = new SR();
       recognition.continuous = true;
-      recognition.interimResults = false;
-      recognition.lang = "en-US";
+      recognition.interimResults = true;
+      recognition.lang = wakeLang;
       recognition.maxAlternatives = 3;
       wakeRecognitionRef.current = recognition;
 
       recognition.onstart = () => setWakeListening(true);
+      recognition.onresult = (event: any) => {
+        failures = 0;
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          let heard: string | null = null;
+          for (let a = 0; a < result.length; a++) {
+            const transcript = result[a]?.transcript ?? "";
+            if (matchWakePhrase(transcript)) { heard = transcript; break; }
+          }
+          if (!heard) continue;
+          if (result.isFinal) { fire(heard); return; }
+          // Still an interim result: give the user a moment to finish the
+          // sentence (Chrome finalises after a short pause), but don't depend
+          // on it — Safari can leave continuous results interim indefinitely.
+          const latest = heard;
+          window.clearTimeout(wakeTimer);
+          wakeTimer = window.setTimeout(() => fire(latest), 1400);
+        }
+      };
+      recognition.onerror = (e: any) => {
+        if (e.error === "not-allowed" || e.error === "service-not-allowed" || e.error === "audio-capture") {
+          blocked = true;
+        } else if (e.error === "network") {
+          failures += 1;
+        }
+      };
       recognition.onend = () => {
         running = false;
         setWakeListening(false);
-        if (wakeActiveRef.current && !isMicClaimed()) scheduleStart(500);
-      };
-      recognition.onerror = (e: any) => {
-        setWakeListening(false);
-        if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-          wakeActiveRef.current = false;
-        }
-      };
-      recognition.onresult = (event: any) => {
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          if (!event.results[i].isFinal) continue;
-          let detected = false;
-          for (let a = 0; a < event.results[i].length; a++) {
-            const alt = event.results[i][a];
-            if ((alt.confidence ?? 1) < 0.25) continue;
-            if (containsWakePhrase(alt.transcript)) { detected = true; break; }
-          }
-          if (!detected) continue;
-
-          wakeActiveRef.current = false;
-          try { recognition.stop(); } catch { /* ignore */ }
-          setOpen(true);
-          toast({
-            title: "🧡 Jinny activated!",
-            description: "Tap the mic to speak, or type your request.",
-          });
-          // Open the mic only after the greeting finishes, so it doesn't
-          // hear Jinny's own voice (or get cut off by startVoice's stopSpeaking)
-          const listen = () => {
-            if (!isListeningRef.current) {
-              window.dispatchEvent(new CustomEvent("jinny-start-voice"));
-            }
-          };
-          if (ttsEnabledRef.current) {
-            speakText("At your service. What can I do for you?", _ttsLang, listen);
-          } else {
-            window.setTimeout(listen, 900);
-          }
-          break;
-        }
+        if (fired || !wakeActiveRef.current) return;
+        if (blocked) { armOnGesture(); return; }
+        if (isMicClaimed()) return; // resumes on release
+        // Chrome ends continuous sessions every so often — restart quickly.
+        // Back off when sessions keep failing (offline, a blocked speech
+        // service) instead of retrying twice a second forever.
+        scheduleStart(failures > 0 ? Math.min(30_000, 1000 * 2 ** failures) : 300);
       };
 
       try {
         recognition.start();
         running = true;
-      } catch { /* ignore */ }
+      } catch {
+        failures += 1;
+        scheduleStart(Math.min(30_000, 1000 * 2 ** failures));
+      }
     };
 
     const unsubscribe = onMicClaimChange((claimed) => {
@@ -297,20 +391,36 @@ export default function AIAssistant() {
       }
     });
 
+    // Don't hold the mic for a background tab; pick up again when it's back.
+    const onVisibility = () => {
+      if (document.hidden) {
+        window.clearTimeout(restartTimer);
+        try { wakeRecognitionRef.current?.abort(); } catch { /* ignore */ }
+      } else {
+        scheduleStart(300);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     start();
 
     return () => {
       unsubscribe();
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pointerdown", onGesture);
+      window.removeEventListener("keydown", onGesture);
       window.clearTimeout(restartTimer);
+      window.clearTimeout(wakeTimer);
       wakeActiveRef.current = false;
-      try { wakeRecognitionRef.current?.stop(); } catch { /* ignore */ }
+      try { wakeRecognitionRef.current?.abort(); } catch { /* ignore */ }
       setWakeListening(false);
     };
-  }, [open, toast]);
+  }, [open]);
 
   // ── Cleanup when the panel closes ───────────────────────────────────────
   useEffect(() => {
     if (!open) {
+      endCallRef.current();
       if (isListeningRef.current) {
         isListeningRef.current = false;
         recordingRef.current?.abort();
@@ -833,7 +943,24 @@ export default function AIAssistant() {
 
       setMessages([...visibleHistory, userMsg]);
       setInput("");
+      // Set the ref now, not after the next render: the call loop checks it the
+      // moment speech finishes, which can be before React re-renders.
+      isLoadingRef.current = true;
       setIsLoading(true);
+
+      // On a call, speak each sentence as soon as it streams in rather than
+      // reading the whole reply out after it finishes.
+      const inCall = callActiveRef.current;
+      const speech = inCall
+        ? createSpeechStream(_ttsLang, {
+            onSpeak: (sentence) => {
+              setCallPhase("speaking");
+              setCallCaption(sentence);
+            },
+          })
+        : null;
+      speechStreamRef.current = speech;
+      if (inCall) setCallPhase("thinking");
 
       let assistantSoFar = "";
 
@@ -842,6 +969,7 @@ export default function AIAssistant() {
           allMessages,
           (chunk: string) => {
             assistantSoFar += chunk;
+            speech?.push(chunk);
             setMessages((prev) => {
               const last = prev[prev.length - 1];
               const assistantIndex = allMessages.length;
@@ -855,10 +983,14 @@ export default function AIAssistant() {
             });
           },
           userLang,
+          undefined,
+          { voice: inCall },
         );
 
         const actionResults = await handleAction(assistantSoFar, text);
         if (actionResults.length > 0) {
+          // Trips, budgets or itineraries may have just changed.
+          invalidatePersonalContext();
           const visibleActionText = "Working on that now…";
           setMessages((prev) => prev.map((message, index) =>
             index === allMessages.length ? { ...message, content: visibleActionText } : message,
@@ -871,7 +1003,8 @@ export default function AIAssistant() {
               role: "user" as const,
               content:
                 `[Tool results]\n${actionResults.join("\n\n")}\n\n` +
-                "Use these results to answer the user's original request. Summarize what succeeded or failed. Do not emit or repeat action blocks.",
+                "Use these results to answer the user's original request. Summarize what succeeded or failed. Do not emit or repeat action blocks." +
+                (inCall ? " You are speaking on the call: answer in one or two short spoken sentences." : ""),
             },
           ];
           let finalResponse = "";
@@ -880,6 +1013,7 @@ export default function AIAssistant() {
               followUpMessages,
               (chunk) => {
                 finalResponse += chunk;
+                speech?.push(chunk);
                 setMessages((prev) => {
                   const last = prev[prev.length - 1];
                   if (last?.role === "assistant" && !last.kind) {
@@ -892,6 +1026,7 @@ export default function AIAssistant() {
               },
               userLang,
               "GENERAL_CHAT",
+              { voice: inCall },
             );
           } catch (followUpError) {
             console.error("Tool-result summary failed:", followUpError);
@@ -908,14 +1043,19 @@ export default function AIAssistant() {
             }
             return [...prev, { role: "assistant", content: finalText }];
           });
-          if (ttsEnabledRef.current) speakText(finalText, _ttsLang);
+          if (speech) {
+            if (!finalResponse.trim()) speech.push(" The details are on screen.");
+          } else if (ttsEnabledRef.current) {
+            speakText(finalText, _ttsLang);
+          }
         } else if (containsActionBlock(assistantSoFar)) {
           const fallbackText = "I couldn't run the requested action. Please try again.";
           setMessages((prev) => prev.map((message, index) =>
             index === allMessages.length ? { ...message, content: fallbackText } : message,
           ));
-          if (ttsEnabledRef.current) speakText(fallbackText, _ttsLang);
-        } else if (ttsEnabledRef.current && assistantSoFar) {
+          if (speech) speech.push(" Hmm, I couldn't do that one. Want to try again?");
+          else if (ttsEnabledRef.current) speakText(fallbackText, _ttsLang);
+        } else if (!speech && ttsEnabledRef.current && assistantSoFar) {
           speakText(assistantSoFar, _ttsLang);
         }
       } catch (e: unknown) {
@@ -943,12 +1083,66 @@ export default function AIAssistant() {
           ]);
         }
         console.error(e);
+        if (speech) {
+          speech.push(
+            msg === "RATE_LIMIT"
+              ? " Sorry, I'm getting too many requests right now. Give me a few seconds and ask again."
+              : " Sorry, something went wrong on my end. Could you say that again?",
+          );
+        }
       } finally {
+        isLoadingRef.current = false;
         setIsLoading(false);
+        if (speech) {
+          speech.end();
+          // Jinny has finished talking (or was interrupted): the user's turn.
+          void speech.finished.then(() => {
+            if (speechStreamRef.current === speech) speechStreamRef.current = null;
+            if (callActiveRef.current) window.setTimeout(() => listenTurnRef.current(), 250);
+          });
+        }
       }
     },
     [handleAction, toast, userLang],
   );
+
+  // ── What to do with something the user said ─────────────────────────────
+  // On a call, a short "bye" / "that's all" hangs up like it would with a
+  // person, and silence gets a gentle check-in instead of an error toast.
+  const handleHeard = useCallback((transcript: string) => {
+    if (callActiveRef.current) {
+      silentTurnsRef.current = 0;
+      if (isHangUpPhrase(transcript)) {
+        const farewell = "Okay, talk soon! Have a great trip.";
+        setMessages((prev) => [
+          ...prev,
+          { role: "user", content: transcript },
+          { role: "assistant", content: farewell },
+        ]);
+        setInput("");
+        endCallRef.current(farewell);
+        return;
+      }
+    }
+    setInput(transcript);
+    void sendMessage(transcript);
+  }, [sendMessage]);
+
+  const onCallSilence = useCallback(() => {
+    if (!callActiveRef.current) return;
+    silentTurnsRef.current += 1;
+    if (silentTurnsRef.current >= 3) {
+      const farewell = "I'll let you go for now. Just say Hey Jinny whenever you need me.";
+      setMessages((prev) => [...prev, { role: "assistant", content: farewell }]);
+      endCallRef.current(farewell);
+    } else if (silentTurnsRef.current === 2) {
+      setCallPhase("speaking");
+      setCallCaption("Still there?");
+      speakText("Still there?", _ttsLang, () => listenTurnRef.current());
+    } else {
+      window.setTimeout(() => listenTurnRef.current(), 250);
+    }
+  }, []);
 
   // ── Stop voice recording ───────────────────────────────────────────────
   const stopVoice = useCallback(async () => {
@@ -974,10 +1168,10 @@ export default function AIAssistant() {
       pendingTranscriptRef.current = "";
       setInterimTranscript("");
       if (transcript) {
-        setInput(transcript);
-        sendMessage(transcript);
+        handleHeard(transcript);
       } else {
         setInput("");
+        onCallSilence();
       }
       return;
     }
@@ -990,16 +1184,18 @@ export default function AIAssistant() {
       const audioBlob = await handle.stop();
       const transcript = await transcribeWithGroq(audioBlob, userLang);
       if (transcript) {
-        setInput(transcript);
-        sendMessage(transcript);
+        handleHeard(transcript);
       } else {
         setInput("");
-        toast({ title: "No speech detected", description: "Please try again." });
+        if (callActiveRef.current) onCallSilence();
+        else toast({ title: "No speech detected", description: "Please try again." });
       }
     } catch (err: unknown) {
       setInput("");
       const msg = errorMessage(err) ?? "";
-      if (msg === "EMPTY_AUDIO") {
+      if (msg === "EMPTY_AUDIO" && callActiveRef.current) {
+        onCallSilence();
+      } else if (msg === "EMPTY_AUDIO") {
         toast({ title: "No speech detected", description: "Please try again." });
       } else if (msg === "RATE_LIMIT") {
         toast({ title: "Rate limited", description: "Please wait a moment.", variant: "destructive" });
@@ -1008,11 +1204,12 @@ export default function AIAssistant() {
       } else {
         toast({ title: "Transcription failed", description: "Could not understand audio. Please type instead.", variant: "destructive" });
       }
+      if (callActiveRef.current && msg !== "EMPTY_AUDIO") endCallRef.current();
     } finally {
       setIsTranscribing(false);
       setInterimTranscript("");
     }
-  }, [sendMessage, toast, userLang]);
+  }, [handleHeard, onCallSilence, toast, userLang]);
 
   // Lets the recognition engine's onEnd reach the latest stopVoice
   const stopVoiceRef = useRef(stopVoice);
@@ -1055,6 +1252,14 @@ export default function AIAssistant() {
           pendingTranscriptRef.current = "";
           setInput("");
           setInterimTranscript("");
+          // On a call, silence or a brief interruption is just a quiet turn.
+          if (callActiveRef.current && (err === "EMPTY_AUDIO" || err === "INTERRUPTED")) {
+            onCallSilence();
+            return;
+          }
+          // Anything else means the mic can't work right now; hang up cleanly
+          // rather than leaving a call that can't hear.
+          if (callActiveRef.current) endCallRef.current();
           if (err === "PERMISSION_DENIED") {
             toast({
               title: "Microphone blocked",
@@ -1096,6 +1301,7 @@ export default function AIAssistant() {
       isListeningRef.current = false;
       setIsListening(false);
       recordingRef.current = null;
+      if (callActiveRef.current) endCallRef.current();
       const msg = (errorMessage(err) ?? "").toLowerCase();
       if (
         msg.includes("not-allowed") ||
@@ -1109,20 +1315,125 @@ export default function AIAssistant() {
         toast({ title: "Microphone error", description: errorMessage(err) ?? "Please try again.", variant: "destructive" });
       }
     }
-  }, [stopVoice, toast, voiceSupported, userLang]);
+  }, [stopVoice, onCallSilence, toast, voiceSupported, userLang]);
 
-  // ── Auto-start voice when wake word fires ─────────────────────────────
+  // ── Voice call ───────────────────────────────────────────────────────
+  const startVoiceRef = useRef(startVoice);
+  useEffect(() => { startVoiceRef.current = startVoice; }, [startVoice]);
+
+  /** The user's turn: open the mic, unless muted or Jinny is mid-reply. */
+  const listenTurn = useCallback(() => {
+    if (!callActiveRef.current) return;
+    if (callMutedRef.current) { setCallPhase("muted"); return; }
+    if (isListeningRef.current || isLoadingRef.current || callListenStartingRef.current) return;
+    callListenStartingRef.current = true;
+    setCallPhase("listening");
+    setCallCaption("");
+    void startVoiceRef.current().finally(() => {
+      callListenStartingRef.current = false;
+    });
+  }, []);
+
+  const endCall = useCallback((farewell?: string) => {
+    if (!callActiveRef.current) return;
+    callActiveRef.current = false;
+    setCallActive(false);
+    setCallStartedAt(null);
+    setCallCaption("");
+    speechStreamRef.current?.cancel();
+    speechStreamRef.current = null;
+    if (isListeningRef.current) {
+      isListeningRef.current = false;
+      recordingRef.current?.abort();
+      recordingRef.current = null;
+      setIsListening(false);
+      setInterimTranscript("");
+      setInput("");
+    }
+    if (farewell) speakText(farewell, _ttsLang);
+    else stopSpeaking();
+  }, []);
+
+  const beginCall = useCallback((opts: { firstUtterance?: string } = {}) => {
+    if (callActiveRef.current) return;
+    setOpen(true);
+    if (!voiceSupported) {
+      toast({
+        title: "Voice calls aren't available here",
+        description: "This browser can't capture speech. Try Chrome, Edge or Safari, or type to Jinny.",
+        variant: "destructive",
+      });
+      return;
+    }
+    callActiveRef.current = true;
+    callMutedRef.current = false;
+    silentTurnsRef.current = 0;
+    setCallActive(true);
+    setCallMuted(false);
+    setCallStartedAt(Date.now());
+    setCallCaption("");
+
+    // "Hey Jinny, what's the weather in Goa?" — answer it straight away.
+    if (opts.firstUtterance) {
+      handleHeard(opts.firstUtterance);
+      return;
+    }
+    const greeting = callGreeting(firstName);
+    setCallPhase("speaking");
+    setCallCaption(greeting);
+    // speakText reports completion even when the browser refuses to speak,
+    // so the mic always opens after the greeting.
+    speakText(greeting, _ttsLang, () => listenTurnRef.current());
+  }, [firstName, handleHeard, toast, voiceSupported]);
+
+  /** Cut Jinny off mid-sentence, like talking over someone on a call. */
+  const interruptJinny = useCallback(() => {
+    if (!callActiveRef.current) return;
+    speechStreamRef.current?.cancel();
+    stopSpeaking();
+    // If a reply is still being generated, the turn passes back once it ends.
+    if (!isLoadingRef.current) listenTurnRef.current();
+  }, []);
+
+  const toggleCallMute = useCallback(() => {
+    const muted = !callMutedRef.current;
+    callMutedRef.current = muted;
+    setCallMuted(muted);
+    if (muted) {
+      if (isListeningRef.current) {
+        isListeningRef.current = false;
+        recordingRef.current?.abort();
+        recordingRef.current = null;
+        setIsListening(false);
+        setInterimTranscript("");
+        setInput("");
+      }
+      setCallPhase("muted");
+    } else {
+      listenTurnRef.current();
+    }
+  }, []);
+
+  useEffect(() => { beginCallRef.current = beginCall; }, [beginCall]);
+  useEffect(() => { endCallRef.current = endCall; }, [endCall]);
+  useEffect(() => { listenTurnRef.current = listenTurn; }, [listenTurn]);
+
+  // Call timer
   useEffect(() => {
-    const handler = () => {
-      if (open && !isListeningRef.current) startVoice();
-    };
-    window.addEventListener("jinny-start-voice", handler);
-    return () => window.removeEventListener("jinny-start-voice", handler);
-  }, [open, startVoice]);
+    if (!callActive) return;
+    const timer = window.setInterval(() => setCallClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [callActive]);
 
   // ── Jinny open event ──────────────────────────────────────────────────
+  // `{ detail: { call: true } }` comes from voice commands ("open Jinny"),
+  // which should continue hands-free rather than wait for a tap.
   useEffect(() => {
-    const handler = () => {
+    const handler = (event: Event) => {
+      if ((event as CustomEvent<{ call?: boolean }>).detail?.call) {
+        beginCallRef.current();
+        return;
+      }
       setOpen(true);
       if (ttsEnabledRef.current) speakJinny("At your service. How can I help?");
     };
@@ -1237,6 +1548,20 @@ export default function AIAssistant() {
               </div>
             </div>
             <div className="flex items-center gap-1">
+              {voiceSupported && (
+                <button
+                  onClick={() => (callActive ? endCall() : beginCall())}
+                  title={callActive ? "End voice call" : "Start a hands-free voice call"}
+                  aria-label={callActive ? "End voice call" : "Start voice call"}
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    callActive
+                      ? "text-destructive hover:bg-destructive/10"
+                      : "text-primary hover:bg-primary/10"
+                  }`}
+                >
+                  {callActive ? <PhoneOff className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
+                </button>
+              )}
               <button
                 onClick={() => {
                   setTtsEnabled((v) => {
@@ -1332,6 +1657,73 @@ export default function AIAssistant() {
             )}
           </div>
 
+          {callActive ? (
+            <div
+              className="px-4 pt-3 border-t border-border bg-primary/5 flex flex-col items-center gap-2"
+              style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}
+              aria-live="polite"
+            >
+              <button
+                type="button"
+                onClick={interruptJinny}
+                disabled={callPhase !== "speaking"}
+                aria-label={callPhase === "speaking" ? "Interrupt Jinny" : "Jinny"}
+                className="relative w-16 h-16 rounded-full disabled:cursor-default"
+              >
+                <span
+                  className={`absolute -inset-1.5 rounded-full ${
+                    callPhase === "listening"
+                      ? "bg-green-500/30 animate-ping"
+                      : callPhase === "speaking"
+                        ? "bg-primary/30 animate-pulse"
+                        : callPhase === "thinking" || callPhase === "connecting"
+                          ? "border-2 border-dashed border-primary/60 animate-spin"
+                          : "bg-muted"
+                  }`}
+                />
+                <img src={orangeBot} alt="" className="relative w-16 h-16 rounded-full object-cover" />
+              </button>
+              <div className="text-center min-h-[2.75rem] max-w-full">
+                <p className="text-xs font-semibold text-card-foreground">
+                  {CALL_PHASE_LABEL[callPhase]}
+                  {callStartedAt !== null && (
+                    <span className="ml-1.5 font-normal text-muted-foreground tabular-nums">
+                      {formatCallTime(callClock - callStartedAt)}
+                    </span>
+                  )}
+                </p>
+                <p className="text-[11px] text-muted-foreground line-clamp-2 px-2">
+                  {callPhase === "listening"
+                    ? interimTranscript || "Go ahead, I'm listening. Say “bye” to hang up."
+                    : callPhase === "muted"
+                      ? "Unmute to keep talking."
+                      : callCaption}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={toggleCallMute}
+                  aria-pressed={callMuted}
+                  aria-label={callMuted ? "Unmute microphone" : "Mute microphone"}
+                  className={`w-11 h-11 rounded-full flex items-center justify-center transition-colors ${
+                    callMuted ? "bg-destructive/10 text-destructive" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                  }`}
+                >
+                  {callMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => endCall()}
+                  aria-label="End call"
+                  className="h-11 px-5 rounded-full bg-destructive text-destructive-foreground flex items-center gap-2 text-sm font-semibold hover:opacity-90"
+                >
+                  <PhoneOff className="w-4 h-4" />
+                  End
+                </button>
+              </div>
+            </div>
+          ) : (
           <div
             className="p-3 border-t border-border"
             style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}
@@ -1361,7 +1753,7 @@ export default function AIAssistant() {
                       ? "Transcribing…"
                       : isListening
                         ? "Stop recording & send"
-                        : 'Start voice input (or say "Hey Jinny")'
+                        : 'Speak one message (or tap the phone for a hands-free call)'
                 }
                 className={`p-2 rounded-lg transition-colors ${
                   !voiceSupported || isTranscribing
@@ -1410,6 +1802,7 @@ export default function AIAssistant() {
               </button>
             </div>
           </div>
+          )}
         </div>
       )}
     </>

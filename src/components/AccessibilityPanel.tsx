@@ -789,9 +789,10 @@ export default function AccessibilityPanel() {
 
         // ── Open Jinny ────────────────────────────────────────────────────────
         case "open_jinny":
-          ttsSpeak("Opening Jinny, your AI travel assistant.");
-          window.dispatchEvent(new CustomEvent("jinny-open"));
-          setCmdFeedback("Opening Jinny AI…");
+          // A spoken command continues as a hands-free call; Jinny's own
+          // greeting confirms it opened, so no second announcement here.
+          window.dispatchEvent(new CustomEvent("jinny-open", { detail: { call: true } }));
+          setCmdFeedback("Calling Jinny…");
           break;
 
         // ── Open camera ───────────────────────────────────────────────────────

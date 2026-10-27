@@ -511,11 +511,22 @@ function pickVoice(
   const norm = (l: string) => l.replace("_", "-").toLowerCase();
   const target = norm(bcp47);
   const langPrefix = target.split("-")[0];
-  const quality = (v: SpeechSynthesisVoice) =>
-    /google|microsoft|siri|natural|premium|enhanced/i.test(v.name);
+  // Neural voices ("Microsoft Sonia Online (Natural)", Apple "Premium") sound
+  // like a person; the old flat OS voices are what make TTS sound robotic.
+  const score = (v: SpeechSynthesisVoice) =>
+    /natural|neural|online|premium|enhanced/i.test(v.name) ? 3
+      : /google|siri/i.test(v.name) ? 2
+        : /microsoft/i.test(v.name) ? 1
+          : 0;
+  const best = (list: SpeechSynthesisVoice[]) =>
+    list.reduce<SpeechSynthesisVoice | undefined>(
+      (top, v) => (!top || score(v) > score(top) ? v : top),
+      undefined,
+    );
+  const exact = voices.filter((v) => norm(v.lang) === target);
   return (
-    voices.find((v) => norm(v.lang) === target && quality(v)) ||
-    voices.find((v) => norm(v.lang) === target) ||
+    (exact.some((v) => score(v) > 0) ? best(exact) : undefined) ||
+    exact[0] ||
     voices.find((v) => norm(v.lang).startsWith(langPrefix)) ||
     (langPrefix === "en"
       ? voices.find(
@@ -544,23 +555,64 @@ function loadVoices(): Promise<SpeechSynthesisVoice[]> {
   });
 }
 
+function resolveBcp47(lang: string): string {
+  return LANG_TO_BCP47[lang] ?? (lang.includes("-") ? lang : "en-GB");
+}
+
+/** Generous upper bound on how long a chunk takes to say, for watchdogs. */
+function speechBudgetMs(text: string): number {
+  return 2500 + text.length * 95;
+}
+
+function configureUtterance(utter: SpeechSynthesisUtterance, voice: SpeechSynthesisVoice | undefined, bcp47: string) {
+  utter.lang = voice?.lang ?? bcp47;
+  if (voice) utter.voice = voice;
+  utter.rate = 1.03;
+  utter.pitch = 1;
+  utter.volume = 1;
+}
+
 /**
  * Speak text aloud with the browser's SpeechSynthesis API. `onEnd` fires
- * once the whole text has been spoken (not if it is interrupted).
+ * once speaking is over — when the text finishes, when there was nothing to
+ * say, or when the browser refuses or drops it — but not when a newer call or
+ * stopSpeaking() interrupts it.
+ *
+ * Callers chain the next step (opening the mic after the "Hey Jinny"
+ * greeting) on `onEnd`. Chrome rejects speech that is not preceded by a user
+ * gesture, which a wake word is not; that error used to swallow `onEnd`, so the
+ * assistant opened and then never listened.
  */
 export function speakText(text: string, lang = "en", onEnd?: () => void): void {
-  if (typeof window === "undefined" || !window.speechSynthesis) return;
+  const token = ++speakToken;
+  let finished = false;
+  let watchdog: number | undefined;
+  const finish = () => {
+    if (finished || token !== speakToken) return;
+    finished = true;
+    window.clearTimeout(watchdog);
+    heldUtterances.length = 0;
+    onEnd?.();
+  };
+
+  if (typeof window === "undefined" || !window.speechSynthesis) {
+    if (onEnd) setTimeout(onEnd, 0);
+    return;
+  }
   const synth = window.speechSynthesis;
+  cancelActiveStream();
 
   const plain = toSpeakableText(text).slice(0, MAX_SPOKEN_CHARS);
-  if (!plain) return;
+  if (!plain) {
+    window.setTimeout(finish, 0);
+    return;
+  }
 
-  const token = ++speakToken;
   const wasBusy = synth.speaking || synth.pending;
   synth.cancel();
   heldUtterances.length = 0;
 
-  const bcp47 = LANG_TO_BCP47[lang] ?? (lang.includes("-") ? lang : "en-GB");
+  const bcp47 = resolveBcp47(lang);
 
   void loadVoices().then((voices) => {
     if (token !== speakToken) return; // superseded by a newer call / stop
@@ -569,21 +621,19 @@ export function speakText(text: string, lang = "en", onEnd?: () => void): void {
 
     const utterances = chunks.map((chunk, i) => {
       const utter = new SpeechSynthesisUtterance(chunk);
-      utter.lang = voice?.lang ?? bcp47;
-      if (voice) utter.voice = voice;
-      utter.rate = 1.0;
-      utter.pitch = 0.95;
-      utter.volume = 1;
-      if (i === chunks.length - 1) {
-        utter.onend = () => {
-          if (token !== speakToken) return;
-          heldUtterances.length = 0;
-          onEnd?.();
-        };
-      }
+      configureUtterance(utter, voice, bcp47);
+      if (i === chunks.length - 1) utter.onend = finish;
+      // "interrupted"/"canceled" mean someone stopped us on purpose; anything
+      // else ("not-allowed", "synthesis-failed") means nothing will be said.
+      utter.onerror = (event: SpeechSynthesisErrorEvent) => {
+        if (event?.error === "interrupted" || event?.error === "canceled") return;
+        finish();
+      };
       return utter;
     });
     heldUtterances.splice(0, heldUtterances.length, ...utterances);
+    // Some engines never fire onend at all — don't leave the caller waiting.
+    watchdog = window.setTimeout(finish, speechBudgetMs(plain));
 
     const enqueue = () => {
       if (token !== speakToken) return;
@@ -597,10 +647,155 @@ export function speakText(text: string, lang = "en", onEnd?: () => void): void {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Streaming speech — talk while the reply is still being written
+// ─────────────────────────────────────────────────────────────────────────────
+// Waiting for a whole reply before saying anything leaves several seconds of
+// dead air per turn, which is what makes a voice assistant feel like a form
+// rather than a conversation. A speech stream is fed the model's tokens as
+// they arrive and speaks each sentence as soon as it is complete. JSON action
+// blocks are never spoken, including while they are still half-written.
+
+export interface SpeechStream {
+  /** Append newly streamed text. */
+  push: (delta: string) => void;
+  /** No more text is coming; speak whatever is left. */
+  end: () => void;
+  /** Stop speaking now and drop anything queued. */
+  cancel: () => void;
+  /** Resolves once everything has been spoken, or on cancel. */
+  readonly finished: Promise<void>;
+  /** True once anything has actually been handed to the speech engine. */
+  readonly spoke: boolean;
+}
+
+let activeStream: SpeechStream | null = null;
+
+function cancelActiveStream() {
+  const stream = activeStream;
+  activeStream = null;
+  stream?.cancel();
+}
+
+/** Text with complete ```fences``` removed and cut at an unclosed one. */
+function speakablePrefix(raw: string): string {
+  const withoutBlocks = raw.replace(/```[\s\S]*?```/g, " ");
+  const open = withoutBlocks.indexOf("```");
+  // A lone trailing "`" or "``" may be the start of a fence still arriving.
+  const cut = open >= 0 ? withoutBlocks.slice(0, open) : withoutBlocks.replace(/`{1,2}$/, "");
+  return cut;
+}
+
+/** Index just past the last sentence end in `text`, or 0 when there is none. */
+function lastSentenceBoundary(text: string): number {
+  let boundary = 0;
+  const re = /[.!?…。！？](?=\s)|\n/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) boundary = m.index + m[0].length;
+  return boundary;
+}
+
+export function createSpeechStream(
+  lang = "en",
+  hooks: { onSpeak?: (sentence: string) => void } = {},
+): SpeechStream {
+  stopSpeaking();
+  const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
+  const bcp47 = resolveBcp47(lang);
+  const voiceReady = synth ? loadVoices().then((voices) => pickVoice(voices, bcp47)) : Promise.resolve(undefined);
+
+  let raw = "";
+  let consumed = 0;
+  let ended = false;
+  let cancelled = false;
+  let outstanding = 0;
+  let spoke = false;
+  let resolveFinished: () => void = () => {};
+  const finished = new Promise<void>((resolve) => { resolveFinished = resolve; });
+  const held: SpeechSynthesisUtterance[] = [];
+  const timers = new Set<number>();
+
+  const settle = () => {
+    if (cancelled || (ended && outstanding === 0)) {
+      timers.forEach((t) => window.clearTimeout(t));
+      timers.clear();
+      if (activeStream === stream) activeStream = null;
+      resolveFinished();
+    }
+  };
+
+  const say = (text: string) => {
+    const plain = toSpeakableText(text);
+    if (!plain || !synth) return;
+    for (const chunk of chunkForSpeech(plain)) {
+      outstanding++;
+      let done = false;
+      const complete = () => {
+        if (done) return;
+        done = true;
+        outstanding = Math.max(0, outstanding - 1);
+        settle();
+      };
+      void voiceReady.then((voice) => {
+        if (cancelled) { complete(); return; }
+        const utter = new SpeechSynthesisUtterance(chunk);
+        configureUtterance(utter, voice, bcp47);
+        utter.onstart = () => hooks.onSpeak?.(chunk);
+        utter.onend = complete;
+        utter.onerror = complete;
+        held.push(utter);
+        if (synth.paused) synth.resume();
+        synth.speak(utter);
+        spoke = true;
+        // Covers engines that drop onend; queued time is included because
+        // utterances wait behind each other.
+        const timer = window.setTimeout(complete, speechBudgetMs(chunk) * Math.max(1, outstanding));
+        timers.add(timer);
+      });
+    }
+  };
+
+  const drain = (final: boolean) => {
+    if (cancelled) return;
+    const clean = speakablePrefix(raw);
+    const rest = clean.slice(consumed);
+    const cut = final ? rest.length : lastSentenceBoundary(rest);
+    if (cut <= 0) return;
+    consumed += cut;
+    say(rest.slice(0, cut));
+  };
+
+  const stream: SpeechStream = {
+    push(delta) {
+      if (cancelled || ended || !delta) return;
+      raw += delta;
+      drain(false);
+    },
+    end() {
+      if (cancelled || ended) return;
+      drain(true);
+      ended = true;
+      settle();
+    },
+    cancel() {
+      if (cancelled) return;
+      cancelled = true;
+      held.length = 0;
+      synth?.cancel();
+      settle();
+    },
+    finished,
+    get spoke() { return spoke; },
+  };
+  activeStream = stream;
+  return stream;
+}
+
 /** Stop any ongoing speech synthesis. */
 export function stopSpeaking(): void {
   speakToken++;
   heldUtterances.length = 0;
+  cancelActiveStream();
   if (typeof window !== "undefined" && window.speechSynthesis)
     window.speechSynthesis.cancel();
 }

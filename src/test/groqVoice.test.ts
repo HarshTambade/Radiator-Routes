@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isMicClaimed, onMicClaimChange, claimMic } from "@/lib/micCoordinator";
 import {
+  createSpeechStream,
   speakText,
   startGroqRecording,
   stopSpeaking,
@@ -202,11 +203,127 @@ describe("speakText", () => {
     expect(onEnd).toHaveBeenCalledTimes(1);
   });
 
+  it("still reports completion when the browser refuses to speak", async () => {
+    // Chrome rejects speech without a prior user gesture — exactly the case
+    // after a "Hey Jinny" wake word. The mic must open anyway.
+    const synth = window.speechSynthesis as unknown as { speak: ReturnType<typeof vi.fn> };
+    synth.speak.mockImplementation((u: { onerror?: (e: { error: string }) => void }) => {
+      u.onerror?.({ error: "not-allowed" });
+    });
+    const onEnd = vi.fn();
+    speakText("At your service.", "en", onEnd);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports completion when there is nothing to say", async () => {
+    vi.useFakeTimers();
+    const onEnd = vi.fn();
+    speakText("```json\n{}\n```", "en", onEnd);
+    vi.runAllTimers();
+    vi.useRealTimers();
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+
   it("does not speak after stopSpeaking cancels a pending call", async () => {
     speakText("Hello there.", "en");
     stopSpeaking();
     await Promise.resolve();
     await Promise.resolve();
+    expect(spoken).toEqual([]);
+  });
+});
+
+describe("createSpeechStream", () => {
+  let spoken: string[];
+  beforeEach(() => {
+    spoken = [];
+    vi.stubGlobal(
+      "SpeechSynthesisUtterance",
+      class {
+        text: string;
+        lang = "";
+        voice: unknown = null;
+        rate = 1;
+        pitch = 1;
+        volume = 1;
+        onend: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        onstart: (() => void) | null = null;
+        constructor(text: string) {
+          this.text = text;
+        }
+      },
+    );
+    Object.defineProperty(window, "speechSynthesis", {
+      configurable: true,
+      value: {
+        speaking: false,
+        pending: false,
+        paused: false,
+        cancel: vi.fn(),
+        resume: vi.fn(),
+        getVoices: () => [{ name: "Google UK English", lang: "en-GB" }],
+        speak: vi.fn((u: { text: string; onstart: (() => void) | null; onend: (() => void) | null }) => {
+          spoken.push(u.text);
+          u.onstart?.();
+          u.onend?.();
+        }),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const flush = async () => {
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+  };
+
+  it("speaks each sentence as it completes and never reads action JSON", async () => {
+    const onSpeak = vi.fn();
+    const stream = createSpeechStream("en", { onSpeak });
+
+    stream.push("Sure, let me check");
+    await flush();
+    expect(spoken).toEqual([]);
+
+    stream.push(" the weather. ```json\n{\"action\":\"check_");
+    await flush();
+    expect(spoken).toEqual(["Sure, let me check the weather."]);
+
+    stream.push("weather\"}\n``` It's sunny in Goa");
+    stream.push(" today");
+    await flush();
+    expect(spoken).toHaveLength(1);
+
+    stream.end();
+    await flush();
+    await stream.finished;
+    expect(spoken).toEqual(["Sure, let me check the weather.", "It's sunny in Goa today"]);
+    expect(spoken.join(" ")).not.toMatch(/action|[{}`]/);
+    expect(onSpeak).toHaveBeenCalledTimes(2);
+    expect(stream.spoke).toBe(true);
+  });
+
+  it("finishes immediately when cancelled and ignores later text", async () => {
+    const stream = createSpeechStream("en");
+    stream.cancel();
+    stream.push("Too late. ");
+    stream.end();
+    await flush();
+    await stream.finished;
+    expect(spoken).toEqual([]);
+  });
+
+  it("finishes even when nothing speakable was streamed", async () => {
+    const stream = createSpeechStream("en");
+    stream.push('```json\n{"action":"navigate_to"}\n```');
+    stream.end();
+    await stream.finished;
     expect(spoken).toEqual([]);
   });
 });

@@ -718,7 +718,33 @@ Jinny: "Stay calm. I'm here. Emergency numbers: Police 100 · Ambulance 108 · W
 // Load user + trip context from Supabase
 // ─────────────────────────────────────────────────────────────────────────────
 
+// The context below costs several database round trips. On a voice call that
+// is dead air before every single reply, so it is reused for a short window
+// and dropped whenever an action may have changed it (invalidatePersonalContext).
+const PERSONAL_CONTEXT_TTL_MS = 45_000;
+let personalContextCache: { userId: string; at: number; value: Promise<string> } | null = null;
+
+/** Forget the cached user context, e.g. after a trip was created or changed. */
+export function invalidatePersonalContext(): void {
+  personalContextCache = null;
+}
+
 async function loadPersonalContext(): Promise<string> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const userId = session?.user?.id;
+  if (!userId) return "";
+  const cached = personalContextCache;
+  if (cached && cached.userId === userId && Date.now() - cached.at < PERSONAL_CONTEXT_TTL_MS) {
+    return cached.value;
+  }
+  const value = fetchPersonalContext();
+  personalContextCache = { userId, at: Date.now(), value };
+  return value;
+}
+
+async function fetchPersonalContext(): Promise<string> {
   try {
     const {
       data: { session },
@@ -951,10 +977,24 @@ async function groqFetch(
 // Build the full system prompt with intent hint + user context
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Appended when the user is talking to Jinny out loud. Chat replies are written
+// to be read — markdown, lists, several options — and read aloud they sound
+// like a recorded announcement. This asks for what a person says on a call.
+const VOICE_CALL_PROMPT = `## VOICE CALL MODE — this overrides the response format above
+You are on a live voice call with the user. Everything you write outside JSON action blocks is spoken aloud by text-to-speech, straight away.
+- Talk like a friendly, switched-on person on the phone: warm, relaxed, natural contractions ("I'll", "you're", "that's"). A quick natural reaction is good ("Ooh, Goa in December, nice.", "Got it.", "Sure, one sec.").
+- Keep each reply to one to three short sentences, about 40 words at most. Give the single most useful thing and offer more ("Want the rest of the week too?") rather than listing everything.
+- Never use markdown, bullet points, headings, tables, emoji, links, IDs or code in spoken text. Write numbers the way people say them: "about forty thousand rupees", "around two hours", "the 15th of August".
+- Ask at most one short question, and only when you need the answer or it moves the plan forward.
+- Before an action, say one short natural line ("Let me check the forecast."), then emit the JSON action block. Action blocks are never spoken.
+- When summarising tool results, say the one or two things that matter and offer details if they want them.
+- If you didn't understand, say so briefly and ask them to repeat, like a person would.`;
+
 async function buildSystemPrompt(
   lastUserMessage: string,
   userLang = "en",
   intentOverride?: Intent,
+  voice = false,
 ): Promise<string> {
   const personalCtx = await loadPersonalContext();
   const intent = intentOverride ?? classifyIntent(lastUserMessage);
@@ -966,7 +1006,8 @@ async function buildSystemPrompt(
       ? `\n\n## LANGUAGE INSTRUCTION\nThe user's interface language is set to "${userLang}". You MUST respond entirely in that language (use its native script where applicable). Keep all JSON action blocks in English — only translate your conversational text.`
       : "";
 
-  return `${BASE_SYSTEM_PROMPT}${langNote}\n\n## DETECTED INTENT\n${intentHint}${personalCtx}`;
+  const voiceNote = voice ? `\n\n${VOICE_CALL_PROMPT}` : "";
+  return `${BASE_SYSTEM_PROMPT}${langNote}\n\n## DETECTED INTENT\n${intentHint}${personalCtx}${voiceNote}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1010,13 +1051,17 @@ export async function streamChatMessage(
   onChunk: (chunk: string) => void,
   userLang = "en",
   intentOverride?: Intent,
+  options: { voice?: boolean } = {},
 ): Promise<string> {
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   const systemPrompt = await buildSystemPrompt(
     lastUser?.content ?? "",
     userLang,
     intentOverride,
+    options.voice,
   );
+  // A little more variety on calls, so Jinny doesn't open every turn the same way.
+  const temperature = options.voice ? 0.6 : 0.3;
 
   if (shouldRunOnDevice()) {
     const { webllmStream } = await import("./webllm");
@@ -1027,12 +1072,12 @@ export async function streamChatMessage(
         content: m.content,
       })),
       onChunk,
-      0.3,
+      temperature,
       1024,
     );
   }
 
-  const res = await groqFetch(buildMessages(systemPrompt, messages), true);
+  const res = await groqFetch(buildMessages(systemPrompt, messages), true, temperature);
 
   if (!res.body) {
     const text = await sendChatMessage(messages, userLang);
