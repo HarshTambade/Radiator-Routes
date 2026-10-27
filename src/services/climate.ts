@@ -67,6 +67,8 @@ export interface WeatherForecast {
   lat: number;
   lon: number;
   timezone: string;
+  /** Destination offset from UTC in seconds, as resolved by Open-Meteo. */
+  utcOffsetSeconds: number;
   elevation: number;
   daily: DailyForecast[];
   hourly: HourlyForecast[];
@@ -181,6 +183,7 @@ export async function getWeatherForecast(params: {
     lat,
     lon,
     timezone: data.timezone ?? "UTC",
+    utcOffsetSeconds: offsetMs / 1000,
     elevation: data.elevation ?? 0,
     daily,
     hourly,

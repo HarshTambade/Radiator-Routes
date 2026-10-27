@@ -245,9 +245,13 @@ export default function Itinerary() {
         // Also fetch traffic
         setLoadingTraffic(true);
         try {
+          // The forecast already resolved the destination's time zone; rush
+          // hour is judged on that clock, not the device's.
           const tf = await fetchTrafficFlow({
             lat: coords.lat,
             lon: coords.lon,
+            utcOffsetSeconds: forecast.utcOffsetSeconds,
+            timezone: forecast.timezone,
           });
           setTrafficData(tf);
         } catch {
@@ -1259,7 +1263,7 @@ export default function Itinerary() {
             <Car className="w-4 h-4 text-primary shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-card-foreground">
-                Live Traffic · {trip.destination}
+                Estimated traffic · {trip.destination}
               </p>
               {loadingTraffic ? (
                 <p className="text-xs text-muted-foreground">
@@ -1269,6 +1273,9 @@ export default function Itinerary() {
                 <p className="text-xs text-muted-foreground">
                   {trafficLabel} · {trafficSpeed} km/h current (
                   {trafficFreeFlow} km/h free flow)
+                  {trafficFlow_.localTime && (
+                    <> · typical for {trafficFlow_.localTime} local time</>
+                  )}
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">

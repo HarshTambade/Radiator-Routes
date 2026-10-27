@@ -1,4 +1,4 @@
-# Radiator Routes: A Connectivity-Resilient, Constraint-Checked Group Travel Planner
+# Atlas AI: A Connectivity-Resilient, Constraint-Checked Group Travel Planner
 
 **Manuscript status:** Structured draft; not yet submitted  
 **Version:** 0.1  
@@ -18,7 +18,7 @@ below is a protocol, not a completed result.
 Group travel planning combines conflicting preferences, a shared budget, temporal and
 geospatial constraints, uncertain external data, and intermittent connectivity. Large
 language models can produce fluent itineraries, but syntactic validity does not imply
-physical feasibility. Radiator Routes is a browser-based progressive web application
+physical feasibility. Atlas AI is a browser-based progressive web application
 that explores a systems response to this problem.
 
 The system has three research-relevant mechanisms. First, it places a deterministic,
@@ -58,7 +58,7 @@ weekly market on its closed day, or declare a total that does not equal the list
 A JSON schema catches malformed structure; it cannot establish that a schedule is
 physically plausible.
 
-Radiator Routes investigates whether reliability can be improved by composing:
+Atlas AI investigates whether reliability can be improved by composing:
 
 1. natural-language itinerary generation;
 2. deterministic, typed semantic checks;
@@ -447,7 +447,7 @@ uses `npm` and declares its required Node engine in `package.json`.
 
 ## 9. Conclusion
 
-Radiator Routes is a credible artifact for studying reliability and resilience around
+Atlas AI is a credible artifact for studying reliability and resilience around
 language-model itinerary generation. Its strongest research value is the explicit
 separation between a fluent proposal and a verified plan, combined with a browser-local
 execution path. Its strongest current limitation is the absence of outcome measurements.

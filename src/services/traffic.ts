@@ -32,11 +32,68 @@ function congestionByHour(hour: number): { level: number; label: string; emoji: 
   return { level: 0.95, label: "Free flow", emoji: "🟢" };
 }
 
-/** Estimate current traffic near a point. */
+// ── Destination local time ───────────────────────────────────────────────────
+// Rush hour is local to the road, not to the person looking at the app. The
+// estimate used the device clock, so planning a Goa trip from London at 9 AM
+// reported Goa's morning rush during its 1:30 PM lull.
+
+interface DestinationClock {
+  utcOffsetSeconds: number;
+  timezone: string | null;
+}
+
+const clockCache = new Map<string, Promise<DestinationClock>>();
+
+/**
+ * The destination's UTC offset from Open-Meteo (keyless, already used for
+ * forecasts), which resolves the IANA zone for a coordinate including DST.
+ * Falls back to a longitude estimate when offline.
+ */
+function destinationClock(lat: number, lon: number): Promise<DestinationClock> {
+  const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+  const cached = clockCache.get(key);
+  if (cached) return cached;
+
+  const request = (async (): Promise<DestinationClock> => {
+    try {
+      const res = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&timezone=auto&forecast_days=1`,
+      );
+      if (res.ok) {
+        const data = (await res.json()) as { utc_offset_seconds?: unknown; timezone?: unknown };
+        if (typeof data.utc_offset_seconds === "number" && Number.isFinite(data.utc_offset_seconds)) {
+          return {
+            utcOffsetSeconds: data.utc_offset_seconds,
+            timezone: typeof data.timezone === "string" ? data.timezone : null,
+          };
+        }
+      }
+    } catch {
+      // Offline or blocked — use the longitude estimate below.
+    }
+    clockCache.delete(key);
+    return { utcOffsetSeconds: Math.round(lon / 15) * 3600, timezone: null };
+  })();
+
+  clockCache.set(key, request);
+  return request;
+}
+
+/** Hour (0–23) and "HH:MM" wall-clock time at a UTC offset. */
+export function localTimeAt(utcOffsetSeconds: number, now = new Date()): { hour: number; time: string } {
+  const local = new Date(now.getTime() + utcOffsetSeconds * 1000);
+  return { hour: local.getUTCHours(), time: local.toISOString().slice(11, 16) };
+}
+
+/** Estimate current traffic near a point, using the destination's local time. */
 export async function trafficFlow(params: {
   lat: number;
   lon: number;
   zoom?: number;
+  /** Destination UTC offset if the caller already has it (e.g. from a forecast). */
+  utcOffsetSeconds?: number;
+  /** IANA zone matching `utcOffsetSeconds`, for display. */
+  timezone?: string;
 }): Promise<{
   flowSegmentData: {
     currentSpeed: number;
@@ -45,14 +102,21 @@ export async function trafficFlow(params: {
     congestion: string;
     emoji: string;
     estimated: boolean;
+    /** Destination wall-clock time the estimate is based on, "HH:MM". */
+    localTime: string;
+    /** IANA zone, when it could be resolved. */
+    timezone: string | null;
   };
 }> {
   const { lat, lon } = params;
   if (lat === undefined || lon === undefined)
     throw new Error("lat and lon are required");
 
-  const now = new Date();
-  const { level, label, emoji } = congestionByHour(now.getHours());
+  const clock = typeof params.utcOffsetSeconds === "number" && Number.isFinite(params.utcOffsetSeconds)
+    ? { utcOffsetSeconds: params.utcOffsetSeconds, timezone: params.timezone ?? null }
+    : await destinationClock(lat, lon);
+  const { hour, time } = localTimeAt(clock.utcOffsetSeconds);
+  const { level, label, emoji } = congestionByHour(hour);
 
   // Rough free-flow speed guesses: urban ~50 km/h, rural/coastal ~70 km/h
   const isUrban = Math.abs(lat) < 60; // crude proxy — always true in practice
@@ -67,6 +131,8 @@ export async function trafficFlow(params: {
       congestion: label,
       emoji,
       estimated: true,
+      localTime: time,
+      timezone: clock.timezone,
     },
   };
 }

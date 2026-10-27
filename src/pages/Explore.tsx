@@ -23,7 +23,6 @@ import { getExactPlacePhoto, type DestinationPhoto } from "@/services/destinatio
 import {
   amadeusFlightOffers,
   amadeusHotelList,
-  amadeusCitySearch,
 } from "@/services/amadeus";
 import WorldMap from "@/components/WorldMap";
 import AddToTripButton from "@/components/AddToTripButton";
@@ -374,7 +373,7 @@ export default function Explore() {
     }
   };
 
-  // ── Hotels search (Amadeus) ───────────────────────────────────────────────
+  // ── Hotels search (OpenStreetMap via OpenTripMap) ───────────────────────────────────────────────
   const handleHotelSearch = async () => {
     if (!hotelCity.trim()) {
       toast({
@@ -388,20 +387,22 @@ export default function Explore() {
     setHotelSearched(true);
     setHotelResults([]);
     try {
-      const cityData = await amadeusCitySearch({
-        keyword: hotelCity.trim(),
-        subType: "CITY",
+      // Search by the city as typed. Converting it to an airport code first
+      // sent "Manali" to Kullu and unlisted cities to their first 3 letters.
+      const hotelData = await amadeusHotelList({
+        cityCode: "",
+        cityName: hotelCity.trim(),
+        radius: 5,
+        checkInDate: hotelCheckIn || undefined,
+        checkOutDate: hotelCheckOut || undefined,
+        adults: hotelAdults,
       });
-      const cities = (cityData as any)?.data || [];
-      const cityCode =
-        cities[0]?.iataCode || hotelCity.trim().slice(0, 3).toUpperCase();
-      const hotelData = await amadeusHotelList({ cityCode, radius: 5 });
-      const hotels = (hotelData as any)?.data || [];
-      setHotelResults(hotels.slice(0, 20));
+      const hotels = hotelData.data;
+      setHotelResults(hotels);
       if (hotels.length === 0)
         toast({
-          title: "No hotels found",
-          description: "Try a different city name or IATA code.",
+          title: "No places to stay found",
+          description: "OpenStreetMap has no listed accommodation within 5 km. Try a nearby city.",
         });
     } catch (err: unknown) {
       toast({
@@ -1208,7 +1209,7 @@ export default function Explore() {
           <div className="bg-card rounded-2xl p-4 md:p-5 shadow-card mb-4 shrink-0">
             <h3 className="font-semibold text-card-foreground mb-3 md:mb-4 flex items-center gap-2">
               <Hotel className="w-4 h-4 text-primary" />
-              Search Hotels (Amadeus)
+              Search Hotels
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 mb-4">
               <div className="col-span-2">
@@ -1292,7 +1293,10 @@ export default function Explore() {
           {hotelResults.length > 0 && (
             <div className="space-y-3">
               <p className="text-sm font-semibold text-muted-foreground">
-                {hotelResults.length} hotels found near {hotelCity}
+                {hotelResults.length} places to stay near {hotelCity}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Listings from OpenStreetMap. Prices, ratings and availability come from the booking site.
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {hotelResults.map((hotel: any, i: number) => (
@@ -1354,11 +1358,21 @@ export default function Explore() {
                         )}
                       </div>
                     </div>
-                    <div className="mt-3 pt-3 border-t border-border">
+                    <div className="mt-3 pt-3 border-t border-border flex flex-wrap items-center gap-2">
+                      {hotel.bookingLinks?.booking && (
+                        <a
+                          href={hotel.bookingLinks.booking}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-medium text-primary hover:underline"
+                        >
+                          Check prices on Booking.com ↗
+                        </a>
+                      )}
                       <AddToTripButton
                         activity={{
                           name: hotel.name || "Hotel",
-                          description: `${hotel.rating ? hotel.rating + "-star hotel" : "Hotel"} in ${hotel.address?.cityName || hotelCity}`,
+                          description: `${hotel.rating ? hotel.rating + "-star hotel" : "Place to stay"} in ${hotel.address?.cityName || hotelCity}`,
                           location_name: hotel.address?.cityName || hotelCity,
                           category: "accommodation",
                         }}

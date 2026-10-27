@@ -1,4 +1,4 @@
-# Radiator Routes — Feature & Patch Backlog
+# Atlas AI — Feature & Patch Backlog
 
 **Date:** 31 August 2026 (pass 2)
 **Baseline commit:** `1f377a2` → this pass

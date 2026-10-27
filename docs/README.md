@@ -1,8 +1,7 @@
-# Radiator Routes Documentation
+# Atlas AI Documentation
 
 This directory contains the technical, research, operational, and intellectual-property
-documentation for **Radiator Routes** (also referred to as **Atlas AI** in earlier
-documents and interface copy).
+documentation for **Atlas AI**.
 
 The documents deliberately separate:
 
@@ -69,9 +68,7 @@ accordingly in papers, demonstrations, grant applications, and patent discussion
 
 ## Naming and versioning
 
-The repository name and current product name are **Radiator Routes**. Some historical
-documents use **Atlas AI** because that was an earlier product name. Unless a document
-explicitly describes historical work, “Radiator Routes” is the preferred name.
+The product name throughout this documentation is **Atlas AI**.
 
 Each publication draft should record:
 

@@ -1,4 +1,4 @@
-# Radiator Routes — Research & Patent Dossier
+# Atlas AI — Research & Patent Dossier
 
 > This dossier contains historical prior-art analysis and should be read with the
 > structured manuscript in [`RESEARCH_PAPER.md`](./RESEARCH_PAPER.md) and the

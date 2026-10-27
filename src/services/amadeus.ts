@@ -286,58 +286,78 @@ export async function amadeusFlightOffers(params: {
 
 // ── Hotels ───────────────────────────────────────────────────────────────────
 
-const HOTEL_NAMES = [
-  "Grand Palace Hotel",
-  "Heritage Boutique Stay",
-  "City Central Inn",
-  "Riverside Resort",
-  "Executive Suites",
-  "The Traveller's Rest",
-  "Sunrise Beach Hotel",
-  "Metro Boulevard Hotel",
-] as const;
+// OpenTripMap's top-level category for hotels, hostels, guest houses and
+// similar OpenStreetMap places.
+const ACCOMMODATION_KINDS = "accomodations";
 
+/**
+ * Real, named places to stay near a city, nearest to the centre first.
+ *
+ * This used to return eight invented hotels ("Grand Palace Hotel — Goa") with
+ * made-up star ratings and distances. Results now come from OpenStreetMap via
+ * the OpenTripMap proxy, and each one links to a booking search for that exact
+ * property. No star rating is given: the source has none, and inventing one is
+ * worse than leaving it out.
+ */
 export async function amadeusHotelList(params: {
   cityCode: string;
+  /** The city as the user typed it. Preferred over decoding `cityCode`. */
+  cityName?: string;
+  /** Search radius in kilometres. Default 5. */
   radius?: number;
   radiusUnit?: string;
   ratings?: string;
+  checkInDate?: string;
+  checkOutDate?: string;
+  adults?: number;
 }): Promise<Envelope<FreeHotelResult>> {
-  const { cityCode } = params;
-  if (!cityCode) throw new Error("cityCode is required");
+  const { cityCode, radius = 5, checkInDate, checkOutDate, adults = 1 } = params;
+  if (!cityCode && !params.cityName?.trim()) throw new Error("cityCode is required");
 
-  const cityName = iataToCity(cityCode);
+  // Round-tripping a typed city through an IATA code lost it: "Manali" became
+  // Kullu's airport, and an unlisted city became its first three letters.
+  const cityName = params.cityName?.trim() || iataToCity(cityCode);
 
-  let geo: { latitude: number; longitude: number } | undefined;
-  try {
-    const found = await nominatimSearch(cityName, 1);
-    if (found?.[0]) {
-      geo = {
-        latitude: parseFloat(found[0].lat),
-        longitude: parseFloat(found[0].lon),
-      };
-    }
-  } catch {
-    // Deep-links still work without coordinates.
-  }
+  const found = await nominatimSearch(cityName, 1);
+  const centre = found?.[0];
+  if (!centre) throw new Error(`Could not locate "${cityName}". Try a nearby city name.`);
+  const latitude = parseFloat(centre.lat);
+  const longitude = parseFloat(centre.lon);
+  const countryCode = centre.address?.country_code?.toUpperCase();
+  const displayCity = titleCase(cityName);
 
-  const links = hotelLinks(cityName);
-
-  const hotels: FreeHotelResult[] = HOTEL_NAMES.map((name, i) => {
-    const s = seed(`${cityCode}${i}`);
-    return {
-      hotelId: `H-${cityCode.toUpperCase()}-${i + 1}`,
-      name: `${name} — ${titleCase(cityName)}`,
-      address: { cityName: titleCase(cityName) },
-      rating: 3 + (s % 3),
-      distance: {
-        value: Math.round((0.3 + (s % 45) / 10) * 10) / 10,
-        unit: "KM" as const,
-      },
-      geoCode: geo,
-      bookingLinks: links,
-    };
+  const radiusMetres = Math.round(Math.min(Math.max(radius, 1), 50) * 1000);
+  const places = await otmRadius({
+    lat: latitude,
+    lon: longitude,
+    radius: radiusMetres,
+    kinds: ACCOMMODATION_KINDS,
+    limit: 50,
   });
+
+  const seen = new Set<string>();
+  const hotels = (Array.isArray(places) ? places : [])
+    .filter((place) => place?.name?.trim() && place.xid)
+    .filter((place) => {
+      const key = place.name.trim().toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => (a.dist ?? Infinity) - (b.dist ?? Infinity))
+    .slice(0, 20)
+    .map((place): FreeHotelResult => ({
+      hotelId: place.xid,
+      name: place.name.trim(),
+      address: { cityName: displayCity, ...(countryCode ? { countryCode } : {}) },
+      ...(typeof place.dist === "number"
+        ? { distance: { value: Math.round(place.dist / 100) / 10, unit: "KM" as const } }
+        : {}),
+      ...(place.point
+        ? { geoCode: { latitude: place.point.lat, longitude: place.point.lon } }
+        : {}),
+      bookingLinks: hotelLinks(`${place.name.trim()}, ${displayCity}`, checkInDate, checkOutDate, adults),
+    }));
 
   return wrap(hotels);
 }

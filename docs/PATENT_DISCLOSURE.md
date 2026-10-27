@@ -1,4 +1,4 @@
-# Radiator Routes — Invention Disclosure and Patent-Preparation Brief
+# Atlas AI — Invention Disclosure and Patent-Preparation Brief
 
 **Status:** Technical disclosure draft; not a patent application  
 **Version:** 0.1  
@@ -315,7 +315,7 @@ Create and retain, outside the public repository where appropriate:
 
 ## 12. Bottom line
 
-Radiator Routes contains a defensible engineering story and several research questions.
+Atlas AI contains a defensible engineering story and several research questions.
 It does not, by itself, establish patentability. The most responsible next action is
 to freeze a reproducible implementation, run the evaluation in
 [`RESEARCH_PAPER.md`](./RESEARCH_PAPER.md), and take the resulting technical record to a

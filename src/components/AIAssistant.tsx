@@ -595,26 +595,25 @@ export default function AIAssistant() {
               `🏨 Searching hotels in ${action.cityCode ?? action.destination}…`,
             );
             try {
-              const data: any = await amadeusHotelList({
-                cityCode: action.cityCode ?? action.destination,
+              const data = await amadeusHotelList({
+                cityCode: action.cityCode ?? "",
+                cityName: action.destination,
                 radius: 5,
+                checkInDate: action.checkInDate,
+                checkOutDate: action.checkOutDate,
+                adults: action.adults,
               });
-              const hotels = data?.data ?? [];
+              const hotels = data.data;
+              const place = data.data[0]?.address.cityName ?? action.destination ?? action.cityCode;
               if (!hotels.length) {
-                injectToolResult("🏨 No hotels found for that location.");
+                injectToolResult("🏨 OpenStreetMap lists no places to stay within 5 km of that location.");
               } else {
-                let result = `🏨 **Hotels in ${action.cityCode ?? action.destination}** (${hotels.length} found)\n\n`;
+                let result = `🏨 **Places to stay in ${place}** (${hotels.length} found, from OpenStreetMap)\n\n`;
                 for (const h of hotels.slice(0, 8)) {
-                  const rating = h.rating ? `⭐ ${h.rating}` : "";
-                  const dist = h.distance?.value != null ? `📍 ${h.distance.value} ${h.distance.unit}` : "";
-                  result += `• **${h.name}** ${rating} ${dist}\n`;
+                  const dist = h.distance?.value != null ? ` · 📍 ${h.distance.value} km from centre` : "";
+                  result += `• **${h.name}**${dist} — [prices on Booking.com](${h.bookingLinks.booking})\n`;
                 }
-                if (hotels[0]?.bookingLinks) {
-                  result += `\n_Live availability & prices:_\n`;
-                  result += `• [Booking.com](${hotels[0].bookingLinks.booking})\n`;
-                  result += `• [Agoda](${hotels[0].bookingLinks.agoda})\n`;
-                  result += `• [Hostelworld](${hotels[0].bookingLinks.hostelworld})\n`;
-                }
+                result += `\n_Ratings, prices and availability come from the booking site._\n`;
                 injectToolResult(result);
               }
             } catch (e: unknown) {
@@ -655,6 +654,9 @@ export default function AIAssistant() {
               if (f) {
                 result += `- **Current Speed:** ${f.currentSpeed} km/h (free-flow: ${f.freeFlowSpeed} km/h)\n`;
                 result += `- **Congestion:** ${f.emoji} ${f.congestion}\n`;
+                if (f.localTime) {
+                  result += `- **Local time:** ${f.localTime}${f.timezone ? ` (${f.timezone})` : ""}\n`;
+                }
                 result += `- **Confidence:** ${((f.confidence ?? 0) * 100).toFixed(0)}%\n`;
                 if (f.estimated) {
                   result += `\n_Estimate based on time-of-day patterns — live traffic requires a paid feed._\n`;

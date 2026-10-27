@@ -1,7 +1,6 @@
-# Radiator Routes Platform API
+# Atlas AI Platform API
 
-> The API was implemented while the product used the historical “Atlas AI” name.
-> Existing endpoint paths and database identifiers are unchanged for compatibility.
+Existing endpoint paths and database identifiers are unchanged for compatibility.
 
 Version **1.0.0** · Updated **2026-10-24**
 
@@ -115,7 +114,7 @@ sequenceDiagram
 ### Database setup
 
 For a new, empty database, apply [`supabase/master_schema.sql`](../supabase/master_schema.sql)
-once, then deploy the functions. For an already initialized Atlas project,
+once, then deploy the functions. For an already initialized Atlas AI project,
 apply the additive platform API migration:
 [`supabase/migrations/20261024000001_platform_api.sql`](../supabase/migrations/20261024000001_platform_api.sql).
 The API migration adds `integration_api_keys`,
@@ -183,7 +182,7 @@ export ATLAS_API_BASE="$ATLAS_FUNCTION_URL/v1"
 
 ### Verify the deployment
 
-The health endpoint and OpenAPI document do not require an Atlas API key, but
+The health endpoint and OpenAPI document do not require an Atlas AI API key, but
 the Supabase gateway still requires the project `apikey` header.
 
 ```sh
@@ -244,13 +243,13 @@ Send both of these headers to REST and MCP data endpoints:
 | Header | Value | Purpose |
 |---|---|---|
 | `apikey` | Supabase publishable/anon project key | Passes the Supabase Edge Function gateway |
-| `x-api-key` | Atlas `rr_live_…` key | Identifies the account and grants selected scopes |
+| `x-api-key` | Atlas AI `rr_live_…` key | Identifies the account and grants selected scopes |
 
-As an alternative to `x-api-key`, the Atlas key can be sent as
-`Authorization: Bearer rr_live_…`. Do not put the Atlas key in a URL or query
+As an alternative to `x-api-key`, the Atlas AI key can be sent as
+`Authorization: Bearer rr_live_…`. Do not put the Atlas AI key in a URL or query
 string. Do not send `SUPABASE_SERVICE_ROLE_KEY` to any client.
 
-Public `health` and OpenAPI routes do not require an Atlas key, but still need
+Public `health` and OpenAPI routes do not require an Atlas AI key, but still need
 the Supabase gateway `apikey`. The key-management UI uses a Supabase user
 access token, not an `rr_live_…` API key.
 
@@ -498,7 +497,7 @@ Configure a remote **Streamable HTTP** MCP server with:
 |---|---|
 | URL | `https://<project-ref>.supabase.co/functions/v1/platform-api/mcp` |
 | Header | `apikey: <project publishable/anon key>` |
-| Header | `x-api-key: <Atlas rr_live key>` |
+| Header | `x-api-key: <Atlas AI rr_live key>` |
 | Transport | Streamable HTTP over HTTPS |
 
 Create a key with only the scopes needed for that AI client. Some MCP clients
@@ -678,7 +677,7 @@ Run the [deployment checks](#verify-the-deployment). Confirm health returns
 
 ### 2. Check authentication and scopes
 
-Try a data endpoint with no Atlas key and expect `401`. Then use a valid key
+Try a data endpoint with no Atlas AI key and expect `401`. Then use a valid key
 without `trips:read` and expect `403` with `insufficient_scope`. Finally call
 `GET /trips` with a key containing `trips:read` and expect `200`. These checks
 confirm that gateway access and application-level authorization both work.
@@ -742,7 +741,7 @@ deploy the current `platform-api` function and rerun the health check.
   browser bundle, public repository, URL, analytics event, screenshot, or
   client-side MCP configuration shared with untrusted users.
 - The Supabase publishable/anon `apikey` is designed for client routing; the
-  Atlas `rr_live_…` credential is the scoped secret. Neither one is the
+  Atlas AI `rr_live_…` credential is the scoped secret. Neither one is the
   service-role key.
 - Keep `SUPABASE_SERVICE_ROLE_KEY` and `HF_API_KEY` in Edge Function secrets.
   The platform function uses service-role access internally and enforces the
@@ -758,7 +757,7 @@ deploy the current `platform-api` function and rerun the health check.
   payment handling, and refunds are outside this API's current contract.
 - Enable production email confirmation and secure account recovery in Supabase
   Auth. Rotate any unrelated provider credentials that may have been exposed
-  in repository history; they are separate from the hashed Atlas API key store.
+  in repository history; they are separate from the hashed Atlas AI API key store.
 - The Edge Function currently allows cross-origin requests. CORS is a browser
   transport rule, not access control; API keys and server-side ownership checks
   remain required for data endpoints.

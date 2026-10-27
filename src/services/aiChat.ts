@@ -509,7 +509,7 @@ function buildIntentHint(intent: Intent, rawText: string): string {
     }
 
     case "SEARCH_HOTELS":
-      return `[INTENT: SEARCH_HOTELS] — User wants hotels${dest ? ` in ${dest} (IATA: ${cityToIATA(dest)})` : ""}. Check-in: ${date ?? "not specified"}. Passengers: ${pax}. Emit search_hotels action immediately.`;
+      return `[INTENT: SEARCH_HOTELS] — User wants hotels${dest ? ` in ${dest} (IATA: ${cityToIATA(dest)})` : ""}. Check-in: ${date ?? "not specified"}. Passengers: ${pax}. Emit search_hotels action immediately, with "destination" set to the city name.`;
 
     case "CHECK_WEATHER":
       return `[INTENT: CHECK_WEATHER] — User wants weather${dest ? ` for ${dest}` : " for their current/upcoming destination"}. Emit check_weather action immediately. Do not ask for confirmation.`;
@@ -609,7 +609,7 @@ This opens the trip and starts itinerary generation. Do not say the plan is comp
 
 ### Search hotels
 \`\`\`json
-{"action":"search_hotels","cityCode":"GOI","checkInDate":"2025-08-15","checkOutDate":"2025-08-18","adults":1}
+{"action":"search_hotels","destination":"Goa","cityCode":"GOI","checkInDate":"2025-08-15","checkOutDate":"2025-08-18","adults":1}
 \`\`\`
 
 ### Check weather

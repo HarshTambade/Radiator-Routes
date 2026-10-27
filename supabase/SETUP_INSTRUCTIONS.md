@@ -21,7 +21,7 @@ Every step is done through the Supabase web dashboard unless explicitly noted.
 2. From your dashboard click **"New project"** (or open the existing project
    `dfvyuqxyjlkoovxmtikq` if it already exists).
 3. Fill in:
-   - **Project name:** `radiator-routes`
+   - **Project name:** `Atlas AI`
    - **Database password:** choose a strong password and save it somewhere safe
    - **Region:** pick the closest to your users (e.g. `ap-south-1` for India)
 4. Click **"Create new project"** and wait ~2 minutes for provisioning.
