@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback, lazy, Suspense } from "react";
+import { useState, useRef, useCallback, useEffect, lazy, Suspense } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useLanguage } from "@/hooks/useLanguage";
 import {
   Search,
@@ -298,6 +299,23 @@ export default function Explore() {
     },
     [searchQuery, activeFilter, toast],
   );
+
+  // /explore?q=Goa opens with results already loaded — how Jinny runs an
+  // Explore search for you, and handy for shared links too.
+  const [searchParams] = useSearchParams();
+  const [autoSearchPending, setAutoSearchPending] = useState(false);
+  useEffect(() => {
+    const q = searchParams.get("q")?.trim();
+    if (!q) return;
+    setSearchMode("places");
+    setSearchQuery(q);
+    setAutoSearchPending(true);
+  }, [searchParams]);
+  useEffect(() => {
+    if (!autoSearchPending || !searchQuery.trim()) return;
+    setAutoSearchPending(false);
+    void handleSearch();
+  }, [autoSearchPending, searchQuery, handleSearch]);
 
   const handleFilterChange = (filter: string) => {
     setActiveFilter(filter);

@@ -48,6 +48,7 @@ export type Intent =
   | "CURRENCY"
   | "PACKING"
   | "VISA"
+  | "APP_CONTROL"
   | "GENERAL_CHAT";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -80,6 +81,31 @@ const INTENT_PATTERNS: Array<{ intent: Intent; patterns: RegExp[] }> = [
       /\b(go\s*to|open|show\s*me|take\s*me\s*to|navigate\s*to|switch\s*to|launch|visit|jump\s*to)\b.*(dashboard|home\s*page?|itinerary|my\s*trips?|trips?|explore|friends|profile|guide|community|settings|planner)/i,
       /\b(dashboard|go\s*home|open\s*home|my\s*home)\b/i,
       /\b(back\s*to\s*(home|dashboard)|main\s*(page|screen))\b/i,
+    ],
+  },
+
+  // ── Operate the app ───────────────────────────────────────────────────────
+  // Commands that change something or drive the screen. Checked before the
+  // budget, cancel and share intents, whose hints would otherwise steer
+  // "add a 500 rupee lunch" toward a budget summary and "delete my Goa trip"
+  // toward merely opening the trips page.
+  {
+    intent: "APP_CONTROL",
+    patterns: [
+      /\b(click|tap|press|hit|scroll|type|fill\s*in|submit|go\s*back|sign\s*out|log\s*out|tick|untick|toggle|mute|unmute|enable|disable|turn\s*(on|off))\b/i,
+      /\b(add|log|record|note|put)\b.{0,40}\b(expense|spent|paid|bill)\b/i,
+      // "I paid 1200 for the cab" — an amount follows, unlike "how much have I spent?"
+      /\b(i|we)\s+(just\s+)?(spent|paid)\s+(?:₹|rs\.?\s*|inr\s*|\$|€|£|\d)/i,
+      /\b(delete|remove|drop|cancel)\b.{0,40}\b(expense|trip|activity|from\s+(my|the)\s+(plan|itinerary))\b/i,
+      /\b(add|put|schedule|move)\b.{0,60}\b(day\s*\d+|itinerary|my\s+plan|to\s+(my|the)\s+trip)\b/i,
+      /\b(rename|change|update|set|edit|increase|decrease|raise|lower)\b.{0,40}\b(trip|budget|dates?|trip\s+name|preferences?|pace|language)\b/i,
+      /\b(message|text|dm)\s+[a-z]+/i,
+      /\b(send|post)\b.{0,20}\b(message|text)\b|\btell\s+the\s+group\b/i,
+      /\b(invite|add)\b.{0,40}\bto\s+(my|the|our)\b.{0,20}\btrip\b|\binvite\s+link\b/i,
+      /\b(accept|reject|decline)\b.{0,30}\b(friend|request)\b|\bfriend\s*request\b/i,
+      /\b(join|leave)\b.{0,30}\bcommunit/i,
+      /\b(export|download)\b.{0,20}\b(pdf|itinerary)\b|\bsave\b.{0,30}\boffline\b/i,
+      /\b(switch|change)\s+(the\s+)?language\b|\bspeak\s+(in\s+)?(hindi|english|tamil|telugu|marathi|bengali|gujarati|kannada|malayalam|punjabi|french|spanish|german)\b/i,
     ],
   },
 
@@ -523,20 +549,23 @@ function buildIntentHint(intent: Intent, rawText: string): string {
     case "OPEN_MAPS":
       return `[INTENT: OPEN_MAPS] — User wants to open maps navigation${dest ? ` to ${dest}` : ""}. Emit open_maps action immediately.`;
 
+    case "APP_CONTROL":
+      return `[INTENT: APP_CONTROL] — The user wants you to operate the app for them. Use the matching typed action if one exists (add_expense, add_activity, update_trip, delete_trip, create_invite_link, send_trip_message, set_language, …). Otherwise drive the CURRENT SCREEN with ui_click / ui_fill / ui_scroll, navigating first if the control is on another page. Just emit the action — the app itself asks the user to confirm anything destructive.`;
+
     case "BUDGET_ANALYSIS":
-      return `[INTENT: BUDGET_ANALYSIS] — User wants budget or expense info. Answer only with the figures given under "Budget" in USER CONTEXT — never estimate, round differently or invent spent/remaining amounts. Emit budget_alert with the trip_id; the app shows the computed numbers itself. If no trip exists, navigate to /itinerary.`;
+      return `[INTENT: BUDGET_ANALYSIS] — User wants budget or expense info. If they are logging something they spent, emit add_expense instead. Answer only with the figures given under "Budget" in USER CONTEXT — never estimate, round differently or invent spent/remaining amounts. Emit budget_alert with the trip_id; the app shows the computed numbers itself. If no trip exists, navigate to /itinerary.`;
 
     case "EXPLORE":
-      return `[INTENT: EXPLORE] — User wants to discover places${dest ? ` in ${dest}` : ""}. Emit navigate_to /explore OR explore_search action.`;
+      return `[INTENT: EXPLORE] — User wants to discover places${dest ? ` in ${dest}` : ""}. Emit explore_search with the place as "query" — it opens Explore with results already loaded.`;
 
     case "GUIDE":
-      return `[INTENT: GUIDE] — User wants a travel guide${dest ? ` for ${dest}` : ""}. Emit guide_search or navigate_to /guide action immediately.`;
+      return `[INTENT: GUIDE] — User wants a travel guide${dest ? ` for ${dest}` : ""}. Emit guide_search with the destination — it opens the guide and generates it.`;
 
     case "CANCEL_TRIP":
-      return `[INTENT: CANCEL_TRIP] — User wants to cancel/delete a trip. Navigate to /itinerary so they can manage their trips. Confirm intent gently.`;
+      return `[INTENT: CANCEL_TRIP] — User wants to cancel/delete a trip. Emit delete_trip with its trip_id; the app asks them to confirm before anything is deleted.`;
 
     case "SHARE_TRIP":
-      return `[INTENT: SHARE_TRIP] — User wants to share trip or invite companions. Navigate to /friends and explain the collaborative planning feature.`;
+      return `[INTENT: SHARE_TRIP] — User wants to share a trip or invite companions. Emit create_invite_link for a shareable link, or add_friend_to_trip for an existing friend.`;
 
     case "CURRENCY":
       return `[INTENT: CURRENCY] — User wants currency/exchange rate info. Answer from your knowledge with approximate rates. Recommend checking a live converter for exact figures.`;
@@ -568,14 +597,17 @@ const BASE_SYSTEM_PROMPT = `You are Jinny — the AI travel assistant embedded i
 - If a detail is missing, ask exactly ONE short clarifying question.
 - Be candid when a data source or action is unavailable. Never claim an action ran unless its tool result confirms it.
 
-## PAGES YOU CONTROL
-- /dashboard — trip overview, quick stats
-- /itinerary — trip list; /itinerary/:tripId — day-by-day planner
-- /explore — discover places (OpenTripMap)
+## YOU CAN OPERATE THE WHOLE APP
+The user can run everything by talking to you. Pages:
+- /dashboard — trip overview and stats
+- /itinerary — trip list; /itinerary/:tripId — day-by-day planner, Trip Money (budget, expenses), group chat, votes, PDF export, offline save, disruption and regret planners
+- /explore — places, flights, hotels and restaurants
 - /guide — AI destination guides
-- /friends — travel companions, DMs, invites
-- /community — travel communities
-- /profile — user preferences, travel history
+- /friends — friends, requests, direct messages, trip invites and join requests
+- /community — communities, events and RSVPs
+- /profile — profile details, travel preferences, AI engine settings
+- /integrations — platform API keys and MCP setup
+Use a typed action when one fits. For anything else, look at CURRENT SCREEN and use the screen actions to click, type, select and scroll exactly as the user would — navigate first if the control lives on another page. One request may take several steps: after each step you see the updated screen and can continue.
 
 ## RESPONSE FORMAT
 1. One short sentence in Jinny's voice acknowledging the request.
@@ -660,6 +692,50 @@ Do not put amounts in budget_alert — the app calculates planned, spent and rem
 \`\`\`
 This returns static general guidance matched to the destination. It is not live incident reporting or an official risk rating.
 
+### Trip data actions
+Every trip action takes "trip_id" (from USER CONTEXT) or "trip_name" ("Goa"); leave both out to use the trip open on screen or the next upcoming one.
+\`\`\`json
+{"action":"add_expense","trip_name":"Goa","title":"Dinner at Thalassa","amount":2400,"category":"food"}
+\`\`\`
+category: food | transport | activity | accommodation | shopping | general. Paid by the user, split equally across the trip's members.
+\`\`\`json
+{"action":"list_expenses","trip_name":"Goa"}
+{"action":"delete_expense","trip_name":"Goa","title":"Dinner at Thalassa"}
+{"action":"add_activity","trip_name":"Goa","name":"Sunset at Chapora Fort","day":2,"start_time":"17:30","duration_minutes":90,"location_name":"Chapora Fort, Goa","category":"attraction","cost":0}
+{"action":"remove_activity","trip_name":"Goa","name":"Chapora Fort"}
+{"action":"update_trip","trip_name":"Goa","budget":50000,"start_date":"2026-12-20","end_date":"2026-12-24","name":"Goa Christmas"}
+{"action":"delete_trip","trip_name":"Goa"}
+{"action":"create_invite_link","trip_name":"Goa"}
+{"action":"add_friend_to_trip","friend_name":"Priya","trip_name":"Goa"}
+{"action":"send_trip_message","trip_name":"Goa","text":"Landing at 6, see you at the hotel!"}
+\`\`\`
+add_activity takes "day" (1 = first trip day) or "date" (YYYY-MM-DD). Each block above is a separate action — emit one fenced block per action.
+
+### People, communities and settings
+\`\`\`json
+{"action":"send_direct_message","to":"Priya","text":"Are you free in December?"}
+{"action":"send_friend_request","name":"Rahul Mehta"}
+{"action":"respond_friend_request","name":"Rahul","accept":true}
+{"action":"join_community","name":"Backpackers India"}
+{"action":"leave_community","name":"Backpackers India"}
+{"action":"update_preferences","pace":"relaxed","likes":["food","attraction"],"dislikes":["shopping"],"budget_ceiling":30000}
+{"action":"set_language","code":"hi"}
+{"action":"sign_out"}
+\`\`\`
+pace: relaxed | moderate | packed. likes/dislikes: food, attraction, entertainment, shopping, other. set_language codes: en, hi, bn, te, mr, ta, gu, kn, ml, pa, ur, or, fr, es, de, pt, ar, ja, zh, ko, ru, it.
+
+### Screen actions — operate whatever is on screen
+\`\`\`json
+{"action":"ui_click","target":"j12"}
+{"action":"ui_fill","target":"j4","value":"Jaipur","submit":true}
+{"action":"ui_scroll","direction":"down"}
+{"action":"go_back"}
+\`\`\`
+"target" is an id from CURRENT SCREEN. ui_fill sets text inputs, dates (YYYY-MM-DD), selects (option label) and checkboxes ("true"/"false"); "submit": true presses Enter afterwards. Ids change every turn — only use ids from the latest CURRENT SCREEN. Never invent an id. Never try to fill a password.
+
+### Confirmation
+Deleting, sending, inviting, signing out, payments and SOS are confirmed by the app. When a result says CONFIRMATION NEEDED, ask the user that exact question in one short sentence and stop — don't emit any action. Their "yes" or "no" is handled by the app.
+
 ## STRICT RULES
 1. Use REAL IATA codes — never guess. DEL=Delhi, BOM=Mumbai, BLR=Bangalore, MAA=Chennai, CCU=Kolkata, HYD=Hyderabad, GOI=Goa, PNQ=Pune, AMD=Ahmedabad, JAI=Jaipur, COK=Kochi, LKO=Lucknow, VNS=Varanasi, ATQ=Amritsar, SXR=Srinagar, IXL=Leh, UDR=Udaipur, SIN=Singapore, DXB=Dubai, LHR=London, CDG=Paris, JFK=New York, NRT=Tokyo, SYD=Sydney.
 2. Never fabricate flight prices, hotel rates, or weather data — always emit the action to fetch live data.
@@ -668,6 +744,8 @@ This returns static general guidance matched to the destination. It is not live 
 5. For SOS: respond calmly — Police 100, Ambulance 108, Women 1091, Fire 101.
 6. When weather is requested or needed to assess a requested outdoor activity, fetch forecast data and state its date range.
 7. Traffic results may be estimated; report the source and never describe a time-of-day estimate as live traffic.
+8. Never say you did something in the app unless a tool result confirms it. If a step failed, say what happened and offer the next best step.
+9. Never repeat an action that already succeeded in this request.
 
 ## EXAMPLES
 
@@ -995,6 +1073,7 @@ async function buildSystemPrompt(
   userLang = "en",
   intentOverride?: Intent,
   voice = false,
+  screen?: string,
 ): Promise<string> {
   const personalCtx = await loadPersonalContext();
   const intent = intentOverride ?? classifyIntent(lastUserMessage);
@@ -1007,7 +1086,12 @@ async function buildSystemPrompt(
       : "";
 
   const voiceNote = voice ? `\n\n${VOICE_CALL_PROMPT}` : "";
-  return `${BASE_SYSTEM_PROMPT}${langNote}\n\n## DETECTED INTENT\n${intentHint}${personalCtx}${voiceNote}`;
+  // On-device models have a 4k context; keep the screen to its top part there.
+  const screenText = screen && shouldRunOnDevice() ? screen.slice(0, 1500) : screen;
+  const screenNote = screenText
+    ? `\n\n## CURRENT SCREEN\nWhat the user sees right now. Element ids are valid for this turn only.\n${screenText}`
+    : "";
+  return `${BASE_SYSTEM_PROMPT}${langNote}\n\n## DETECTED INTENT\n${intentHint}${personalCtx}${screenNote}${voiceNote}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1051,7 +1135,7 @@ export async function streamChatMessage(
   onChunk: (chunk: string) => void,
   userLang = "en",
   intentOverride?: Intent,
-  options: { voice?: boolean } = {},
+  options: { voice?: boolean; screen?: string } = {},
 ): Promise<string> {
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   const systemPrompt = await buildSystemPrompt(
@@ -1059,6 +1143,7 @@ export async function streamChatMessage(
     userLang,
     intentOverride,
     options.voice,
+    options.screen,
   );
   // A little more variety on calls, so Jinny doesn't open every turn the same way.
   const temperature = options.voice ? 0.6 : 0.3;

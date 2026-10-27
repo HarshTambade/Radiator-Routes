@@ -8,7 +8,8 @@ import {
   X,
   IndianRupee,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/hooks/useLanguage";
 import { planItinerary } from "@/services/aiPlanner";
@@ -79,6 +80,23 @@ export default function Guide() {
       setLoading(false);
     }
   };
+
+  // /guide?q=Rajasthan opens and generates straight away (used by Jinny).
+  const [searchParams] = useSearchParams();
+  const handleSearchRef = useRef(handleSearch);
+  handleSearchRef.current = handleSearch;
+  const [autoSearchPending, setAutoSearchPending] = useState(false);
+  useEffect(() => {
+    const q = searchParams.get("q")?.trim();
+    if (!q) return;
+    setSearchQuery(q);
+    setAutoSearchPending(true);
+  }, [searchParams]);
+  useEffect(() => {
+    if (!autoSearchPending || !searchQuery.trim()) return;
+    setAutoSearchPending(false);
+    void handleSearchRef.current();
+  }, [autoSearchPending, searchQuery]);
 
   return (
     <div className="p-4 md:p-6">

@@ -57,6 +57,22 @@ import { formatLocalDate, parseLocalDate } from "@/lib/date";
 import { toAmount } from "@/lib/budget";
 import { isMicClaimed, onMicClaimChange } from "@/lib/micCoordinator";
 import { isHangUpPhrase, matchWakePhrase } from "@/lib/wakeWord";
+import {
+  clickElement,
+  elementNeedsConfirmation,
+  fillElement,
+  resolveElement,
+  scrollScreen,
+  snapshotScreen,
+} from "@/lib/jinnyScreen";
+import {
+  ActionError,
+  JINNY_ACTIONS,
+  isAffirmative,
+  isNegative,
+  type JinnyActionContext,
+} from "@/services/jinnyActions";
+import { useLanguage } from "@/hooks/useLanguage";
 import { formatMoney, normalizeCurrencyCode } from "@/lib/currency";
 import { loadTripBudgets } from "@/services/tripBudget";
 import {
@@ -133,6 +149,17 @@ let _ttsLang = "en";
 function speakJinny(text: string) {
   speakText(text, _ttsLang);
 }
+
+// ── Operating the app ───────────────────────────────────────────────────────
+/** Upper bound on chained steps for one request, so a confused loop ends. */
+const MAX_AGENT_STEPS = 6;
+
+const AGENT_FOLLOW_UP =
+  "Continue the user's original request using these results. If it needs another step — for example the screen " +
+  "changed and you now need to click, fill or navigate — emit the next action block(s), using ids from the new " +
+  "CURRENT SCREEN only. Never repeat an action that already succeeded. If a result says CONFIRMATION NEEDED, ask " +
+  "that question in one short sentence and emit no action. When the request is complete, briefly say what was " +
+  "done (or what went wrong), with no action blocks.";
 
 // ── Voice call ──────────────────────────────────────────────────────────────
 type CallPhase = "connecting" | "listening" | "thinking" | "speaking" | "muted";
@@ -213,8 +240,11 @@ export default function AIAssistant() {
   const actionResultsRef = useRef<string[]>([]);
   // Set by the voice handle so the web-speech path can hand transcript back
   const pendingTranscriptRef = useRef<string>("");
+  // An action waiting for the user's yes/no (delete, send, sign out, …).
+  const pendingConfirmationRef = useRef<{ question: string; run: () => Promise<string> } | null>(null);
 
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
+  const { setLang, languages } = useLanguage();
   const { toast } = useToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -482,10 +512,99 @@ export default function AIAssistant() {
       const jsonMatches = [...content.matchAll(/```json\s*([\s\S]*?)```/g)];
       if (!jsonMatches.length) return [];
 
+      // One object per fence is the format, but models sometimes put several
+      // objects on separate lines of one fence; accept that too.
+      const actions: any[] = [];
       for (const match of jsonMatches) {
+        const body = match[1].trim();
         try {
-          const action = JSON.parse(match[1]);
-          const act: string = action.action ?? "";
+          const parsed = JSON.parse(body);
+          actions.push(...(Array.isArray(parsed) ? parsed : [parsed]));
+        } catch {
+          for (const line of body.split("\n")) {
+            try {
+              const parsed = JSON.parse(line.trim());
+              if (parsed?.action) actions.push(parsed);
+            } catch { /* not an action line */ }
+          }
+        }
+      }
+
+      const actionCtx: JinnyActionContext = {
+        userId: user?.id ?? null,
+        currentTripId: window.location.pathname.match(/^\/itinerary\/([0-9a-f-]{36})/i)?.[1] ?? null,
+        origin: window.location.origin,
+        invalidate: (queryKey) => { void queryClient.invalidateQueries({ queryKey }); },
+        navigate: (path) => navigate(path),
+      };
+
+      // Destructive or outward actions wait for the user's yes (see sendMessage).
+      const requestConfirmation = (question: string, run: () => Promise<string>) => {
+        pendingConfirmationRef.current = { question, run };
+        injectToolResult(`⏸️ CONFIRMATION NEEDED — ${question} (waiting for yes or no)`);
+      };
+
+      for (const action of actions) {
+        try {
+          const act: string = action?.action ?? "";
+
+          // ── Typed app actions (services/jinnyActions.ts) ──
+          const typed = JINNY_ACTIONS[act];
+          if (typed) {
+            const question = typed.confirm ? await typed.confirm(action, actionCtx) : null;
+            if (question) requestConfirmation(question, () => typed.run(action, actionCtx));
+            else injectToolResult(await typed.run(action, actionCtx));
+            continue;
+          }
+
+          // ── Screen actions (lib/jinnyScreen.ts) ──
+          if (act === "ui_click") {
+            const target = String(action.target ?? "");
+            const risky = elementNeedsConfirmation(target);
+            const element = resolveElement(target);
+            if (risky && element) {
+              requestConfirmation(`Press "${risky}"?`, async () => clickElement(element).message);
+            } else {
+              injectToolResult(clickElement(target).message);
+            }
+            continue;
+          }
+          if (act === "ui_fill") {
+            injectToolResult(
+              fillElement(String(action.target ?? ""), String(action.value ?? ""), { submit: action.submit === true }).message,
+            );
+            continue;
+          }
+          if (act === "ui_scroll") {
+            injectToolResult(scrollScreen(String(action.direction ?? "down")).message);
+            continue;
+          }
+          if (act === "go_back") {
+            navigate(-1);
+            injectToolResult("Went back to the previous page.");
+            continue;
+          }
+          if (act === "set_language") {
+            const code = String(action.code ?? "").toLowerCase();
+            const known = languages.find((l) => l.code === code);
+            if (!known) {
+              injectToolResult(`I can't switch to "${code}". Supported: ${languages.map((l) => l.code).join(", ")}.`);
+            } else {
+              setLang(code);
+              _ttsLang = code;
+              injectToolResult(`Switched the app language to ${known.name}.`);
+            }
+            continue;
+          }
+          if (act === "sign_out") {
+            requestConfirmation("Sign out of Radiator Routes?", async () => {
+              endCallRef.current();
+              await signOut();
+              navigate("/");
+              return "Signed out.";
+            });
+            continue;
+          }
 
           if (act === "navigate_to" && action.path) {
             toast({ title: `🗺️ ${action.label || `Opening ${action.path}`}` });
@@ -849,16 +968,18 @@ export default function AIAssistant() {
           }
 
           if (act === "explore_search") {
-            toast({ title: "🔍 Opening Explore", description: action.query ?? "" });
-            navigate("/explore");
-            injectToolResult("Opened Explore. Use the search field to look up those places.");
+            const query = String(action.query ?? action.destination ?? "").trim();
+            toast({ title: "🔍 Opening Explore", description: query });
+            navigate(query ? `/explore?q=${encodeURIComponent(query)}` : "/explore");
+            injectToolResult(query ? `Opened Explore and searched for "${query}".` : "Opened Explore.");
             continue;
           }
 
           if (act === "guide_search") {
-            toast({ title: "📖 Opening Travel Guide", description: action.destination ?? "" });
-            navigate("/guide");
-            injectToolResult("Opened the travel guide.");
+            const destination = String(action.destination ?? action.query ?? "").trim();
+            toast({ title: "📖 Opening Travel Guide", description: destination });
+            navigate(destination ? `/guide?q=${encodeURIComponent(destination)}` : "/guide");
+            injectToolResult(destination ? `Opened the travel guide and started generating one for ${destination}.` : "Opened the travel guide.");
             continue;
           }
 
@@ -923,13 +1044,17 @@ export default function AIAssistant() {
             continue;
           }
         } catch (e: unknown) {
-          console.error("Action parse error:", e);
-          injectToolResult(`I couldn't complete that action: ${errorMessage(e)}`);
+          if (e instanceof ActionError) {
+            injectToolResult(e.message);
+          } else {
+            console.error("Action failed:", e);
+            injectToolResult(`I couldn't complete that action: ${errorMessage(e)}`);
+          }
         }
       }
       return actionResultsRef.current;
     },
-    [user, navigate, queryClient, toast, injectToolResult],
+    [user, navigate, queryClient, toast, injectToolResult, languages, setLang, signOut],
   );
 
   // ── Send a message (streaming) ─────────────────────────────────────────
@@ -963,88 +1088,127 @@ export default function AIAssistant() {
       if (inCall) setCallPhase("thinking");
 
       let assistantSoFar = "";
+      // What is on screen right now, for both reading and driving the UI.
+      const screenNow = () => {
+        try { return snapshotScreen().text; } catch { return ""; }
+      };
+      // Replace the last plain assistant message with `content`, or add one.
+      const showReply = (content: string) => {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === "assistant" && !last.kind) {
+            return prev.map((message, index) => index === prev.length - 1 ? { ...message, content } : message);
+          }
+          return [...prev, { role: "assistant", content }];
+        });
+      };
 
       try {
-        await streamChatMessage(
-          allMessages,
-          (chunk: string) => {
-            assistantSoFar += chunk;
-            speech?.push(chunk);
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              const assistantIndex = allMessages.length;
-              const visibleContent = assistantDisplayContent(assistantSoFar);
-              if (last?.role === "assistant" && !last.kind && prev.length > assistantIndex) {
-                return prev.map((m, i) => i === prev.length - 1
-                  ? { ...m, content: visibleContent }
-                  : m);
-              }
-              return [...prev, { role: "assistant", content: visibleContent }];
-            });
-          },
-          userLang,
-          undefined,
-          { voice: inCall },
-        );
+        let actionResults: string[] = [];
+        let firstTurnStreamed = false;
 
-        const actionResults = await handleAction(assistantSoFar, text);
+        // A question Jinny asked last turn ("Delete the Goa trip?") is answered
+        // here, without another model call, so "yes" can never be
+        // misread as a new request — and "no" never runs anything.
+        const pending = pendingConfirmationRef.current;
+        pendingConfirmationRef.current = null;
+        if (pending && isAffirmative(text)) {
+          let result: string;
+          try {
+            result = await pending.run();
+          } catch (err) {
+            result = err instanceof ActionError ? err.message : `That didn't work: ${errorMessage(err)}`;
+          }
+          injectToolResult(result);
+          actionResults = [result];
+          assistantSoFar = `(The user confirmed: ${pending.question})`;
+        } else if (pending && isNegative(text)) {
+          const reply = "Okay, I won't do that.";
+          setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+          if (speech) speech.push(reply);
+          else if (ttsEnabledRef.current) speakText(reply, _ttsLang);
+          return;
+        } else {
+          await streamChatMessage(
+            allMessages,
+            (chunk: string) => {
+              assistantSoFar += chunk;
+              speech?.push(chunk);
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                const assistantIndex = allMessages.length;
+                const visibleContent = assistantDisplayContent(assistantSoFar);
+                if (last?.role === "assistant" && !last.kind && prev.length > assistantIndex) {
+                  return prev.map((m, i) => i === prev.length - 1
+                    ? { ...m, content: visibleContent }
+                    : m);
+                }
+                return [...prev, { role: "assistant", content: visibleContent }];
+              });
+            },
+            userLang,
+            undefined,
+            { voice: inCall, screen: screenNow() },
+          );
+          firstTurnStreamed = true;
+          actionResults = await handleAction(assistantSoFar, text);
+        }
+
         if (actionResults.length > 0) {
           // Trips, budgets or itineraries may have just changed.
           invalidatePersonalContext();
-          const visibleActionText = "Working on that now…";
-          setMessages((prev) => prev.map((message, index) =>
-            index === allMessages.length ? { ...message, content: visibleActionText } : message,
-          ));
-
-          const followUpMessages = [
-            ...allMessages,
-            { role: "assistant" as const, content: assistantSoFar },
-            {
-              role: "user" as const,
-              content:
-                `[Tool results]\n${actionResults.join("\n\n")}\n\n` +
-                "Use these results to answer the user's original request. Summarize what succeeded or failed. Do not emit or repeat action blocks." +
-                (inCall ? " You are speaking on the call: answer in one or two short spoken sentences." : ""),
-            },
-          ];
-          let finalResponse = "";
-          try {
-            await streamChatMessage(
-              followUpMessages,
-              (chunk) => {
-                finalResponse += chunk;
-                speech?.push(chunk);
-                setMessages((prev) => {
-                  const last = prev[prev.length - 1];
-                  if (last?.role === "assistant" && !last.kind) {
-                    return prev.map((message, index) => index === prev.length - 1
-                      ? { ...message, content: finalResponse }
-                      : message);
-                  }
-                  return [...prev, { role: "assistant", content: finalResponse }];
-                });
-              },
-              userLang,
-              "GENERAL_CHAT",
-              { voice: inCall },
-            );
-          } catch (followUpError) {
-            console.error("Tool-result summary failed:", followUpError);
+          if (firstTurnStreamed && !assistantDisplayContent(assistantSoFar)) {
+            setMessages((prev) => prev.map((message, index) =>
+              index === allMessages.length ? { ...message, content: "Working on that now…" } : message,
+            ));
           }
 
-          const finalText = stripActionBlocks(finalResponse) ||
-            "The action result is shown above.";
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === "assistant" && !last.kind) {
-              return prev.map((message, index) => index === prev.length - 1
-                ? { ...message, content: finalText }
-                : message);
+          // Multi-step: show Jinny what happened and what the screen looks
+          // like now, and let her take the next step ("open the form", "fill
+          // the name", "press Create") until the request is done.
+          let conversation: Array<{ role: "user" | "assistant"; content: string }> = [
+            ...allMessages,
+            { role: "assistant", content: assistantSoFar },
+          ];
+          let finalResponse = "";
+          for (let step = 0; step < MAX_AGENT_STEPS && actionResults.length > 0; step++) {
+            // Let clicks, navigation and lazy-loaded pages settle first.
+            await new Promise((resolve) => window.setTimeout(resolve, 450));
+            const followUp = [
+              ...conversation,
+              {
+                role: "user" as const,
+                content:
+                  `[Tool results]\n${actionResults.join("\n\n")}\n\n${AGENT_FOLLOW_UP}` +
+                  (inCall ? " You are speaking on the call: keep anything you say to one or two short spoken sentences." : ""),
+              },
+            ];
+            finalResponse = "";
+            try {
+              await streamChatMessage(
+                followUp,
+                (chunk) => {
+                  finalResponse += chunk;
+                  speech?.push(chunk);
+                  showReply(assistantDisplayContent(finalResponse));
+                },
+                userLang,
+                "GENERAL_CHAT",
+                { voice: inCall, screen: screenNow() },
+              );
+            } catch (followUpError) {
+              console.error("Follow-up step failed:", followUpError);
+              break;
             }
-            return [...prev, { role: "assistant", content: finalText }];
-          });
+            conversation = [...followUp, { role: "assistant", content: finalResponse }];
+            actionResults = step < MAX_AGENT_STEPS - 1 ? await handleAction(finalResponse, text) : [];
+            if (actionResults.length > 0) invalidatePersonalContext();
+          }
+
+          const finalText = stripActionBlocks(finalResponse) || "Done — the details are above.";
+          showReply(finalText);
           if (speech) {
-            if (!finalResponse.trim()) speech.push(" The details are on screen.");
+            if (!finalResponse.trim()) speech.push(" Done. The details are on screen.");
           } else if (ttsEnabledRef.current) {
             speakText(finalText, _ttsLang);
           }
@@ -1103,7 +1267,7 @@ export default function AIAssistant() {
         }
       }
     },
-    [handleAction, toast, userLang],
+    [handleAction, injectToolResult, toast, userLang],
   );
 
   // ── What to do with something the user said ─────────────────────────────
@@ -1112,7 +1276,8 @@ export default function AIAssistant() {
   const handleHeard = useCallback((transcript: string) => {
     if (callActiveRef.current) {
       silentTurnsRef.current = 0;
-      if (isHangUpPhrase(transcript)) {
+      // "No thanks" answers a pending "Delete the trip?" — it isn't a hang-up.
+      if (isHangUpPhrase(transcript) && !pendingConfirmationRef.current) {
         const farewell = "Okay, talk soon! Have a great trip.";
         setMessages((prev) => [
           ...prev,
@@ -1502,6 +1667,7 @@ export default function AIAssistant() {
         <div
           className="hidden md:block fixed z-50"
           style={{ left: pos.x, top: pos.y }}
+          data-jinny-ignore
         >
           <img
             src={orangeBot}
@@ -1530,7 +1696,10 @@ export default function AIAssistant() {
       )}
 
       {open && (
-        <div className="fixed inset-0 md:inset-auto md:bottom-6 md:right-6 z-[60] w-full h-full md:w-[400px] md:h-[600px] bg-card border-0 md:border border-border md:rounded-2xl shadow-elevated flex flex-col animate-fade-in overflow-hidden">
+        <div
+          className="fixed inset-0 md:inset-auto md:bottom-6 md:right-6 z-[60] w-full h-full md:w-[400px] md:h-[600px] bg-card border-0 md:border border-border md:rounded-2xl shadow-elevated flex flex-col animate-fade-in overflow-hidden"
+          data-jinny-ignore
+        >
           <div
             className="flex items-center justify-between px-4 py-3 border-b border-border bg-primary/5"
             style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
