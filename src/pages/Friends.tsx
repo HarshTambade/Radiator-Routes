@@ -438,17 +438,20 @@ export default function Friends() {
     // DB CHECK constraint allows: 'pending' | 'approved' | 'rejected'
     const dbStatus = action === "accepted" ? "approved" : "rejected";
     try {
+      // Add the member before resolving the request. In the other order a
+      // failed insert left the request "approved" with no membership, and it
+      // no longer appeared in the pending list to retry.
+      if (action === "accepted") {
+        const { error: memErr } = await supabase
+          .from("trip_memberships")
+          .insert({ trip_id: tripId, user_id: userId, role: "member" });
+        if (memErr && memErr.code !== "23505") throw memErr;
+      }
       const { error } = await supabase
         .from("trip_join_requests")
         .update({ status: dbStatus, resolved_at: new Date().toISOString() })
         .eq("id", requestId);
       if (error) throw error;
-      if (action === "accepted") {
-        const { error: memErr } = await supabase
-          .from("trip_memberships")
-          .insert({ trip_id: tripId, user_id: userId, role: "member" });
-        if (memErr && !memErr.message.includes("duplicate")) throw memErr;
-      }
       queryClient.invalidateQueries({ queryKey: ["join-requests"] });
       queryClient.invalidateQueries({ queryKey: ["trip-members"] });
       toast({
@@ -1041,14 +1044,14 @@ export default function Friends() {
                     <div
                       className={
                         "w-8 h-8 rounded-full flex items-center justify-center " +
-                        (req.status === "accepted"
+                        (req.status === "approved"
                           ? "bg-success/10"
                           : req.status === "rejected"
                             ? "bg-destructive/10"
                             : "bg-warning/10")
                       }
                     >
-                      {req.status === "accepted" ? (
+                      {req.status === "approved" ? (
                         <CheckCircle className="w-4 h-4 text-success" />
                       ) : req.status === "rejected" ? (
                         <XCircle className="w-4 h-4 text-destructive" />
@@ -1058,7 +1061,8 @@ export default function Friends() {
                     </div>
                     <div className="flex-1">
                       <p className="text-sm text-card-foreground">
-                        <span className="font-medium">{req.trips?.name}</span>
+                        {/* Trip rows are member-only, so a pending requester cannot read the name. */}
+                        <span className="font-medium">{req.trips?.name ?? "Trip join request"}</span>
                       </p>
                       <p className="text-xs text-muted-foreground capitalize">
                         {req.status}

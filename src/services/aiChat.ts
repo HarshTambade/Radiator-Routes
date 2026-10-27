@@ -346,14 +346,15 @@ export function extractDate(text: string): string | null {
 
   // Relative dates
   if (/\btoday\b/.test(lower)) return formatLocalDate(today);
-  if (/\btomorrow\b/.test(lower)) {
-    const d = new Date(today);
-    d.setDate(d.getDate() + 1);
-    return formatLocalDate(d);
-  }
+  // Before "tomorrow", which would otherwise match first.
   if (/\bday\s*after\s*tomorrow\b/.test(lower)) {
     const d = new Date(today);
     d.setDate(d.getDate() + 2);
+    return formatLocalDate(d);
+  }
+  if (/\btomorrow\b/.test(lower)) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + 1);
     return formatLocalDate(d);
   }
   if (/\bnext\s+week\b/.test(lower)) {
@@ -386,45 +387,32 @@ export function extractDate(text: string): string | null {
     }
   }
 
-  // Month names — "15th August", "August 15", "15 Aug 2025"
-  const months = [
-    "january",
-    "february",
-    "march",
-    "april",
-    "may",
-    "june",
-    "july",
-    "august",
-    "september",
-    "october",
-    "november",
-    "december",
-    "jan",
-    "feb",
-    "mar",
-    "apr",
-    "jun",
-    "jul",
-    "aug",
-    "sep",
-    "oct",
-    "nov",
-    "dec",
-  ];
-  for (let mi = 0; mi < 12; mi++) {
-    const name = months[mi] || months[mi + 12];
-    const pattern = new RegExp(
-      `(\\d{1,2})(?:st|nd|rd|th)?\\s+${name}(?:uary|ruary|ch|il|e|y|ust|tember|ober|ember)?|${name}(?:uary|ruary|ch|il|e|y|ust|tember|ober|ember)?\\s+(\\d{1,2})(?:st|nd|rd|th)?`,
-      "i",
+  // Month names — "15th August", "August 15", "15 Aug 2026", "Sept 3rd, 2027".
+  // Abbreviations were never matched before, an explicit year was ignored,
+  // and a date of *today* was pushed to next year (midnight < now).
+  const MONTH = String.raw`(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)`;
+  const ORD = String.raw`(?:st|nd|rd|th)?`;
+  const YEAR = String.raw`(?:,?\s+(\d{4}))?`;
+  const dayFirst = lower.match(new RegExp(String.raw`\b(\d{1,2})${ORD}\s+(?:of\s+)?${MONTH}\b${YEAR}`));
+  const monthFirst = lower.match(new RegExp(String.raw`\b${MONTH}\s+(\d{1,2})${ORD}\b${YEAR}`));
+  const monthMatch = dayFirst
+    ? { day: dayFirst[1], month: dayFirst[2], year: dayFirst[3] }
+    : monthFirst
+      ? { day: monthFirst[2], month: monthFirst[1], year: monthFirst[3] }
+      : null;
+  if (monthMatch) {
+    const monthIndex = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+      .indexOf(monthMatch.month.slice(0, 3));
+    const day = parseInt(monthMatch.day, 10);
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const d = new Date(
+      monthMatch.year ? parseInt(monthMatch.year, 10) : today.getFullYear(),
+      monthIndex,
+      day,
     );
-    const m = text.match(pattern);
-    if (m) {
-      const day = parseInt(m[1] || m[2], 10);
-      const year = today.getFullYear();
-      const d = new Date(year, mi % 12, day);
-      // If date already passed this year, assume next year
-      if (d < today) d.setFullYear(year + 1);
+    // Reject impossible dates such as 31 February instead of rolling over.
+    if (d.getMonth() === monthIndex && d.getDate() === day) {
+      if (!monthMatch.year && d < startOfToday) d.setFullYear(d.getFullYear() + 1);
       return formatLocalDate(d);
     }
   }
@@ -571,7 +559,7 @@ function buildIntentHint(intent: Intent, rawText: string): string {
 // Main system prompt — Jinny's identity, capabilities, action schema
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BASE_SYSTEM_PROMPT = `You are Jinny — the AI travel assistant embedded in Atlas AI. You are precise, warm, and helpful.
+const BASE_SYSTEM_PROMPT = `You are Jinny — the AI travel assistant embedded in Radiator Routes. You are precise, warm, and helpful.
 
 ## PERSONALITY
 - Speak like a sharp, friendly AI concierge. Short punchy lines: "Right away.", "Already on it.", "Consider it done.", "I've run the numbers.", "Quite.", "Allow me."
@@ -1047,7 +1035,7 @@ export async function streamChatMessage(
   const res = await groqFetch(buildMessages(systemPrompt, messages), true);
 
   if (!res.body) {
-    const text = await sendChatMessage(messages);
+    const text = await sendChatMessage(messages, userLang);
     onChunk(text);
     return text;
   }

@@ -470,7 +470,12 @@ Deno.serve(async (req: Request) => {
 
     if (!response.ok) {
       console.error(`OpenRouteService upstream failed with HTTP ${response.status}`);
-      return errorResponse("The routing provider could not complete the request.", response.status >= 500 ? 502 : 400, rateHeaders);
+      // A provider quota hit is a retryable 429 and a rejected server key is a
+      // deployment fault (502); neither is a bad request from the client.
+      const status = response.status === 429 ? 429
+        : response.status >= 500 || response.status === 401 || response.status === 403 ? 502
+        : 400;
+      return errorResponse("The routing provider could not complete the request.", status, rateHeaders);
     }
 
     const data = await readProviderJson(response, 4 * 1024 * 1024);

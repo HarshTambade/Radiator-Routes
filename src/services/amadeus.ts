@@ -10,7 +10,7 @@
 // Prices are clearly-labelled estimates; the deep-link is the source of truth.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { nominatimSearch } from "./nominatim";
+import { nominatimReverse, nominatimSearch } from "./nominatim";
 import { otmRadius } from "./opentripmap";
 import {
   cityToIATA,
@@ -225,12 +225,22 @@ export async function amadeusFlightOffers(params: {
     const depAt = `${departureDate}T${String(depHour).padStart(2, "0")}:${String(depMin).padStart(2, "0")}:00`;
 
     const mins = estimateDurationMinutes(from, to, stops);
-    const arr = new Date(`${depAt}Z`);
-    arr.setUTCMinutes(arr.getUTCMinutes() + mins);
-    const arrAt = arr.toISOString().slice(0, 19);
+    const at = (offsetMinutes: number) => {
+      const t = new Date(`${depAt}Z`);
+      t.setUTCMinutes(t.getUTCMinutes() + offsetMinutes);
+      return t.toISOString().slice(0, 19);
+    };
+    const arrAt = at(mins);
 
     const carrier = CARRIERS[i % CARRIERS.length];
     const flightNo = (n: number) => String(1000 + ((s + n) % 8000));
+
+    // A one-stop estimate splits the total time into two legs around a
+    // 90-minute layover, at a hub that is neither endpoint. Both legs used to
+    // have zero duration, and a Delhi trip "connected" through Delhi.
+    const hub = [from, to].includes("DEL") ? ([from, to].includes("BOM") ? "BLR" : "BOM") : "DEL";
+    const layover = 90;
+    const firstLeg = Math.round((mins - layover) / 2);
 
     const segments = stops === 0
       ? [
@@ -244,12 +254,12 @@ export async function amadeusFlightOffers(params: {
       : [
           {
             departure: { at: depAt, iataCode: from },
-            arrival: { at: depAt, iataCode: "DEL" },
+            arrival: { at: at(firstLeg), iataCode: hub },
             carrierCode: carrier,
             number: flightNo(0),
           },
           {
-            departure: { at: arrAt, iataCode: "DEL" },
+            departure: { at: at(firstLeg + layover), iataCode: hub },
             arrival: { at: arrAt, iataCode: to },
             carrierCode: carrier,
             number: flightNo(1),
@@ -409,8 +419,10 @@ export async function amadeusAirportNearest(params: {
     throw new Error("lat and lng are required");
 
   try {
-    const found = await nominatimSearch(`${lat},${lng}`, 1);
-    const name = found?.[0]?.display_name?.split(",")[0]?.trim();
+    // Coordinates need reverse geocoding; a forward search for "lat,lng"
+    // text returned an arbitrary match. The city is what maps to an airport.
+    const found = await nominatimReverse(lat, lng);
+    const name = (found.address?.city ?? found.address?.county ?? found.display_name?.split(",")[0])?.trim();
     if (name) {
       return wrap([
         {

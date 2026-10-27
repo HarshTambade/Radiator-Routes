@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
-const APP_NAME = "Atlas AI Platform API";
+const APP_NAME = "Radiator Routes Platform API";
 const APP_VERSION = "1.0.0";
 const API_LIMIT_PER_MINUTE = 60;
 const KNOWN_SCOPES = [
@@ -823,7 +823,7 @@ function openApiDocument() {
   return {
     openapi: "3.1.0",
     info: {
-      title: "Atlas AI Platform API",
+      title: "Radiator Routes Platform API",
       version: APP_VERSION,
       description: "Scoped API for trip planning, budget summaries, and booking request records.",
     },
@@ -831,7 +831,7 @@ function openApiDocument() {
     security: [{ platformApiKey: [], supabasePublishableKey: [] }],
     components: {
       securitySchemes: {
-        platformApiKey: { type: "apiKey", in: "header", name: "x-api-key", description: "Create a scoped key in Atlas AI → Integrations → API." },
+        platformApiKey: { type: "apiKey", in: "header", name: "x-api-key", description: "Create a scoped key in Radiator Routes → Integrations → API." },
         supabasePublishableKey: { type: "apiKey", in: "header", name: "apikey", description: "The public Supabase publishable key for the project." },
       },
       schemas: {
@@ -1120,7 +1120,7 @@ Deno.serve(async (request: Request) => {
     const result = errorBody(error, requestId);
     const extra = {
       ...(result.headers ?? {}),
-      ...(result.status === 401 ? { "WWW-Authenticate": 'Bearer realm="Atlas AI Platform API"' } : {}),
+      ...(result.status === 401 ? { "WWW-Authenticate": 'Bearer realm="Radiator Routes Platform API"' } : {}),
     };
     return json(result.body, result.status, extra);
   }

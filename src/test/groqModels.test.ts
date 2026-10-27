@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_GROQ_MODEL,
+  GROQ_PROXY_MAX_TOKENS,
   groqErrorCode,
   groqMaxTokens,
   groqModelParams,
@@ -44,6 +45,12 @@ describe("groqModels", () => {
   it("gives reasoning models token headroom so JSON answers are not truncated", () => {
     expect(groqMaxTokens(512, "openai/gpt-oss-120b")).toBe(1536);
     expect(groqMaxTokens(512, "qwen/qwen3.8-27b")).toBe(512);
+  });
+
+  it("never exceeds the groq-proxy max_tokens limit", () => {
+    expect(groqMaxTokens(8192, "openai/gpt-oss-120b")).toBe(GROQ_PROXY_MAX_TOKENS);
+    expect(groqMaxTokens(7168, "openai/gpt-oss-120b")).toBe(GROQ_PROXY_MAX_TOKENS);
+    expect(groqMaxTokens(9000, "qwen/qwen3.8-27b")).toBe(GROQ_PROXY_MAX_TOKENS);
   });
 
   it("strips inline reasoning before text is spoken", () => {

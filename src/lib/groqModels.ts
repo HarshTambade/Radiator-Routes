@@ -36,12 +36,22 @@ export function groqModelParams(model: string = GROQ_MODEL): Record<string, unkn
 }
 
 /**
+ * Largest `max_tokens` the groq-proxy Edge Function accepts. Anything above it
+ * is rejected with a 400 before reaching Groq.
+ */
+export const GROQ_PROXY_MAX_TOKENS = 8192;
+
+/**
  * Output-token budget for `model`. Reasoning tokens are drawn from the same
  * budget as the answer, so a reasoning model gets headroom on top — otherwise
  * a 512-token JSON call could spend it all thinking and return nothing.
+ *
+ * Capped at the proxy limit: the planners ask for 8192, and 8192 + 1024 was
+ * rejected outright, so itinerary generation never reached the model.
  */
 export function groqMaxTokens(requested: number, model: string = GROQ_MODEL): number {
-  return isReasoningModel(model) ? requested + 1024 : requested;
+  const budget = isReasoningModel(model) ? requested + 1024 : requested;
+  return Math.min(budget, GROQ_PROXY_MAX_TOKENS);
 }
 
 /**

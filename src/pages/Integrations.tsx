@@ -191,9 +191,9 @@ function PlatformApiGuide({ urls }: { urls: ReturnType<typeof platformApiUrls> |
       <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary"><BookOpen className="h-3.5 w-3.5" /> Atlas AI Platform API · v1.0.0</div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary"><BookOpen className="h-3.5 w-3.5" /> Radiator Routes Platform API · v1.0.0</div>
             <h2 className="mt-3 text-xl font-bold text-card-foreground">API integration guide</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">Connect a server, app, or MCP-compatible AI client to Atlas AI trip planning, budget summaries, itinerary generation, and booking-request records.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">Connect a server, app, or MCP-compatible AI client to Radiator Routes trip planning, budget summaries, itinerary generation, and booking-request records.</p>
           </div>
           <a href="#guide-setup" className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">Start setup <ArrowRight className="h-4 w-4" /></a>
         </div>
@@ -237,7 +237,7 @@ function PlatformApiGuide({ urls }: { urls: ReturnType<typeof platformApiUrls> |
         <div className="grid gap-4 md:grid-cols-2">
           <div className="rounded-xl border border-border p-4">
             <h4 className="flex items-center gap-2 text-sm font-semibold"><Database className="h-4 w-4 text-primary" /> Database</h4>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">For an empty project, apply <code>supabase/master_schema.sql</code> once. For an existing Atlas database, apply all pending migrations, including <code>20261024000001_platform_api.sql</code>, <code>20261024000003_platform_hardening.sql</code>, <code>20261024000004_api_key_creation_hardening.sql</code>, and <code>20261024000005_api_rate_limit_overflow_guard.sql</code>. The platform API needs the trip schema; authenticated provider proxies also require the hardened RLS and quota function.</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">For an empty project, apply <code>supabase/master_schema.sql</code> once. For an existing Radiator Routes database, apply all pending migrations, including <code>20261024000001_platform_api.sql</code>, <code>20261024000003_platform_hardening.sql</code>, <code>20261024000004_api_key_creation_hardening.sql</code>, and <code>20261024000005_api_rate_limit_overflow_guard.sql</code>. The platform API needs the trip schema; authenticated provider proxies also require the hardened RLS and quota function.</p>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">The broader <code>supabase/master_schema_updates.sql</code> also includes other additive app tables. Do not apply the fresh-install schema to a populated database.</p>
           </div>
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
@@ -249,7 +249,7 @@ function PlatformApiGuide({ urls }: { urls: ReturnType<typeof platformApiUrls> |
         <CodeBlock label="Apply migrations to an existing project" code={migrationCommands} />
         <p className="text-xs leading-5 text-muted-foreground">If the remote schema already contains a table from a pending base migration, compare the live schema and migration history before proceeding. <code>supabase migration repair --linked --status applied &lt;version&gt;</code> only changes the migration ledger; use it only after confirming every statement from that migration is already applied.</p>
         <CodeBlock label="Check function and OpenAPI" code={healthCheck} />
-        <div className="rounded-xl bg-secondary/60 p-4 text-sm leading-6 text-muted-foreground"><strong className="text-card-foreground">Expected health body:</strong> <code>{'{"status":"ok","version":"1.0.0"}'}</code>. A <code>503 not_ready</code> usually means the function cannot read <code>integration_api_keys</code>. The gateway `apikey` is required here; an Atlas key is not.</div>
+        <div className="rounded-xl bg-secondary/60 p-4 text-sm leading-6 text-muted-foreground"><strong className="text-card-foreground">Expected health body:</strong> <code>{'{"status":"ok","version":"1.0.0"}'}</code>. A <code>503 not_ready</code> usually means the function cannot read <code>integration_api_keys</code>. The gateway `apikey` is required here; a platform API key is not.</div>
         <p className="text-xs leading-5 text-muted-foreground">Supabase provides <code>SUPABASE_URL</code>, <code>SUPABASE_ANON_KEY</code>, and <code>SUPABASE_SERVICE_ROLE_KEY</code> inside the function. Set <code>PLATFORM_API_ALLOWED_ORIGINS</code> to exact browser origins for REST/MCP clients; server-to-server calls without an Origin header work without it. The platform function uses <code>verify_jwt = false</code> because it authenticates external API keys itself. Itinerary generation is limited to 10 runs per account and 100 per project per day.</p>
         <CodeBlock label="Shell values for the examples" code={envSetup} />
       </GuideSection>
@@ -260,7 +260,7 @@ function PlatformApiGuide({ urls }: { urls: ReturnType<typeof platformApiUrls> |
             <h4 className="mb-2 text-sm font-semibold text-card-foreground">Required headers</h4>
             <GuideTable columns={["Header", "Value and purpose"]} rows={[
               ["apikey", "Supabase publishable/anon project key; gets through the Edge Function gateway."],
-              ["x-api-key", "Atlas rr_live_… secret; identifies the account and grants selected scopes."],
+              ["x-api-key", "Platform rr_live_… secret; identifies the account and grants selected scopes."],
               ["Authorization", "Optional alternative: Bearer rr_live_… instead of x-api-key."],
             ]} />
           </div>
@@ -351,7 +351,7 @@ function PlatformApiGuide({ urls }: { urls: ReturnType<typeof platformApiUrls> |
         <p className="text-sm leading-6 text-muted-foreground">Authenticated success and rate-limit responses include <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code>, and <code>X-RateLimit-Reset</code> (Unix seconds). On 429, wait until reset and retry with exponential backoff and jitter. Supabase Edge Function runtime and concurrency limits depend on the project plan.</p>
         <GuideTable columns={["HTTP", "Code / meaning"]} rows={[
           ["400", "invalid_request or sensitive_data_rejected — correct the body or field."],
-          ["401", "unauthorized — check gateway apikey, Atlas key, expiry, or revocation."],
+          ["401", "unauthorized — check gateway apikey, platform API key, expiry, or revocation."],
           ["403", "insufficient_scope — issue a key with the required scope."],
           ["404", "not_found — route/resource absent or not visible to that owner."],
           ["409", "key_limit_reached — revoke an unused key."],
@@ -367,7 +367,7 @@ function PlatformApiGuide({ urls }: { urls: ReturnType<typeof platformApiUrls> |
       <GuideSection id="guide-testing" title="Smoke checks and troubleshooting" description="Verify the service in development or staging with disposable accounts and trips.">
         <ol className="list-decimal space-y-2 pl-5 text-sm leading-6 text-muted-foreground">
           <li>Check health returns 200 and OpenAPI returns 200 with <code>openapi: 3.1.0</code>.</li>
-          <li>Call a data route without an Atlas key: expect 401. Call with a valid key lacking trips:read: expect 403. With the scope: expect GET /trips to return 200.</li>
+          <li>Call a data route without a platform API key: expect 401. Call with a valid key lacking trips:read: expect 403. With the scope: expect GET /trips to return 200.</li>
           <li>Use two test accounts. Account B should receive 404 when reading A's private trip, and B's order list should not include A's records.</li>
           <li>Create a disposable trip, read its budget, and (if configured) generate a plan. It should be unpublished and contain activities.</li>
           <li>POST one order twice using the same Idempotency-Key: first response 201, replay 200, same order ID.</li>
@@ -394,7 +394,7 @@ function PlatformApiGuide({ urls }: { urls: ReturnType<typeof platformApiUrls> |
           <li>Rotate by creating a replacement, updating and verifying the integration, then revoking the old key.</li>
           <li>Trip access is checked against organizer/membership ownership; booking requests are account-owned.</li>
           <li>AI output is model-generated. Review an itinerary before publishing or acting on it.</li>
-          <li>CORS currently allows cross-origin requests; CORS is not authorization. Data routes still need valid project and Atlas credentials.</li>
+          <li>CORS currently allows cross-origin requests; CORS is not authorization. Data routes still need valid project and platform API credentials.</li>
           <li>Provider search, availability, booking confirmation/cancellation, payment, and refunds are outside the current order-request API.</li>
         </ul>
         <div className="grid gap-3 md:grid-cols-2">
@@ -575,7 +575,7 @@ export default function Integrations() {
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium text-orange-100">
               <Workflow className="h-3.5 w-3.5" /> Developer integrations
             </div>
-            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Connect Atlas AI to your stack</h1>
+            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Connect Radiator Routes to your stack</h1>
             <p className="mt-2 max-w-xl text-sm leading-6 text-slate-300 md:text-base">
               Use scoped API keys with the REST API or connect an MCP-compatible AI client to plan trips, read budgets, and record booking requests.
             </p>
@@ -861,7 +861,7 @@ export default function Integrations() {
 
           <div className="flex items-start gap-3 rounded-2xl border border-border bg-card p-4 text-sm leading-6 text-muted-foreground">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-            <p>Send <code>x-api-key</code> (or a Bearer token) with the scoped Atlas key and Supabase’s publishable key in <code>apikey</code>. Never send a service-role key from a client. AI itinerary generation supports India trips with INR budgets and IST dates up to 14 days. Booking requests are records only; provider checkout, confirmation, and payment are not connected.</p>
+            <p>Send <code>x-api-key</code> (or a Bearer token) with the scoped platform API key and Supabase’s publishable key in <code>apikey</code>. Never send a service-role key from a client. AI itinerary generation supports India trips with INR budgets and IST dates up to 14 days. Booking requests are records only; provider checkout, confirmation, and payment are not connected.</p>
           </div>
         </div>
       )}

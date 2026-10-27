@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Atlas AI — Voice service (free, browser-native)
+// Radiator Routes — Voice service (free, browser-native)
 // ─────────────────────────────────────────────────────────────────────────────
 // • Speech-to-Text  → Web Speech API (SpeechRecognition), no provider key needed.
 //                     Falls back to authenticated Groq Whisper when configured

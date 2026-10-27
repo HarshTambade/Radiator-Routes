@@ -106,7 +106,7 @@ export default function PWAInstallPrompt() {
     <aside
       className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] left-3 right-3 z-[45] mx-auto max-w-sm animate-slide-up md:bottom-4 md:left-auto md:right-4"
       role="dialog"
-      aria-label="Install Atlas AI"
+      aria-label="Install Radiator Routes"
     >
       <div className="rounded-2xl border border-border bg-card/95 p-3 shadow-xl backdrop-blur-xl">
         <div className="flex items-start gap-3">
@@ -120,9 +120,9 @@ export default function PWAInstallPrompt() {
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold text-card-foreground">Use Atlas like an app</p>
+                <p className="text-sm font-semibold text-card-foreground">Use Radiator Routes like an app</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Keep trips close and open Atlas from your home screen.
+                  Keep trips close and open Radiator Routes from your home screen.
                 </p>
               </div>
               <button

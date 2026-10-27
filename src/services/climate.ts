@@ -167,8 +167,12 @@ export async function getWeatherForecast(params: {
   const currentCode: number = cw.weathercode ?? 0;
   const currentInfo = WMO_CODES[currentCode] ?? { label: "Unknown", emoji: "🌡️", severe: false };
 
-  // Find current hour index for humidity / windspeed
-  const nowHour = new Date().toISOString().slice(0, 13);
+  // Find current hour index for humidity / windspeed. With timezone=auto the
+  // hourly times are the destination's local wall-clock time, so shift "now"
+  // by the returned UTC offset before matching — a plain UTC hour lands on the
+  // wrong row everywhere except UTC+0.
+  const offsetMs = Number(data.utc_offset_seconds ?? 0) * 1000;
+  const nowHour = new Date(Date.now() + offsetMs).toISOString().slice(0, 13);
   const hourIdx = (data.hourly.time as string[]).findIndex((t: string) =>
     t.startsWith(nowHour)
   );
@@ -315,12 +319,15 @@ export async function getActivityWeatherSuitability(params: {
 
     const { score, warnings, recommendation } = scoreActivityWeather(act.category, dayForecast);
 
-    // Determine best time window from hourly
+    // Determine best time window from hourly. Only daytime starts are
+    // considered: a dry, cool 2 AM otherwise always scored highest and was
+    // recommended as the time to go sightseeing.
     const dayHourly = forecast.hourly.filter((h) => h.time.startsWith(act.date));
     let bestHour = 9;
     let bestScore = -1;
     for (const h of dayHourly) {
       const hour = parseInt(h.time.slice(11, 13), 10);
+      if (hour < 7 || hour > 17) continue;
       const s = 100 - h.precipitation * 10 - (h.temperature > 38 ? 20 : 0);
       if (s > bestScore) { bestScore = s; bestHour = hour; }
     }
@@ -397,15 +404,11 @@ export async function getClimateAwareRoute(params: {
     }
   }
 
-  // Elevation gain from geometry (z-values)
-  let elevationGain = 0;
-  try {
-    const coords = route.geometry?.coordinates ?? [];
-    for (let i = 1; i < coords.length; i++) {
-      const dz = (coords[i][2] ?? 0) - (coords[i - 1][2] ?? 0);
-      if (dz > 0) elevationGain += dz;
-    }
-  } catch {/* ignore */}
+  // The /json endpoint returns geometry as an encoded polyline string, so there
+  // are no z-values to sum. With elevation=true ORS reports the total climb as
+  // summary.ascent (metres) instead.
+  let elevationGain = Number(summary.ascent ?? 0);
+  if (!Number.isFinite(elevationGain)) elevationGain = 0;
 
   return {
     distanceKm: Math.round((summary.distance ?? 0) * 10) / 10,

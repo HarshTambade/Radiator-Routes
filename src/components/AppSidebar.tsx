@@ -106,7 +106,7 @@ export function AppSidebar({
             {!effectiveCollapsed && (
               <div className="min-w-0">
                 <p className="text-sm font-bold text-card-foreground truncate leading-tight">
-                  Atlas AI
+                  Radiator Routes
                 </p>
                 <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground truncate leading-tight">
                   <span className="truncate">{userName}</span>

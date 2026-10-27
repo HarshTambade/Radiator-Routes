@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Atlas AI — Translation Service
+// Radiator Routes — Translation Service
 // Uses MyMemory free API (no API key needed, 1000 req/day per IP)
 // Falls back to original text on error
 // ─────────────────────────────────────────────────────────────────────────────

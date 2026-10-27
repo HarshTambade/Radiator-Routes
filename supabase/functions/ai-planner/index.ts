@@ -12,12 +12,17 @@ const corsHeaders = {
 // ─── HuggingFace config ───────────────────────────────────────────────────────
 
 const HF_API_URL = "https://router.huggingface.co/v1/chat/completions";
-const HF_MODEL = "mistralai/Mistral-7B-Instruct-v0.3";
+// mistralai/Mistral-7B-Instruct-v0.3 no longer has a live inference provider on
+// the HF router, so every plan request failed. gpt-oss-120b is served by many
+// providers; set the HF_MODEL secret to use a different router model.
+const HF_MODEL = Deno.env.get("HF_MODEL")?.trim() || "openai/gpt-oss-120b";
+const IS_REASONING_MODEL = HF_MODEL.startsWith("openai/gpt-oss");
 
-// Maximum tokens — kept deliberately small so free-tier HF doesn't reject/timeout
-const MAX_TOKENS_PLAN = 2048;
-const MAX_TOKENS_REGRET = 3000;
-const MAX_TOKENS_INTENT = 512;
+// Reasoning tokens come out of the same budget as the answer. A multi-day plan
+// at 3–5 activities per day does not fit in 2048 tokens either way.
+const MAX_TOKENS_PLAN = 6144;
+const MAX_TOKENS_REGRET = 8192;
+const MAX_TOKENS_INTENT = 1024;
 
 // Supabase Edge Functions have a 60-second wall-clock limit.
 // We give HF 45 seconds so we still have time to respond.
@@ -66,6 +71,7 @@ async function callHF(
         temperature,
         max_tokens: maxTokens,
         stream: false,
+        ...(IS_REASONING_MODEL ? { reasoning_effort: "low" } : {}),
       }),
     });
   } catch (err) {

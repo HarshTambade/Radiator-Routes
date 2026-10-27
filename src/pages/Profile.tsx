@@ -392,7 +392,7 @@ export default function Profile() {
         currency: trip.currency,
       })))
     : formatMoney(0, "INR");
-  const displayName = editName.trim() || user?.email?.split("@")[0] || "Atlas traveller";
+  const displayName = editName.trim() || user?.email?.split("@")[0] || "Radiator Routes traveller";
   const stats = [
     { label: "Trips planned", value: trips.length, icon: Calendar, tone: "text-primary bg-primary/10" },
     { label: "Destinations", value: destinations.size, icon: MapPin, tone: "text-success bg-success/10" },
@@ -405,7 +405,7 @@ export default function Profile() {
       <header>
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Your account</p>
         <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground md:text-3xl">Travel profile</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Manage your identity, travel style, and the details Atlas uses to plan with you.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Manage your identity, travel style, and the details Radiator Routes uses to plan with you.</p>
       </header>
 
       <section className="overflow-hidden rounded-3xl border border-border bg-card shadow-card" aria-labelledby="profile-overview-heading">
@@ -480,7 +480,7 @@ export default function Profile() {
           <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-4 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1.5">
               <ShieldCheck className="h-3.5 w-3.5 text-success" aria-hidden="true" />
-              {user?.email_confirmed_at ? "Email verified" : "Atlas account"}
+              {user?.email_confirmed_at ? "Email verified" : "Radiator Routes account"}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <Calendar className="h-3.5 w-3.5" aria-hidden="true" />
@@ -516,7 +516,7 @@ export default function Profile() {
           </div>
           <div>
             <h2 id="about-heading" className="font-semibold text-card-foreground">About you</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">Help your travel group recognize you and give Atlas a little context.</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Help your travel group recognize you and give Radiator Routes a little context.</p>
           </div>
         </div>
 
@@ -615,7 +615,7 @@ export default function Profile() {
           </div>
           <div>
             <h2 id="travel-style-heading" className="font-semibold text-card-foreground">Your travel style</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">A quick summary of preferences Atlas has learned from you.</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">A quick summary of preferences Radiator Routes has learned from you.</p>
           </div>
         </div>
 

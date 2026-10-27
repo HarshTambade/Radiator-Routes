@@ -80,6 +80,29 @@ export function orsOptimization(params: {
   return invokeOpenRoute("optimization", params);
 }
 
+// Place names and coordinates do not move between page views, but every proxy
+// call spends the per-user daily ORS quota. The itinerary page alone geocoded
+// the same destination twice per visit. Successful lookups are reused for the
+// session; failures are evicted so a retry goes back to the network.
+const geocodeCache = new Map<string, Promise<unknown>>();
+const GEOCODE_CACHE_LIMIT = 200;
+
+function cachedOpenRoute(action: string, params: Record<string, unknown>): Promise<unknown> {
+  const key = `${action}:${JSON.stringify(params)}`;
+  const cached = geocodeCache.get(key);
+  if (cached) return cached;
+  if (geocodeCache.size >= GEOCODE_CACHE_LIMIT) {
+    const oldest = geocodeCache.keys().next().value;
+    if (oldest !== undefined) geocodeCache.delete(oldest);
+  }
+  const request = invokeOpenRoute(action, params).catch((error: unknown) => {
+    geocodeCache.delete(key);
+    throw error;
+  });
+  geocodeCache.set(key, request);
+  return request;
+}
+
 export function orsGeocode(params: {
   query: string;
   size?: number;
@@ -88,7 +111,7 @@ export function orsGeocode(params: {
   focusLon?: number;
 }): Promise<unknown> {
   if (!params.query?.trim()) throw new Error("query is required for geocoding");
-  return invokeOpenRoute("geocode", params);
+  return cachedOpenRoute("geocode", { ...params, query: params.query.trim() });
 }
 
 export function orsGeocodeStructured(params: {
@@ -107,7 +130,7 @@ export function orsReverseGeocode(params: {
   lon: number;
   size?: number;
 }): Promise<unknown> {
-  return invokeOpenRoute("reverse-geocode", params);
+  return cachedOpenRoute("reverse-geocode", params);
 }
 
 export function orsAutocomplete(params: {

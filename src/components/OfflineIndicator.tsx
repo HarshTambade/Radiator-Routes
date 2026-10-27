@@ -25,7 +25,7 @@ export function OfflineIndicator() {
     if (!offlineReady) return;
     toast({
       title: "Ready for offline use",
-      description: "Atlas can reopen offline. Trips and map areas you save stay available without a connection.",
+      description: "Radiator Routes can reopen offline. Trips and map areas you save stay available without a connection.",
     });
     dismissOfflineReady();
   }, [offlineReady, dismissOfflineReady, toast]);
@@ -153,7 +153,7 @@ export function OfflineIndicator() {
         aria-live="polite"
       >
         <div className="mx-auto flex max-w-7xl items-center justify-center gap-3">
-          <span className="font-medium">A new version of Atlas AI is ready.</span>
+          <span className="font-medium">A new version of Radiator Routes is ready.</span>
           <button
             type="button"
             onClick={update}
