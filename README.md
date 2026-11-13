@@ -7,6 +7,10 @@
 > mechanisms from unmeasured hypotheses and are not legal advice. Start at
 > [`docs/README.md`](./docs/README.md).
 
+[![Download Radiator Routes](https://img.shields.io/badge/Download-Radiator%20Routes-ef4b2b?style=for-the-badge&logo=github)](https://github.com/HarshTambade/Radiator-Routes/releases/latest)
+
+Android · iOS · Linux · Windows · macOS — [view all releases](https://github.com/HarshTambade/Radiator-Routes/releases)
+
 [![React](https://img.shields.io/badge/React-18.3-61DAFB?logo=react)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)](https://www.typescriptlang.org)
 [![Vite](https://img.shields.io/badge/Vite-8.2-646CFF?logo=vite)](https://vite.dev)
