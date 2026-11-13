@@ -96,9 +96,19 @@
         @apply border-border;
     }
 
+    html,
+    body,
+    #root {
+        min-width: 320px;
+        min-height: 100%;
+    }
+
     body {
         @apply bg-background text-foreground font-sans antialiased;
         font-family: "Plus Jakarta Sans", sans-serif;
+        min-height: 100vh;
+        min-height: 100dvh;
+        overflow-x: hidden;
     }
 }
 

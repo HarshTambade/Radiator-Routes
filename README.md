@@ -13,7 +13,7 @@
 [![Supabase](https://img.shields.io/badge/Supabase-Realtime-3ECF8E?logo=supabase)](https://supabase.com)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-06B6D4?logo=tailwindcss)](https://tailwindcss.com)
 [![PWA](https://img.shields.io/badge/PWA-Offline--Capable-5A0FC8)](https://web.dev/progressive-web-apps/)
-[![Vulnerabilities](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen)](#-security)
+[![Dependency Sources](https://img.shields.io/badge/npm%20dependencies-sources%20archived-brightgreen)](#-native-apps-and-github-releases)
 
 ---
 
@@ -38,10 +38,11 @@
 17. [Security](#-security)
 18. [Roadmap](#-roadmap)
 19. [Research & Prior Art](#-research--prior-art)
-20. [Deployment](#-deployment)
-21. [Contributing](#-contributing)
-22. [Documentation](#-documentation)
-23. [License](#-license)
+20. [Native apps and GitHub releases](#-native-apps-and-github-releases)
+21. [Deployment](#-deployment)
+22. [Contributing](#-contributing)
+23. [Documentation](#-documentation)
+24. [License](#-license)
 
 ---
 
@@ -104,7 +105,7 @@ mindmap
       TypeScript strictish
       ESLint flat config
       Vitest 228 tests
-      npm audit zero vulns
+      npm lockfile + source archives
       First load ~540 kB
 ```
 
@@ -453,7 +454,7 @@ Speech  →  Web Speech API (in-browser STT)
 
 ### Prerequisites
 
-- **Node.js ≥ 20.19** (enforced via `engines` in `package.json`)
+- **Node.js 22.22.2+, 24.15+, or 26+** (enforced via `engines` in `package.json`)
 - **npm ≥ 10**
 - A **Supabase** project (free tier is enough)
 
@@ -774,6 +775,13 @@ WHERE pubname = 'supabase_realtime';
 |---|---|
 | `npm run dev` | Dev server on `:8080` |
 | `npm run build` | Type-check then production build |
+| `npm run build:desktop` | Type-check and build relative assets for Tauri |
+| `npm run cap:android` | Build the web app and sync it into the Android project |
+| `npm run cap:ios` | Build the web app and sync it into the iOS project |
+| `npm run tauri -- dev` | Run the desktop app against the Vite development server |
+| `npm run tauri -- build` | Build a native desktop package for the current OS |
+| `npm run sources:npm` | Archive exact, integrity-checked npm dependency sources |
+| `npm run sources:npm:restore` | Restore the registry lockfile after an offline install |
 | `npm run build:dev` | Development-mode build with sourcemaps |
 | `npm run preview` | Serve `dist/` on `:8080` — use this to test the service worker |
 | `npm run typecheck` | `tsc --noEmit` only |
@@ -861,7 +869,7 @@ above and is the one to fix.
 
 ## 🔒 Security
 
-- **`npm audit`: 0 vulnerabilities** across 882 packages
+- **Dependency audit:** the latest install reported 27 npm advisories, including 2 critical; review `npm audit` output before production releases
 - **No hardcoded credentials in `src/`** — verified by scanning for JWT, `sk-` and `gsk_` patterns
 - **Supabase credentials come from env only**, with a loud dev-time failure when absent
 - **PKCE auth flow** with session persistence and auto-refresh
@@ -996,6 +1004,85 @@ Three things in it are worth knowing before reading the feature list above:
 
 ---
 
+## 📱 Native apps and GitHub releases
+
+Capacitor builds the Android and iOS apps from the same responsive web bundle. Tauri packages the
+desktop app for Linux, Windows, and macOS. The desktop window can resize down to 320 × 480 CSS
+pixels; the web app keeps its viewport and safe-area handling on phones and tablets.
+
+### Build locally
+
+```bash
+npm ci
+npm run cap:android
+npm run android:open
+
+# On macOS with Xcode 26 or newer:
+npm run cap:ios
+npm run ios:open
+
+# Desktop development and packaging:
+npm run tauri -- dev
+npm run tauri -- build
+```
+
+Android builds need Android Studio/SDK and Java 21. iOS builds need macOS and Xcode. Tauri desktop
+builds need Rust plus the platform WebView build dependencies. The native project files and app
+icons are checked in; `cap:android` and `cap:ios` rebuild the web bundle and sync it into those
+projects.
+
+### Download releases
+
+Pushing a version tag such as `v1.2.0` starts [the native release workflow](.github/workflows/native-release.yml).
+It sets the app and native build numbers from the tag, builds each platform on its native runner,
+and publishes the resulting files with checksums to the GitHub Releases page:
+
+[Download the latest Radiator Routes release](https://github.com/HarshTambade/Radiator-Routes/releases/latest)
+
+- **Android:** installable debug-signed APK; an additional release-signed APK is produced when
+  Android signing secrets are configured.
+- **iOS:** simulator build for development. An ad hoc IPA is produced when Apple signing is
+  configured; its provisioning profile must include the devices that will install it. Apple does
+  not allow a single unsigned IPA to be installed directly on every iPhone.
+- **Linux:** `.deb` and `.AppImage`.
+- **Windows:** `.msi` and NSIS `.exe` installers.
+- **macOS:** universal Intel and Apple Silicon `.dmg`.
+
+Android signing uses the repository variable `ANDROID_RELEASE_SIGNING_ENABLED=true` and the secrets
+`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and
+`ANDROID_KEY_PASSWORD`. Ad hoc iOS signing uses `IOS_ADHOC_SIGNING_ENABLED=true` and the secrets
+`IOS_CERTIFICATE_P12_BASE64`, `IOS_CERTIFICATE_PASSWORD`, `IOS_PROVISIONING_PROFILE_BASE64`, and
+`IOS_TEAM_ID`. macOS signing and notarization use `MACOS_SIGNING_ENABLED=true` and the secrets
+`MACOS_CERTIFICATE_P12_BASE64`, `MACOS_CERTIFICATE_PASSWORD`, `MACOS_SIGNING_IDENTITY`,
+`MACOS_NOTARIZATION_KEY_ID`, `MACOS_NOTARIZATION_ISSUER_ID`, and
+`MACOS_NOTARIZATION_PRIVATE_KEY_BASE64`. Without those macOS credentials, the DMG is unsigned and
+may require a manual Gatekeeper override. Windows installers are also unsigned by default and may
+show Microsoft SmartScreen warnings.
+
+### Preserve and reuse dependency sources
+
+Each GitHub release includes a full application source snapshot and a ZIP of every exact npm
+package tarball in `package-lock.json`. The workflow verifies each archive against its lockfile
+integrity value and includes package names, versions, package manifests, and upstream license files.
+Releases also include the Tauri Rust crate sources, Capacitor Swift package sources, and published
+Android Maven source JARs. The Android manifest lists dependencies that do not publish a source
+JAR, and includes the resolved Gradle lockfile and build configuration.
+
+To reinstall npm dependencies without contacting the npm registry, download the npm source ZIP,
+extract its contents into the project root as `npm-dependency-sources/`, then run:
+
+```bash
+node npm-dependency-sources/use-npm-source-archive.mjs
+npm ci --offline
+npm run sources:npm:restore
+```
+
+Keep the app source at the same tagged revision as the source archive. Platform SDKs and native
+build tools still need to be installed separately; their licences and download terms remain with
+their vendors. Third-party package licences continue to apply to each archived source.
+
+---
+
 ## 🚢 Deployment
 
 ### Vercel
@@ -1021,7 +1108,7 @@ echo "/*  /index.html  200" > public/_redirects
 ### Docker
 
 ```dockerfile
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci

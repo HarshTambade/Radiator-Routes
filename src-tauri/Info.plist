@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>Use the camera for AR attraction views and accessibility tools.</string>
+  <key>NSLocationUsageDescription</key>
+  <string>Use your location for trip maps, navigation, and safety sharing.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>Use your location for trip maps, navigation, and safety sharing.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Use your microphone for voice trip planning and accessibility tools.</string>
+</dict>
+</plist>

@@ -4,9 +4,13 @@ import path from "path";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig(({ mode }) => {
-  const isProd = mode === "production";
+  const isTauri = mode === "tauri";
+  const isProd = mode === "production" || isTauri;
 
   return {
+    // Tauri loads the app from a custom protocol, so its assets use relative
+    // paths. Web and Capacitor builds continue to use the site-root base path.
+    base: isTauri ? "./" : "/",
     server: {
       host: "::",
       port: 8080,

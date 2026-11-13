@@ -1,9 +1,11 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { App as CapacitorApp } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 import { Loader2 } from "lucide-react";
 import { AuthProvider } from "@/hooks/useAuth";
 import { LanguageProvider } from "@/hooks/useLanguage";
@@ -52,6 +54,42 @@ function RouteFallback() {
   );
 }
 
+function AndroidBackButtonHandler() {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    if (Capacitor.getPlatform() !== "android") return;
+
+    let active = true;
+    let removeListener: (() => void) | undefined;
+    const listener = CapacitorApp.addListener("backButton", ({ canGoBack }) => {
+      if (canGoBack) {
+        window.history.back();
+      } else if (pathname !== "/") {
+        navigate("/");
+      } else {
+        void CapacitorApp.exitApp();
+      }
+    });
+
+    void listener.then((handle) => {
+      if (active) {
+        removeListener = () => void handle.remove();
+      } else {
+        void handle.remove();
+      }
+    });
+
+    return () => {
+      active = false;
+      removeListener?.();
+    };
+  }, [navigate, pathname]);
+
+  return null;
+}
+
 const App = () => (
   <ErrorBoundary scope="root">
     <QueryClientProvider client={queryClient}>
@@ -63,6 +101,7 @@ const App = () => (
             <Toaster />
             <Sonner />
             <BrowserRouter>
+              <AndroidBackButtonHandler />
               {/* Outside Suspense on purpose: title, canonical URL and the
                   robots directive update the moment the URL changes, rather
                   than waiting on the route's lazy chunk. Pages refine this

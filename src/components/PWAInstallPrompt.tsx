@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Capacitor } from "@capacitor/core";
+import { isTauri } from "@tauri-apps/api/core";
 import { Download, Share, Smartphone, X } from "lucide-react";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -36,6 +38,13 @@ export default function PWAInstallPrompt() {
   const [installed, setInstalled] = useState(false);
 
   useEffect(() => {
+    // Native packages are installed through their app stores or release
+    // packages; showing the browser PWA prompt inside them is confusing.
+    if (Capacitor.isNativePlatform() || isTauri()) {
+      setInstalled(true);
+      return;
+    }
+
     const displayMode = window.matchMedia("(display-mode: standalone)");
     const syncInstalledState = () => {
       const standalone = isStandalone();

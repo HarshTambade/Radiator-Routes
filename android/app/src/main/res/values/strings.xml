@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Radiator Routes</string>
+    <string name="title_activity_main">Radiator Routes</string>
+    <string name="package_name">com.radiatorroutes.app</string>
+    <string name="custom_url_scheme">com.radiatorroutes.app</string>
+</resources>
