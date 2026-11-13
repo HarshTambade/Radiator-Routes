@@ -1070,7 +1070,8 @@ package tarball in `package-lock.json`. The workflow verifies each archive again
 integrity value and includes package names, versions, package manifests, and upstream license files.
 Releases also include the Tauri Rust crate sources, Capacitor Swift package sources, and published
 Android Maven source JARs. The Android manifest lists dependencies that do not publish a source
-JAR, and includes the resolved Gradle lockfile and build configuration.
+JAR, and includes a resolved Android Maven coordinate lock and the build configuration. A native
+Gradle lockfile is included as well when Gradle writes one for the build.
 
 To reinstall npm dependencies without contacting the npm registry, download the npm source ZIP,
 extract its contents into the project root as `npm-dependency-sources/`, then run:

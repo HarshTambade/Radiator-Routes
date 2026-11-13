@@ -67,20 +67,13 @@ tasks.register('archiveDependencySources') {
         def sourceDirectory = file("$buildDir/dependency-sources")
         sourceDirectory.mkdirs()
         def sourceManifest = []
-        def dependencyLockFile = file("$projectDir/gradle.lockfile")
-        if (!dependencyLockFile.isFile()) {
-            throw new GradleException("Dependency lockfile is missing: ${dependencyLockFile}")
-        }
-        def externalModules = dependencyLockFile.readLines().collect { line ->
-            def matcher = line =~ /^([^:]+):([^:]+):([^=]+)=(.*)$/
-            if (!matcher.matches()) return null
-            def lockedConfigurations = matcher[0][4].split(',') as List
-            if (!lockedConfigurations.contains('debugRuntimeClasspath')) return null
-            [group: matcher[0][1], name: matcher[0][2], version: matcher[0][3]]
-        }.findAll { it != null }.unique { "${it.group}:${it.name}:${it.version}" }
+        def externalModules = configurations.debugRuntimeClasspath.incoming.resolutionResult.allComponents
+            .collect { it.id }
+            .findAll { it instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier }
+            .unique { "${it.group}:${it.module}:${it.version}" }
 
         externalModules.each { module ->
-            def coordinate = "${module.group}:${module.name}:${module.version}"
+            def coordinate = "${module.group}:${module.module}:${module.version}"
             def sourceCoordinate = "${coordinate}:sources@jar"
             try {
                 def sourceConfiguration = project.configurations.detachedConfiguration(
@@ -104,9 +97,11 @@ tasks.register('archiveDependencySources') {
         new File(sourceDirectory, 'android-maven-sources.json').text =
             groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([
                 generatedAt: new Date().format("yyyy-MM-dd'T'HH:mm:ssXXX"),
-            configuration: 'debugRuntimeClasspath from gradle.lockfile',
+                configuration: 'debugRuntimeClasspath resolution result',
                 dependencies: sourceManifest.sort { left, right -> left.coordinate <=> right.coordinate },
             ])) + System.lineSeparator()
+        new File(sourceDirectory, 'android-maven.lock').text =
+            externalModules.collect { "${it.group}:${it.module}:${it.version}" }.sort().join(System.lineSeparator()) + System.lineSeparator()
     }
 }
 

@@ -177,7 +177,11 @@ jobs:
       - name: Archive Android Maven dependency sources and locks
         run: |
           mkdir -p android/app/build/dependency-sources/project-config
-          cp android/app/gradle.lockfile android/app/build/dependency-sources/project-config/gradle.lockfile
+          for lock_file in android/gradle.lockfile android/app/gradle.lockfile; do
+            if [ -f "$lock_file" ]; then
+              cp "$lock_file" android/app/build/dependency-sources/project-config/
+            fi
+          done
           cp android/variables.gradle android/build.gradle android/app/build.gradle android/gradle/wrapper/gradle-wrapper.properties android/app/build/dependency-sources/project-config/
           cd android/app/build/dependency-sources
           zip -qr "$RUNNER_TEMP/Radiator-Routes-android-maven-sources.zip" .
