@@ -124,6 +124,9 @@ jobs:
           workspaces: src-tauri -> target
       - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - run: npm ci
+      - name: Build unsigned universal macOS disk image
+        if: ${{ vars.MACOS_SIGNING_ENABLED != 'true' }}
+        run: npm run tauri -- build --target universal-apple-darwin --bundles dmg
       - name: Prepare macOS notarization key
         if: ${{ vars.MACOS_SIGNING_ENABLED == 'true' }}
         env:
@@ -131,7 +134,8 @@ jobs:
         run: |
           printf '%s' "$APPLE_API_PRIVATE_KEY_BASE64" | base64 -D > "$RUNNER_TEMP/notary-key.p8"
           chmod 600 "$RUNNER_TEMP/notary-key.p8"
-      - name: Build universal macOS disk image
+      - name: Build signed and notarized universal macOS disk image
+        if: ${{ vars.MACOS_SIGNING_ENABLED == 'true' }}
         env:
           APPLE_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
