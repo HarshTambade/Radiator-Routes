@@ -182,7 +182,9 @@ jobs:
               cp "$lock_file" android/app/build/dependency-sources/project-config/
             fi
           done
-          cp android/variables.gradle android/build.gradle android/app/build.gradle android/gradle/wrapper/gradle-wrapper.properties android/app/build/dependency-sources/project-config/
+          cp android/variables.gradle android/gradle.properties android/settings.gradle android/capacitor.settings.gradle android/gradle/wrapper/gradle-wrapper.properties android/app/capacitor.build.gradle android/app/build/dependency-sources/project-config/
+          cp android/app/build.gradle android/app/build/dependency-sources/project-config/app-build.gradle
+          cp android/build.gradle android/app/build/dependency-sources/project-config/root-build.gradle
           cd android/app/build/dependency-sources
           zip -qr "$RUNNER_TEMP/Radiator-Routes-android-maven-sources.zip" .
       - name: Stage Android APK

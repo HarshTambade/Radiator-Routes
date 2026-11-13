@@ -81,7 +81,7 @@ tasks.register('archiveDependencySources') {
                 )
                 sourceConfiguration.transitive = false
                 def sourceJar = sourceConfiguration.singleFile
-                def archiveName = "${module.group}-${module.name}-${module.version}-sources.jar".replaceAll('[^A-Za-z0-9._-]', '_')
+                def archiveName = "${module.group}-${module.module}-${module.version}-sources.jar".replaceAll('[^A-Za-z0-9._-]', '_')
                 copy {
                     from sourceJar
                     into sourceDirectory
